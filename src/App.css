@@ -1,42 +1,87 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
+.App {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
   padding: 2rem;
+  box-sizing: border-box;
+}
+
+h1 {
+  font-size: 2.5em;
+  letter-spacing: 2px;
+  margin-bottom: 2rem;
+  color: #ffffff;
   text-align: center;
+  text-transform: uppercase;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.register-container {
+  background-color: #1e1e1e;
+  padding: 2.5rem;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.register-container h2 {
+  margin: 0;
+  text-align: center;
+  font-size: 1.8em;
 }
 
-.card {
-  padding: 2em;
+.register-container form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
 }
 
-.read-the-docs {
+.register-container input {
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background-color: #2a2a2a;
+  color: white;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.register-container input:focus {
+  border-color: #646cff;
+}
+
+.register-container button {
+  margin-top: 0.5rem;
+  padding: 0.9rem;
+  background-color: #646cff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.register-container button:hover:not(:disabled) {
+  background-color: #535bf2;
+}
+
+.register-container button:disabled {
+  background-color: #444;
   color: #888;
+  cursor: not-allowed;
+}
+
+.message {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #a8a8a8;
+  margin: 0;
 }
