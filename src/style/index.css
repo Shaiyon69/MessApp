@@ -21,3 +21,43 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+
+/* DASHBOARD DESIGN */
+@import "tailwindcss";
+
+@theme {
+  --color-gray-900: #202225;
+  --color-gray-800: #2f3136;
+  --color-gray-700: #36393f;
+  --color-gray-600: #4f545c;
+  --color-gray-400: #d4d7dc;
+  --color-gray-300: #e3e5e8;
+  --color-gray-200: #ebedef;
+  --color-gray-100: #f2f3f5;
+  --color-primary: #E75480;
+}
+
+@layer components {
+  .sidebar-icon {
+    @apply relative flex items-center justify-center 
+           h-12 w-12 mt-2 mb-2 mx-auto shadow-sm
+           bg-gray-800 text-primary
+           hover:bg-primary hover:text-white
+           rounded-3xl hover:rounded-xl
+           transition-all duration-300 ease-linear
+           cursor-pointer;
+  }
+
+  .sidebar-icon.active {
+    @apply bg-primary text-white rounded-xl;
+  }
+
+  .sidebar-tooltip {
+    @apply absolute w-auto p-2 m-2 min-w-max left-14 
+           rounded-md shadow-md
+           text-white bg-gray-900 
+           text-xs font-bold 
+           transition-all duration-100 scale-0 origin-left;
+  }
+}

@@ -24,7 +24,7 @@ export default function Login({ switchToRegister }) {
   }
 
   return (
-    <div className="login-container">
+    <div className="register-container">
       <h2>Log In</h2>
       <form onSubmit={handleLogin}>
         <input
