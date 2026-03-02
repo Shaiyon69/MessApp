@@ -1,4 +1,4 @@
-function ChannelSettingsModal({ handleUpdate, handleDelete, onClose, name, setName }) {
+export default function ChannelSettingsModal({ handleUpdate, handleDelete, onClose, name, setName }) {
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
