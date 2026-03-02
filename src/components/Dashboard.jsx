@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 
+// Import the newly separated modal components
+import ServerCreationModal from './modals/ServerCreation'
+import ServerSettingsModal from './modals/ServerSettings'
+import ChannelCreationModal from './modals/ChannelCreation'
+import ChannelSettingsModal from './modals/ChannelSettings'
+
 export default function Dashboard({ session }) {
   const [servers, setServers] = useState([])
   const [activeServer, setActiveServer] = useState(null)
@@ -51,7 +57,6 @@ export default function Dashboard({ session }) {
             if (payload.eventType === 'INSERT') {
               const newMsg = payload.new
               if (newMsg.profile_id === session.user.id) {
-                // Attach our own username manually so it renders instantly without a refresh
                 newMsg.profiles = { username: session.user.user_metadata.username }
               }
               setMessages((current) => [...current, newMsg])
@@ -109,7 +114,7 @@ export default function Dashboard({ session }) {
   const fetchMessages = async () => {
     const { data } = await supabase
       .from('messages')
-      .select('*, profiles(username)') // Join the profiles table to get the username
+      .select('*, profiles(username)') 
       .eq('channel_id', activeChannel.id)
       .order('created_at', { ascending: false })
       .limit(30)
@@ -132,7 +137,7 @@ export default function Dashboard({ session }) {
 
       const { data } = await supabase
         .from('messages')
-        .select('*, profiles(username)') // Join the profiles table here too
+        .select('*, profiles(username)') 
         .eq('channel_id', activeChannel.id)
         .lt('created_at', messages[0].created_at)
         .order('created_at', { ascending: false })
@@ -271,6 +276,7 @@ export default function Dashboard({ session }) {
   return (
     <div className="flex h-screen w-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-black p-4 gap-4 text-gray-100 overflow-hidden">
       
+      {/* SERVER SIDEBAR */}
       <div className={`w-20 items-center py-4 gap-4 shrink-0 ${glassPanelClass}`}>
         {servers.map((server) => (
           <div
@@ -296,6 +302,7 @@ export default function Dashboard({ session }) {
         </div>
       </div>
 
+      {/* CHANNEL SIDEBAR */}
       <div className={`w-64 shrink-0 ${glassPanelClass}`}>
         <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5">
           <h3 className="font-bold text-lg truncate text-white drop-shadow-md">{activeServer?.name || 'No Server'}</h3>
@@ -343,6 +350,7 @@ export default function Dashboard({ session }) {
           </div>
         </div>
 
+        {/* ACTIVE USER PROFILE IN BOTTOM LEFT */}
         <div className="p-4 border-t border-white/5 bg-black/20 flex items-center justify-between">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary to-purple-500 flex items-center justify-center shadow-lg shrink-0">
@@ -365,6 +373,7 @@ export default function Dashboard({ session }) {
         </div>
       </div>
 
+      {/* MAIN CHAT AREA */}
       <div className={`flex-1 ${glassPanelClass}`}>
         <div className="h-16 flex items-center px-6 border-b border-white/5 bg-white/5 z-10 shrink-0 shadow-sm">
           <span className="text-primary text-2xl mr-3 font-light">#</span>
@@ -478,93 +487,6 @@ export default function Dashboard({ session }) {
       
       {showChannelModal && <ChannelCreationModal handleCreate={handleCreateChannel} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={handleUpdateChannel} handleDelete={handleDeleteChannel} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
-    </div>
-  )
-}
-
-function ServerCreationModal({ handleCreate, onClose, name, setName }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
-        <h3 className="text-3xl font-bold text-center mb-2 tracking-tight">Create Server</h3>
-        <p className="text-gray-400 text-center mb-8">Build your community's new home.</p>
-        <form onSubmit={handleCreate}>
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Server Name</label>
-          <input className="w-full px-4 py-3 mt-2 mb-8 bg-black/30 rounded-xl border border-white/5 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-white placeholder-gray-600" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="My Awesome Workspace" autoFocus />
-          <div className="flex justify-end items-center gap-4">
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-            <button type="submit" className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer">Launch</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function ServerSettingsModal({ handleUpdate, handleDelete, onClose, name, setName }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
-        <h3 className="text-3xl font-bold text-center mb-2 tracking-tight">Server Settings</h3>
-        <p className="text-gray-400 text-center mb-8">Manage your workspace.</p>
-        <form onSubmit={handleUpdate}>
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Rename Server</label>
-          <input className="w-full px-4 py-3 mt-2 mb-8 bg-black/30 rounded-xl border border-white/5 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-white" type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/10">
-            <button type="button" onClick={handleDelete} className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer">Delete Server</button>
-            <div className="flex gap-4">
-              <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-              <button type="submit" className="bg-primary text-white px-6 py-2 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer">Save</button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function ChannelCreationModal({ handleCreate, onClose, name, setName, serverName }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
-        <h3 className="text-2xl font-bold mb-1 tracking-tight">Create Channel</h3>
-        <p className="text-gray-400 text-sm mb-8">in <span className="text-primary font-medium">{serverName}</span></p>
-        <form onSubmit={handleCreate}>
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Channel Name</label>
-          <div className="flex items-center bg-black/30 rounded-xl border border-white/5 mt-2 mb-8 px-4 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
-            <span className="text-gray-500 text-xl mr-3 font-light">#</span>
-            <input className="bg-transparent border-none outline-none w-full py-3 text-white placeholder-gray-600" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="new-channel" autoFocus />
-          </div>
-          <div className="flex justify-end gap-4">
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-            <button type="submit" className="bg-primary text-white px-6 py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer">Create</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function ChannelSettingsModal({ handleUpdate, handleDelete, onClose, name, setName }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
-        <h3 className="text-2xl font-bold mb-6 tracking-tight">Channel Settings</h3>
-        <form onSubmit={handleUpdate}>
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Rename Channel</label>
-          <div className="flex items-center bg-black/30 rounded-xl border border-white/5 mt-2 mb-8 px-4 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
-            <span className="text-gray-500 text-xl mr-3 font-light">#</span>
-            <input className="bg-transparent border-none outline-none w-full py-3 text-white" type="text" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </div>
-          <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/10">
-            <button type="button" onClick={handleDelete} className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer">Delete Channel</button>
-            <div className="flex gap-4">
-              <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-              <button type="submit" className="bg-primary text-white px-6 py-2 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer">Save</button>
-            </div>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }
