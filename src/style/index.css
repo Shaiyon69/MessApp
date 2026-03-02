@@ -17,13 +17,8 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
 }
 
-
-/* DASHBOARD DESIGN */
 @import "tailwindcss";
 
 @theme {
@@ -59,5 +54,19 @@ body {
            text-white bg-gray-900 
            text-xs font-bold 
            transition-all duration-100 scale-0 origin-left;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 }

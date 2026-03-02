@@ -24,15 +24,16 @@ export default function Login({ switchToRegister }) {
   }
 
   return (
-    <div className="register-container">
-      <h2>Log In</h2>
-      <form onSubmit={handleLogin}>
+    <div className="bg-gray-800 p-10 rounded-xl shadow-2xl w-full max-w-md flex flex-col gap-6">
+      <h2 className="text-center text-3xl font-bold text-white m-0">Log In</h2>
+      <form onSubmit={handleLogin} className="flex flex-col gap-5">
         <input
           type="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
+          className="p-3 rounded-lg border border-gray-700 bg-gray-900 text-white outline-none focus:border-primary transition-colors"
         />
         <input
           type="password"
@@ -40,15 +41,13 @@ export default function Login({ switchToRegister }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
+          className="p-3 rounded-lg border border-gray-700 bg-gray-900 text-white outline-none focus:border-primary transition-colors"
         />
-        <button type="submit" disabled={loading}>
+        <button type="submit" disabled={loading} className="mt-2 p-3 bg-primary text-white border-none rounded-lg font-bold cursor-pointer hover:bg-opacity-80 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all">
           {loading ? 'Logging in...' : 'Log In'}
         </button>
       </form>
-      {message && <p className="message">{message}</p>}
-      <p style={{ marginTop: '15px' }}>
-        Don't have an account? <button onClick={switchToRegister} style={{ background: 'none', border: 'none', color: '#E75480', cursor: 'pointer', textDecoration: 'underline' }}>Register here</button>
-      </p>
+      {message && <p className="text-center text-sm text-gray-400 m-0">{message}</p>}
     </div>
   )
 }
