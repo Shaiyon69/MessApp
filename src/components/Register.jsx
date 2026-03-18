@@ -5,7 +5,7 @@ export default function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [username, setUsername] = useState('')
+  const [username, setUsername] = useState('') // This is now their "Display Name"
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -20,12 +20,19 @@ export default function Register() {
     setLoading(true)
     setMessage('')
 
+    // 1. Generate the immutable unique tag
+    const randomDiscriminator = Math.floor(1000 + Math.random() * 9000)
+    const baseName = username.trim().toLowerCase().replace(/\s+/g, '')
+    const generatedTag = `${baseName}#${randomDiscriminator}`
+
+    // 2. Send both the Display Name AND the Unique Tag to Supabase
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          username,
+          username: username.trim(), // Mutable Display Name
+          unique_tag: generatedTag   // Permanent ID
         },
       },
     })
@@ -33,7 +40,7 @@ export default function Register() {
     if (error) {
       setMessage(`Error: ${error.message}`)
     } else {
-      setMessage('Registration successful! Please check your email to confirm your account.')
+      setMessage(`Success! Your unique ID is ${generatedTag}. Check your email to confirm.`)
     }
     setLoading(false)
   }
@@ -44,7 +51,7 @@ export default function Register() {
       <form onSubmit={handleRegister} className="flex flex-col gap-5">
         <input
           type="text"
-          placeholder="Username"
+          placeholder="Display Name (e.g., Shaiyon)"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
