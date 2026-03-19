@@ -35,10 +35,12 @@ export default function Register({ switchToLogin }) {
     const baseName = username.trim().toLowerCase().replace(/\s+/g, '')
     const generatedTag = `${baseName}#${randomDiscriminator}`
 
+    // 👇 The updated Supabase Auth call 👇
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo: 'com.shaiyon.messapp://login-callback',
         data: {
           username: username.trim(),
           unique_tag: generatedTag
