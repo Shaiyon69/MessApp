@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.6.0",
+    "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.0",
     "@supabase/supabase-js": "^2.49.1",
     "@tailwindcss/vite": "^4.0.9",
