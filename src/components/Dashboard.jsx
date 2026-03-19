@@ -4,7 +4,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
-import { Settings, Pen, Send, LogOut, Plus, Hash, Compass, Home, MessageSquare, Palette, Users, ImagePlus, Search, Info, X, Bell, Trash2 } from 'lucide-react'
+// Added UserPlus to the import list below
+import { Settings, Pen, Send, LogOut, Plus, Hash, Compass, Home, MessageSquare, Palette, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserX, UserPlus } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
 import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
@@ -36,16 +37,15 @@ export default function Dashboard({ session }) {
   const [activeChannel, setActiveChannel] = useState(null)
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
-  
-  // Set Blue as default theme
   const [activeTheme, setActiveTheme] = useState('59 130 246')
 
   const [onlineUsers, setOnlineUsers] = useState([])
   const [serverMembers, setServerMembers] = useState([])
   const [channelReads, setChannelReads] = useState({})
+  const [friendRequests, setFriendRequests] = useState([])
 
   const [showRightSidebar, setShowRightSidebar] = useState(true)
-  const [rightTab, setRightTab] = useState('members')
+  const [rightTab, setRightTab] = useState('search')
   const [searchQuery, setSearchQuery] = useState('')
 
   const [isUploading, setIsUploading] = useState(false)
@@ -80,26 +80,22 @@ export default function Dashboard({ session }) {
   const sharedKeyRef = useRef(null)
 
   useEffect(() => {
-    // 1. SELF-HEAL PROFILE DATA (Fixes the User Not Found error)
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
         const { username, unique_tag, avatar_url } = session.user.user_metadata
-        
         await supabase.from('profiles').upsert({
           id: session.user.id,
           username: username || session.user.email.split('@')[0],
           unique_tag: unique_tag,
           avatar_url: avatar_url || null
-        }, { onConflict: 'id' }) // This forces the database to update their public profile
+        }, { onConflict: 'id' }) 
       }
     }
     syncProfile()
-
-    // 2. Fetch standard data
     fetchServers()
     fetchDms()
+    fetchFriendRequests()
     
-    // 3. Setup Theme
     const savedTheme = localStorage.getItem('dashboard-theme')
     if (savedTheme) {
       setActiveTheme(savedTheme)
@@ -109,7 +105,6 @@ export default function Dashboard({ session }) {
       localStorage.setItem('dashboard-theme', '59 130 246')
     }
 
-    // 4. Presence Sync
     const presenceChannel = supabase.channel('global-presence')
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
@@ -122,8 +117,55 @@ export default function Dashboard({ session }) {
         }
       })
 
-    return () => supabase.removeChannel(presenceChannel)
-  }, [session]) // Depend on session so it runs when user logs in
+    const requestsSub = supabase.channel('friend-requests')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, () => {
+        fetchFriendRequests()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(presenceChannel)
+      supabase.removeChannel(requestsSub)
+    }
+  }, [session]) 
+
+  const fetchFriendRequests = async () => {
+    const { data } = await supabase
+      .from('friendships')
+      .select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag)')
+      .eq('receiver_id', session.user.id)
+      .eq('status', 'pending')
+    if (data) setFriendRequests(data)
+  }
+
+  const handleAcceptRequest = async (request) => {
+    try {
+      await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
+      const { data: newRoom } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
+      
+      if (newRoom) {
+        await supabase.from('dm_members').insert([
+          { dm_room_id: newRoom.id, profile_id: session.user.id },
+          { dm_room_id: newRoom.id, profile_id: request.sender_id }
+        ])
+      }
+      
+      fetchFriendRequests()
+      fetchDms()
+      toast.success("Friend request accepted!")
+    } catch (err) {
+      toast.error("Failed to accept request.")
+    }
+  }
+
+  const handleDeclineRequest = async (requestId) => {
+    try {
+      await supabase.from('friendships').delete().eq('id', requestId)
+      fetchFriendRequests()
+    } catch (err) {
+      toast.error("Failed to decline request.")
+    }
+  }
 
   useEffect(() => {
     const cleanup = () => {
@@ -150,7 +192,7 @@ export default function Dashboard({ session }) {
                 }
               }
             } catch (e) {
-              console.error('P2P decrypt error', e)
+              console.error(e)
             }
           },
           onOpen: () => setP2pStatus('connected'),
@@ -299,8 +341,6 @@ export default function Dashboard({ session }) {
     }
   }, [activeChannel?.id, activeChannel, view, messages, session.user.id])
 
-   
-  // Message Fetching & Subscription
   useEffect(() => {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
     
@@ -386,12 +426,10 @@ export default function Dashboard({ session }) {
       const payload = {
         profile_id: session.user.id,
         content: text,
-        is_encrypted: false,
         [field]: targetId
       }
       const { data, error } = await supabase.from('messages').insert([payload])
       if (error) {
-        console.error('Send message error payload', payload, error)
         throw error
       }
       cacheMessage(targetId, { content: text, created_at: new Date().toISOString() })
@@ -399,7 +437,6 @@ export default function Dashboard({ session }) {
         setMessages((prev) => [...prev, data[0]])
       }
     } catch (err) {
-      console.error('Failed to send message', err)
       toast.error('Failed to send message. Please try again.')
       setNewMessage(text)
     }
@@ -452,8 +489,7 @@ export default function Dashboard({ session }) {
           profile_id: session.user.id,
           content: '',
           image_url: publicUrl,
-          [field]: targetId,
-          is_encrypted: false
+          [field]: targetId
         }])
 
         if (msgError) throw msgError
@@ -461,7 +497,6 @@ export default function Dashboard({ session }) {
         toast.success('Image uploaded')
       }
     } catch (err) {
-      console.error(err)
       toast.error('Failed to upload image')
     } finally {
       setIsUploading(false)
@@ -519,7 +554,6 @@ export default function Dashboard({ session }) {
             }])
           }
         } catch (err) {
-          console.error('P2P decoding error', err)
         }
       },
       onOpen: () => setP2pStatus('connected'),
@@ -598,7 +632,6 @@ export default function Dashboard({ session }) {
         toast.success(`Server created successfully.`)
       }
     } catch (err) {
-      console.error(err)
       toast.error("Failed to create server")
     }
   }
@@ -622,7 +655,6 @@ export default function Dashboard({ session }) {
         setNewChannelName('')
         setShowChannelModal(false)
       } catch (err) {
-        console.error(err)
         toast.error('Could not create channel')
       }
   }
@@ -657,7 +689,6 @@ export default function Dashboard({ session }) {
           }
         }
       } catch (err) {
-        console.error('Delete channel failed', err)
         toast.error('Failed to delete channel')
       } finally {
         setShowChannelSettings(false)
@@ -686,7 +717,6 @@ export default function Dashboard({ session }) {
         setView('home')
         fetchServers()
       } catch (err) {
-        console.error(err)
         toast.error('Could not delete server')
       } finally {
         setShowServerSettings(false)
@@ -729,7 +759,7 @@ export default function Dashboard({ session }) {
           {view === 'home' ? (
              <div className="space-y-4">
                 <button onClick={() => setShowDmModal(true)} className="w-full flex items-center gap-2 p-3 rounded-xl bg-[rgb(var(--accent))]/10 text-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/20 transition-all font-bold text-sm border border-[rgb(var(--accent))]/20">
-                  <Plus size={16}/> Start Conversation
+                  <UserPlus size={16}/> Add Friend
                 </button>
                 <div className="space-y-1 mt-2">
                   <div className="text-xs font-bold uppercase tracking-widest text-gray-500 px-2 mb-2">Direct Messages</div>
@@ -821,10 +851,17 @@ export default function Dashboard({ session }) {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => { setShowRightSidebar(true); setRightTab('search'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'search' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Search size={20}/></button>
-            <button onClick={() => { setShowRightSidebar(true); setRightTab('info'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'info' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Bell size={20}/></button>
+            
+            <button onClick={() => { setShowRightSidebar(true); setRightTab('notifications'); }} className={`relative p-2 rounded-lg transition-all ${rightTab === 'notifications' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
+              <Bell size={20}/>
+              {friendRequests.length > 0 && <span className="absolute top-1 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>}
+            </button>
+            
             {view === 'server' && (
               <button onClick={() => { setShowRightSidebar(true); setRightTab('members'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'members' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Users size={20}/></button>
             )}
+            
+            <button onClick={() => { setShowRightSidebar(true); setRightTab('info'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'info' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Info size={20}/></button>
           </div>
         </div>
 
@@ -928,12 +965,51 @@ export default function Dashboard({ session }) {
                     <button onClick={() => setRightTab('members')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'members' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Users size={14}/></button>
                   )}
                   <button onClick={() => setRightTab('search')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'search' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Search size={14}/></button>
+                  <button onClick={() => setRightTab('notifications')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'notifications' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Bell size={14}/></button>
                   <button onClick={() => setRightTab('info')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'info' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Info size={14}/></button>
                 </div>
                 <button onClick={() => setShowRightSidebar(false)} className="text-gray-500 hover:text-white p-1 rounded-md hover:bg-white/10 transition-all"><X size={16}/></button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                
+                {rightTab === 'notifications' && (
+                  <div>
+                    <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Friend Requests</h4>
+                    {friendRequests.length === 0 ? (
+                      <p className="text-gray-500 text-sm text-center mt-4">No pending requests.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {friendRequests.map(req => (
+                          <div key={req.id} className="bg-white/5 p-4 rounded-xl border border-white/10 shadow-lg">
+                            <div className="flex items-center gap-3 mb-4">
+                              <div className="h-10 w-10 rounded-full bg-black/50 overflow-hidden border border-[rgb(var(--accent))] shrink-0">
+                                {req.profiles?.avatar_url ? (
+                                  <img src={req.profiles.avatar_url} className="h-full w-full object-cover"/>
+                                ) : (
+                                  <span className="font-bold text-sm text-white flex items-center justify-center h-full uppercase">{req.profiles?.username?.[0]}</span>
+                                )}
+                              </div>
+                              <div className="overflow-hidden">
+                                <div className="text-sm font-bold text-white truncate">{req.profiles?.username}</div>
+                                <div className="text-[10px] text-gray-400 font-mono truncate">{req.profiles?.unique_tag}</div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => handleAcceptRequest(req)} className="flex-1 bg-[rgb(var(--accent))] hover:brightness-110 text-white text-xs py-2 rounded-lg font-bold transition-all shadow-md flex items-center justify-center gap-1 cursor-pointer">
+                                <Check size={14} /> Accept
+                              </button>
+                              <button onClick={() => handleDeclineRequest(req.id)} className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs py-2 rounded-lg font-bold transition-all border border-red-500/20 flex items-center justify-center gap-1 cursor-pointer">
+                                <UserX size={14} /> Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {rightTab === 'members' && view === 'server' && (
                   <div>
                     <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Members — {serverMembers.length}</h4>

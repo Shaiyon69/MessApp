@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import { X, Search, Loader2, MessageSquare, User, ArrowLeft, UserPlus } from 'lucide-react'
+import { X, Search, Loader2, UserPlus, User, ArrowLeft } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-export default function StartDMModal({ session, onClose, onChatStarted }) {
+export default function StartDMModal({ session, onClose }) {
   const [tag, setTag] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [foundUser, setFoundUser] = useState(null)
 
-  // STEP 1: Search for the user
   const handleSearch = async (e) => {
     e.preventDefault()
     if (!tag.includes('#')) return setError("Use the format: Name#1234")
@@ -30,34 +30,37 @@ export default function StartDMModal({ session, onClose, onChatStarted }) {
     }
 
     if (targetUser.id === session.user.id) {
-      setError("You cannot start a direct message with yourself.")
+      setError("You cannot send a friend request to yourself.")
       setLoading(false)
       return
     }
 
-    // Move to confirmation step
     setFoundUser(targetUser)
     setLoading(false)
   }
 
-  // STEP 2: Confirm and create the room
-  const handleConfirm = async () => {
+  const handleSendRequest = async () => {
     setLoading(true)
     setError('')
 
-    const { data: newRoom, error: roomError } = await supabase
-      .from('dm_rooms').insert([{}]).select().maybeSingle()
+    const { error: requestError } = await supabase
+      .from('friendships')
+      .insert([{ 
+        sender_id: session.user.id, 
+        receiver_id: foundUser.id, 
+        status: 'pending' 
+      }])
 
-    if (newRoom) {
-      await supabase.from('dm_members').insert([
-        { dm_room_id: newRoom.id, profile_id: session.user.id },
-        { dm_room_id: newRoom.id, profile_id: foundUser.id }
-      ])
-      onChatStarted()
-      onClose()
-    } else {
-      setError("Failed to create the chat room.")
+    if (requestError) {
+      if (requestError.code === '23505') {
+        setError("You already sent a friend request to this user!")
+      } else {
+        setError("Failed to send friend request.")
+      }
       setLoading(false)
+    } else {
+      toast.success("Friend request sent!")
+      onClose()
     }
   }
 
@@ -65,7 +68,6 @@ export default function StartDMModal({ session, onClose, onChatStarted }) {
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
       <div className="bg-[#0B0F19] border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl relative overflow-hidden">
         
-        {/* Decorative background glow */}
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-[rgb(var(--accent))]/10 to-transparent pointer-events-none" />
 
         <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors cursor-pointer z-10">
@@ -73,11 +75,10 @@ export default function StartDMModal({ session, onClose, onChatStarted }) {
         </button>
         
         <h3 className="text-3xl font-bold text-center mb-8 tracking-tight z-10 relative">
-          {foundUser ? 'Confirm Request' : 'Find a Friend'}
+          {foundUser ? 'Send Request' : 'Add Friend'}
         </h3>
         
         {!foundUser ? (
-          /* --- SEARCH VIEW --- */
           <form onSubmit={handleSearch} className="relative z-10">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 block mb-2">Recipient Tag</label>
             <div className="flex items-center bg-black/40 rounded-xl border border-white/10 px-4 focus-within:border-[rgb(var(--accent))] focus-within:shadow-[0_0_15px_rgba(var(--accent),0.15)] transition-all mb-4 shadow-inner">
@@ -103,10 +104,8 @@ export default function StartDMModal({ session, onClose, onChatStarted }) {
             </button>
           </form>
         ) : (
-          /* --- CONFIRMATION VIEW --- */
           <div className="relative z-10 flex flex-col items-center">
             
-            {/* User Profile Card */}
             <div className="bg-black/40 border border-white/10 p-6 rounded-2xl w-full flex flex-col items-center gap-4 mb-8 shadow-inner">
               <div className="h-24 w-24 rounded-full bg-black/50 border-2 border-[rgb(var(--accent))] shadow-[0_0_15px_rgba(var(--accent),0.3)] flex items-center justify-center overflow-hidden">
                 {foundUser.avatar_url ? (
@@ -137,11 +136,11 @@ export default function StartDMModal({ session, onClose, onChatStarted }) {
               
               <button 
                 type="button" 
-                onClick={handleConfirm}
+                onClick={handleSendRequest}
                 disabled={loading} 
                 className="flex-[2] bg-[rgb(var(--accent))] text-white py-4 rounded-xl font-bold hover:brightness-110 shadow-[0_0_15px_rgba(var(--accent),0.3)] flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
               >
-                {loading ? <Loader2 size={20} className="animate-spin" /> : <><UserPlus size={20} /> Add & Message</>}
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <><UserPlus size={20} /> Send Request</>}
               </button>
             </div>
           </div>
