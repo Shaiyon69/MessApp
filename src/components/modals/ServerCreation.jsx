@@ -3,6 +3,7 @@ export default function ServerCreationModal({ handleCreate, onClose, name, setNa
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
         <h3 className="text-3xl font-bold text-center mb-2 tracking-tight">Create Server</h3>
+        <h4 className="text-1xl font-bold text-center mb-2 tracking-tight text-red-500"> (Work In Progress) </h4>
         <p className="text-gray-400 text-center mb-8">Build your community's new home.</p>
         <form onSubmit={handleCreate}>
           <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Server Name</label>
