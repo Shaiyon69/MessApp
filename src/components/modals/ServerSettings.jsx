@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import { X, Copy, Check, Loader2, Link as LinkIcon, Trash2, Save } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export default function ServerSettingsModal({ session, activeServer, handleUpdate, handleDelete, onClose, name, setName }) {
   const [loading, setLoading] = useState(false)
@@ -8,21 +9,30 @@ export default function ServerSettingsModal({ session, activeServer, handleUpdat
   const [copied, setCopied] = useState(false)
 
   const generateInvite = async () => {
+    if (!activeServer?.id) {
+      toast.error('No active server selected.')
+      return
+    }
     setLoading(true)
-    const newCode = `messapp-${Math.random().toString(36).substring(2, 8)}`
+    const newCode = `MS-${Math.random().toString(36).replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase()}`
 
     const { data, error } = await supabase
       .from('invites')
       .insert([{ 
         server_id: activeServer.id, 
-        creator_id: session.user.id, 
+        creator_id: session.user.id,
         code: newCode 
       }])
-      .select().single()
+      .select()
 
-    if (!error && data) {
-      setInviteCode(data.code)
+    if (error || !data || data.length === 0) {
+      setInviteCode(null)
+      setLoading(false)
+      toast.error(`Failed to generate invite. Error: ${error?.message || 'Unknown'}`)
+      return
     }
+    
+    setInviteCode(data[0].code)
     setLoading(false)
   }
 

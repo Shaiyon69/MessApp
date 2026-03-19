@@ -13,12 +13,14 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
     setLoading(true)
     setError('')
 
-    // 1. Find the invite code
+    const cleanedCode = inviteCode.trim().toUpperCase()
+    
+    // Using maybeSingle() prevents crashes if the code is wrong
     const { data: inviteData, error: inviteError } = await supabase
       .from('invites')
       .select('server_id')
-      .eq('code', inviteCode.trim())
-      .single()
+      .eq('code', cleanedCode)
+      .maybeSingle() 
 
     if (inviteError || !inviteData) {
       setError('Invalid or expired invite code.')
@@ -26,13 +28,12 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
       return
     }
 
-    // 2. Check if already a member
     const { data: existingMember } = await supabase
       .from('server_members')
       .select('id')
       .eq('server_id', inviteData.server_id)
       .eq('profile_id', session.user.id)
-      .single()
+      .maybeSingle()
 
     if (existingMember) {
       setError('You are already in this server!')
@@ -40,7 +41,6 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
       return
     }
 
-    // 3. Join the server
     const { error: joinError } = await supabase
       .from('server_members')
       .insert([{ 
@@ -50,7 +50,7 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
       }])
 
     if (joinError) {
-      setError('Failed to join. Try again.')
+      setError('Failed to join the server. Please try again.')
     } else {
       onJoinSuccess()
       onClose()
@@ -64,10 +64,8 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
         <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors cursor-pointer">
           <X size={24} />
         </button>
-        
         <h3 className="text-3xl font-bold text-center mb-2 tracking-tight">Join a Server</h3>
         <p className="text-gray-400 text-center mb-8">Enter an invite code to join your friends.</p>
-        
         <form onSubmit={handleJoin}>
           <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Invite Code</label>
           <div className="flex items-center bg-black/30 rounded-xl border border-white/5 mt-2 mb-4 px-4 focus-within:border-primary transition-all">
@@ -77,12 +75,10 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
               type="text" 
               value={inviteCode} 
               onChange={(e) => setInviteCode(e.target.value)} 
-              placeholder="e.g. messapp-abc123" 
+              placeholder="e.g. MS-ABC123" 
             />
           </div>
-
           {error && <p className="text-red-400 text-sm font-medium mb-4 text-center">{error}</p>}
-
           <div className="flex justify-end items-center gap-4 mt-8">
             <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
             <button type="submit" disabled={loading} className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer disabled:opacity-50 flex items-center gap-2">
