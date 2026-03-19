@@ -261,14 +261,29 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const fetchDms = async () => {
-    const { data } = await supabase
+ const fetchDms = async () => {
+    const { data: myRooms, error: roomError } = await supabase
+      .from('dm_members')
+      .select('dm_room_id')
+      .eq('profile_id', session.user.id)
+
+    if (roomError || !myRooms || myRooms.length === 0) {
+      setDms([])
+      return
+    }
+
+    const roomIds = myRooms.map(r => r.dm_room_id)
+    const { data: otherMembers } = await supabase
       .from('dm_members')
       .select('dm_room_id, profiles!inner(id, username, avatar_url, unique_tag)')
+      .in('dm_room_id', roomIds)
       .neq('profile_id', session.user.id)
-    if (data) setDms(data)
-  }
 
+    if (otherMembers) {
+      const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
+      setDms(uniqueDms)
+    }
+  }
   const handleServerClick = (server) => {
     setView('server')
     setActiveServer(server)
