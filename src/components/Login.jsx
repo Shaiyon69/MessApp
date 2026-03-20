@@ -28,7 +28,7 @@ export default function Login({ switchToRegister }) {
   const toggleGlass = () => setIsGlassOn(!isGlassOn)
 
   return (
-    <div className="text-on-background selection:bg-primary/30 min-h-screen flex items-center justify-center p-4 md:p-0 overflow-hidden relative w-full">
+    <div className="text-on-background selection:bg-primary/30 min-h-screen flex items-center justify-center p-4 md:p-0 overflow-hidden w-full relative h-screen bg-surface-dim">
       {/* Settings Overlay (Floating) */}
       <div className="fixed top-6 right-6 z-50">
         <div className="flex items-center gap-3 bg-surface-container-high/80 backdrop-blur-md px-4 py-2 rounded-full border border-white/5 shadow-xl">
@@ -43,7 +43,7 @@ export default function Login({ switchToRegister }) {
         </div>
       </div>
 
-      <main className={`w-full max-w-7xl h-full md:h-[870px] flex flex-col md:flex-row overflow-hidden rounded-xl bg-surface-container-lowest shadow-2xl border border-white/5 transition-[background-color,backdrop-filter,border] duration-400 ease-in-out ${isGlassOn ? 'glass-card' : ''}`}>
+      <main className={`w-full max-w-7xl h-full max-h-[870px] flex flex-col md:flex-row overflow-hidden rounded-xl bg-surface-container-lowest shadow-2xl border border-white/5 transition-[background-color,backdrop-filter,border] duration-400 ease-in-out ${isGlassOn ? 'glass-card' : ''}`}>
         {/* Left Section: The Artistic Atelier Anchor */}
         <section className="relative hidden md:flex flex-col justify-between w-1/2 p-12 mesh-bg border-r border-white/5 overflow-hidden">
           {/* Branding */}

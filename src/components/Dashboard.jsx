@@ -4,8 +4,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
-// Added UserPlus to the import list below
-import { Settings, Pen, Send, LogOut, Plus, Hash, Compass, Home, MessageSquare, Palette, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserX, UserPlus } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
 import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
@@ -782,7 +780,7 @@ export default function Dashboard({ session }) {
       </nav>
 
       {/* CHANNEL LIST SIDEBAR (Left-Middle) */}
-      <aside className="ml-20 w-72 h-full bg-surface-container-low flex flex-col border-r border-white/5 shrink-0">
+      <aside className="ml-20 w-72 h-full bg-surface-container-low flex flex-col border-r border-white/5 shrink-0 z-40">
         <header className="h-16 px-6 flex items-center justify-between border-b border-white/5">
           <h2 className="font-headline font-bold text-on-surface tracking-tight truncate">
             {view === 'home' ? 'Direct Messages' : activeServer?.name}
@@ -886,20 +884,20 @@ export default function Dashboard({ session }) {
       </aside>
 
       {/* MAIN CHAT INTERFACE (Right) */}
-      <main className="flex-1 h-screen flex flex-col bg-surface relative">
-        <header className="h-16 flex items-center justify-between px-8 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/5">
-          <div className="flex items-center gap-4">
+      <main className="flex-1 h-screen flex flex-col bg-surface relative min-w-0">
+        <header className="h-16 flex items-center justify-between px-8 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/5 shrink-0">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
             {view === 'home' && activeDm ? (
-              <><span className="text-2xl text-on-surface-variant font-light">@</span><h1 className="font-headline font-black text-white text-lg tracking-tight">{activeDm.profiles.username}</h1></>
+              <div className="flex items-center gap-4 min-w-0 shrink-0"><span className="text-2xl text-on-surface-variant font-light shrink-0">@</span><h1 className="font-headline font-black text-white text-lg tracking-tight truncate">{activeDm.profiles.username}</h1></div>
             ) : view === 'server' && activeChannel ? (
-              <><span className="text-2xl text-on-surface-variant font-light">#</span><h1 className="font-headline font-black text-white text-lg tracking-tight">{activeChannel.name}</h1></>
+              <div className="flex items-center gap-4 min-w-0 shrink-0"><span className="text-2xl text-on-surface-variant font-light shrink-0">#</span><h1 className="font-headline font-black text-white text-lg tracking-tight truncate">{activeChannel.name}</h1></div>
             ) : (
-              <h1 className="font-headline font-black text-white text-lg tracking-tight">Welcome</h1>
+              <h1 className="font-headline font-black text-white text-lg tracking-tight shrink-0 truncate">Welcome</h1>
             )}
-            <div className="w-[1px] h-6 bg-outline-variant/30 mx-2"></div>
-            <p className="text-sm text-on-surface-variant font-medium">Curating global aesthetics and shared visions.</p>
+            <div className="w-[1px] h-6 bg-outline-variant/30 mx-2 shrink-0 hidden sm:block"></div>
+            <p className="text-sm text-on-surface-variant font-medium truncate hidden sm:block">Curating global aesthetics and shared visions.</p>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 shrink-0 ml-4">
             <div className="hidden md:flex gap-6 items-center">
               {view === 'server' && <button onClick={() => { setShowRightSidebar(true); setRightTab('members'); }} className={`font-['Plus_Jakarta_Sans'] font-medium text-sm tracking-wide transition-all ${rightTab === 'members' && showRightSidebar ? 'text-primary' : 'text-on-surface-variant hover:text-slate-200'}`}>Members</button>}
               <button onClick={() => { setShowRightSidebar(true); setRightTab('search'); }} className={`font-['Plus_Jakarta_Sans'] font-medium text-sm tracking-wide transition-all ${rightTab === 'search' && showRightSidebar ? 'text-primary' : 'text-on-surface-variant hover:text-slate-200'}`}>Search</button>
