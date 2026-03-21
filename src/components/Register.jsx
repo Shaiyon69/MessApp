@@ -75,7 +75,7 @@ export default function Register({ switchToLogin }) {
       </div>
 
       <main className={`w-full max-w-7xl h-full max-h-[870px] flex flex-col md:flex-row overflow-hidden rounded-xl bg-surface-container-lowest shadow-2xl border border-white/5 transition-[background-color,backdrop-filter,border] duration-400 ease-in-out ${isGlassOn ? 'glass-card' : ''}`}>
-        {/* Left Section: The Artistic Atelier Anchor */}
+        {/* Left Section: The Artistic MessApp Anchor */}
         <section className="relative hidden md:flex flex-col justify-between w-1/2 p-12 mesh-bg border-r border-white/5 overflow-hidden">
           <div className="z-10">
             <div className="flex items-center gap-3 mb-12">
@@ -88,14 +88,14 @@ export default function Register({ switchToLogin }) {
               Connect<br/>through craft.
             </h1>
             <p className="text-on-surface-variant text-lg max-w-md font-light leading-relaxed">
-              Welcome to the Digital Atelier. A sanctuary for meaningful dialogue and curated collaboration.
+              Welcome to the Digital MessApp. A sanctuary for meaningful dialogue and curated collaboration.
             </p>
           </div>
 
           <div className="z-10 flex items-center gap-6 text-xs tracking-[0.2em] uppercase text-primary/60 font-medium">
             <span>Fine Coded</span>
             <span className="w-8 h-px bg-primary/20"></span>
-            <span>Atelier Standard v.2.4</span>
+            <span>MessApp Standard v.2.4</span>
           </div>
 
           <div className="absolute inset-0 z-0 pointer-events-none opacity-40">
@@ -117,7 +117,7 @@ export default function Register({ switchToLogin }) {
 
             <div className="space-y-2">
               <h3 className="text-3xl font-bold tracking-tight text-white">Join the Collective</h3>
-              <p className="text-on-surface-variant font-light">Create an account to enter the atelier.</p>
+              <p className="text-on-surface-variant font-light">Create an account to enter the MessApp.</p>
             </div>
 
             <form onSubmit={handleRegister} className="space-y-5">
@@ -145,7 +145,7 @@ export default function Register({ switchToLogin }) {
                     <input
                       className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
                       id="email"
-                      placeholder="artisan@atelier.design"
+                      placeholder="artisan@MessApp.design"
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}

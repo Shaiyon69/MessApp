@@ -921,7 +921,7 @@ export default function Dashboard({ session }) {
                     <span className="text-3xl font-bold text-on-primary-container">{view === 'home' ? '@' : '#'}</span>
                   </div>
                   <h2 className="text-4xl font-black font-headline tracking-tighter mb-2">Welcome to {view === 'home' ? `@${activeDm.profiles.username}` : `#${activeChannel.name}`}</h2>
-                  <p className="text-on-surface-variant font-medium leading-relaxed">This is the beginning of the atelier. Share your moodboards, palettes, and early sketches here. Keep the dialogue constructive and the aesthetic intentional.</p>
+                  <p className="text-on-surface-variant font-medium leading-relaxed">This is the beginning of your conversation on MessApp. Say hello, start a topic, and connect without the mess. Keep it secure, fun, and clutter-free.</p>
                 </section>
               )}
 
