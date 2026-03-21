@@ -1,0 +1,3 @@
+## 2024-05-23 - Chat Input Accessibility and Keyboard Submission
+**Learning:** Icon-only buttons in chat inputs frequently lack screen reader labels (`aria-label`) and tooltips (`title`), making them inaccessible. Additionally, users expect the `Enter` key to submit messages in chat interfaces, rather than just creating a new line.
+**Action:** Always add descriptive `aria-label` and `title` attributes to icon-only buttons like 'Upload image' or 'Send message'. Implement keyboard event handlers (e.g., `handleKeyDown`) to allow form submission with `Enter` while preserving `Shift+Enter` for multiline input.

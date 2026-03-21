@@ -308,6 +308,17 @@ export default function Dashboard({ session }) {
     return () => supabase.removeChannel(sub)
   }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, session.user.user_metadata])
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage(e)
+    }
+  }
+
+  const handleThemeChange = (color) => {
+    setActiveTheme(color)
+  }
+
   const handleSendMessage = async (e) => {
     e.preventDefault()
     if (!newMessage.trim()) return
@@ -395,7 +406,7 @@ export default function Dashboard({ session }) {
             cacheThumbnail(activeDm.dm_room_id, url)
             setMessages((prev) => [...prev, { id: `p2p-image-${Date.now()}`, profile_id: peerId, content: `[Image from peer]`, image_url: url, created_at: new Date().toISOString(), profiles: { username: activeDm.profiles.username } }])
           }
-        } catch {}
+        } catch (e) { console.error('P2P error:', e) }
       },
       onOpen: () => setP2pStatus('connected'),
       onClose: () => setP2pStatus('disconnected'),
@@ -790,7 +801,7 @@ export default function Dashboard({ session }) {
               <div className="p-6 pt-0 shrink-0 bg-[#0c0e12]">
                 <form onSubmit={handleSendMessage} className="bg-[#111318] rounded-2xl border border-white/5 flex items-end gap-2 p-2 focus-within:border-[#85adff]/50 focus-within:bg-[#171a1f] transition-all shadow-inner">
                   <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="p-3 text-slate-400 hover:text-[#85adff] rounded-xl hover:bg-white/5 transition-colors shrink-0 disabled:opacity-50">
+                  <button type="button" aria-label="Upload image" title="Upload image" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="p-3 text-slate-400 hover:text-[#85adff] rounded-xl hover:bg-white/5 transition-colors shrink-0 disabled:opacity-50">
                     <span className={`material-symbols-outlined ${isUploading ? 'animate-pulse' : ''}`}>add_circle</span>
                   </button>
                   
@@ -804,7 +815,7 @@ export default function Dashboard({ session }) {
                     style={{ minHeight: '48px', maxHeight: '200px' }}
                   />
                   
-                  <button type="submit" disabled={!newMessage.trim()} className="p-3 text-[#85adff] hover:text-[#6e9fff] rounded-xl hover:bg-[#85adff]/10 transition-colors shrink-0 disabled:opacity-50">
+                  <button type="submit" aria-label="Send message" title="Send message" disabled={!newMessage.trim()} className="p-3 text-[#85adff] hover:text-[#6e9fff] rounded-xl hover:bg-[#85adff]/10 transition-colors shrink-0 disabled:opacity-50">
                     <span className="material-symbols-outlined">send</span>
                   </button>
                 </form>
