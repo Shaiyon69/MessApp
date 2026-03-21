@@ -730,7 +730,8 @@ export default function Dashboard({ session }) {
       }
   }
 
-  const filteredMessages = searchQuery ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase())) : messages
+  const lowerQuery = searchQuery ? searchQuery.toLowerCase() : ''
+  const filteredMessages = lowerQuery ? messages.filter(m => m.content.toLowerCase().includes(lowerQuery) || m.profiles?.username?.toLowerCase().includes(lowerQuery)) : messages
 
   return (
     <div className="flex h-screen w-full bg-surface text-on-surface overflow-hidden text-on-background selection:bg-primary/30 min-h-screen">
