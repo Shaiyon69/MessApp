@@ -15,7 +15,8 @@
     "desktop:build": "tauri build",
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:open": "npx cap open android",
-    "mobile:build": "npm run build && npx cap copy && cd android && ./gradlew assembleRelease"
+    "mobile:build": "npm run build && npx cap copy && cd android && ./gradlew assembleRelease",
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^7.6.0",
