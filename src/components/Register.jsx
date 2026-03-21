@@ -129,7 +129,7 @@ export default function Register({ switchToLogin }) {
                     <input
                       className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
                       id="username"
-                      placeholder="Artisan"
+                      placeholder="User"
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
@@ -145,7 +145,7 @@ export default function Register({ switchToLogin }) {
                     <input
                       className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
                       id="email"
-                      placeholder="artisan@MessApp.design"
+                      placeholder="user@MessApp.com"
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
