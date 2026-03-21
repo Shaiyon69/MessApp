@@ -41,7 +41,13 @@ export async function deriveSharedAesKey(ownPrivateKey, peerPublicKeyJwk) {
 }
 
 export function toBase64(bytes) {
-  const bin = String.fromCharCode(...new Uint8Array(bytes))
+  let bin = ''
+  const uint8 = new Uint8Array(bytes)
+  const chunkSize = 0x8000
+  for (let i = 0; i < uint8.length; i += chunkSize) {
+    const chunk = uint8.subarray(i, i + chunkSize)
+    bin += String.fromCharCode(...chunk)
+  }
   return btoa(bin)
 }
 

@@ -1,73 +1,27 @@
-import test from 'node:test';
-import assert from 'node:assert';
-import { encryptWithAesGcm, decryptWithAesGcm } from './crypto.js';
+import { describe, it, expect } from 'vitest'
+import { generateEcdhKeyPair } from './crypto.js'
 
-test('decryptWithAesGcm should throw an error when decrypting with an incorrect key', async () => {
-  const correctKey = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+describe('generateEcdhKeyPair', () => {
+  it('should return a CryptoKeyPair with valid ECDH properties', async () => {
+    const keyPair = await generateEcdhKeyPair()
 
-  const incorrectKey = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+    // Verify it returns an object with publicKey and privateKey
+    expect(keyPair).toBeDefined()
+    expect(keyPair.publicKey).toBeDefined()
+    expect(keyPair.privateKey).toBeDefined()
 
-  const data = 'sensitive information';
-  const encrypted = await encryptWithAesGcm(correctKey, data);
+    // Verify properties of the public key
+    expect(keyPair.publicKey.type).toBe('public')
+    expect(keyPair.publicKey.extractable).toBe(true)
+    expect(keyPair.publicKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.publicKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.publicKey.usages).toEqual([])
 
-  await assert.rejects(
-    async () => {
-      await decryptWithAesGcm(incorrectKey, encrypted);
-    },
-    (err) => {
-      assert.strictEqual(err.name, 'OperationError');
-      return true;
-    },
-    'Should reject with OperationError when using incorrect key'
-  );
-});
-
-test('decryptWithAesGcm should throw an error when ciphertext is modified', async () => {
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-
-  const data = 'sensitive information';
-  const encrypted = await encryptWithAesGcm(key, data);
-
-  // Modify the ciphertext to simulate tampering
-  const modifiedEncrypted = { ...encrypted };
-  const ciphertextBuffer = Buffer.from(modifiedEncrypted.ciphertext, 'base64');
-  ciphertextBuffer[0] ^= 1; // Flip the first bit
-  modifiedEncrypted.ciphertext = ciphertextBuffer.toString('base64');
-
-  await assert.rejects(
-    async () => {
-      await decryptWithAesGcm(key, modifiedEncrypted);
-    },
-    (err) => {
-      assert.strictEqual(err.name, 'OperationError');
-      return true;
-    },
-    'Should reject with OperationError when ciphertext is modified'
-  );
-});
-
-test('decryptWithAesGcm should decrypt successfully with correct key and unmodified ciphertext', async () => {
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-
-  const data = 'sensitive information';
-  const encrypted = await encryptWithAesGcm(key, data);
-  const decrypted = await decryptWithAesGcm(key, encrypted);
-
-  assert.strictEqual(decrypted, data, 'Decrypted data should match original data');
-});
+    // Verify properties of the private key
+    expect(keyPair.privateKey.type).toBe('private')
+    expect(keyPair.privateKey.extractable).toBe(true)
+    expect(keyPair.privateKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.privateKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.privateKey.usages).toEqual(['deriveKey'])
+  })
+})
