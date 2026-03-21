@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { X, Upload, Loader2, User, AlertTriangle, ShieldAlert, Copy, Check, LogOut } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generateSecureRandomString } from '../../lib/crypto'
 
 export default function UserSettingsModal({ session, onClose }) {
   const [loading, setLoading] = useState(false)
@@ -36,7 +37,7 @@ export default function UserSettingsModal({ session, onClose }) {
 
       const file = event.target.files[0]
       const fileExt = file.name.split('.').pop()
-      const fileName = `${session.user.id}-${Math.random()}.${fileExt}`
+      const fileName = `${session.user.id}-${generateSecureRandomString(16)}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')

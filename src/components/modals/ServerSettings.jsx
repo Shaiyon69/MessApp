@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import { X, Copy, Check, Loader2, Link as LinkIcon, Trash2, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generateSecureRandomString } from '../../lib/crypto'
 
 export default function ServerSettingsModal({ session, activeServer, handleUpdate, handleDelete, onClose, name, setName }) {
   const [loading, setLoading] = useState(false)
@@ -14,7 +15,7 @@ export default function ServerSettingsModal({ session, activeServer, handleUpdat
       return
     }
     setLoading(true)
-    const newCode = `MS-${Math.random().toString(36).replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase()}`
+    const newCode = `MS-${generateSecureRandomString(6).toUpperCase()}`
 
     const { data, error } = await supabase
       .from('invites')
