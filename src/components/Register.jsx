@@ -6,10 +6,10 @@ export default function Register({ switchToLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [username, setUsername] = useState('') 
+  const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [isGlassOn, setIsGlassOn] = useState(false)
+
 
   const handleRegister = async (e) => {
     e.preventDefault()
@@ -56,150 +56,115 @@ export default function Register({ switchToLogin }) {
     setLoading(false)
   }
 
-  const toggleGlass = () => setIsGlassOn(!isGlassOn)
-
   return (
-    <div className="text-on-background selection:bg-primary/30 min-h-screen flex items-center justify-center p-4 md:p-0 overflow-hidden w-full relative h-screen bg-surface-dim">
-      {/* Settings Overlay (Floating) */}
-      <div className="fixed top-6 right-6 z-50">
-        <div className="flex items-center gap-3 bg-surface-container-high/80 backdrop-blur-md px-4 py-2 rounded-full border border-white/5 shadow-xl">
-          <span className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant">Glass Mode</span>
-          <button
-            type="button"
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${isGlassOn ? 'bg-primary' : 'bg-surface-container-highest'}`}
-            onClick={toggleGlass}
-          >
-            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isGlassOn ? 'translate-x-5' : 'translate-x-0'}`}></span>
-          </button>
+    <div className="bg-background text-on-background font-body min-h-screen flex items-center justify-center p-6 relative overflow-hidden" style={{ background: 'radial-gradient(circle at 20% 30%, rgba(133, 173, 255, 0.15) 0%, transparent 50%), radial-gradient(circle at 80% 70%, rgba(110, 159, 255, 0.1) 0%, transparent 50%)', backgroundColor: '#0c0e12' }}>
+      {/* Background Decorative Elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-secondary-container/20 rounded-full blur-[100px] pointer-events-none"></div>
+
+      {/* Main Registration Shell */}
+      <main className="w-full max-w-md relative z-10">
+        {/* Header / Brand Identity */}
+        <div className="text-center mb-10">
+          <h1 className="font-headline font-extrabold text-4xl tracking-tight bg-gradient-to-r from-primary to-primary-container bg-clip-text text-transparent mb-2">
+            MessApp
+          </h1>
+          <p className="text-on-surface-variant font-label text-sm tracking-wide">
+            JOIN THE DIGITAL OBSERVATORY
+          </p>
         </div>
-      </div>
 
-      <main className={`w-full max-w-7xl h-full max-h-[870px] flex flex-col md:flex-row overflow-hidden rounded-xl bg-surface-container-lowest shadow-2xl border border-white/5 transition-[background-color,backdrop-filter,border] duration-400 ease-in-out ${isGlassOn ? 'glass-card' : ''}`}>
-        {/* Left Section: The Artistic MessApp Anchor */}
-        <section className="relative hidden md:flex flex-col justify-between w-1/2 p-12 mesh-bg border-r border-white/5 overflow-hidden">
-          <div className="z-10">
-            <div className="flex items-center gap-3 mb-12">
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center shadow-[0_0_20px_rgba(184,196,255,0.4)]">
-                <span className="material-symbols-outlined text-on-primary-fixed font-bold">brush</span>
-              </div>
-              <span className="text-xl font-black text-white tracking-tighter uppercase">MessApp</span>
-            </div>
-            <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tighter text-white leading-tight mb-6">
-              Connect<br/>through craft.
-            </h1>
-            <p className="text-on-surface-variant text-lg max-w-md font-light leading-relaxed">
-              Welcome to the Digital MessApp. A sanctuary for meaningful dialogue and curated collaboration.
-            </p>
-          </div>
-
-          <div className="z-10 flex items-center gap-6 text-xs tracking-[0.2em] uppercase text-primary/60 font-medium">
-            <span>Fine Coded</span>
-            <span className="w-8 h-px bg-primary/20"></span>
-            <span>MessApp Standard v.2.4</span>
-          </div>
-
-          <div className="absolute inset-0 z-0 pointer-events-none opacity-40">
-            <div className="absolute top-1/4 right-[-10%] w-96 h-96 bg-primary/20 rounded-full blur-[120px]"></div>
-            <div className="absolute bottom-[-10%] left-1/4 w-[500px] h-[500px] bg-primary-container/10 rounded-full blur-[150px]"></div>
-          </div>
-          <img className="absolute inset-0 object-cover w-full h-full mix-blend-overlay opacity-30" alt="Abstract soft blue silk textures and light play" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBoWrhmSSf6EczTMnOqPhoP2HfNA8Avmoz8BtBae5XXpzajzIrv8GDPmG_m462ghCX43F91T8v4Ft4v9pixt12egdOSnLdmZKa3oufAFekVtcWICcFgAoAscFlPiSsz7cynYMe1wAD1pOp_i0EIWFg6mN_E3v7VxPfosyrYLgOQD31aMcTcy3XFXNK85G5VZXqf0aOufy1bwjV0yXEWQDt0EuuQBj308NbVvYmE-pJC1XM71ht6YzhqTYoauMYqr6hYFoFjJbT9yxmQ"/>
-        </section>
-
-        {/* Right Section: The Minimalist Register Shell */}
-        <section className={`w-full md:w-1/2 flex flex-col justify-center items-center p-8 md:p-14 transition-[background-color] duration-400 ease-in-out ${isGlassOn ? 'bg-opacity-0' : 'bg-surface'} overflow-y-auto custom-scrollbar`}>
-          <div className="w-full max-w-sm space-y-8">
-            <div className="md:hidden flex flex-col items-center mb-6">
-              <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center mb-4">
-                <span className="material-symbols-outlined text-on-primary-fixed">brush</span>
-              </div>
-              <h2 className="text-2xl font-black text-white tracking-tight uppercase">MessApp</h2>
-            </div>
-
+        {/* Glassmorphic Card */}
+        <div className="bg-white/[0.03] backdrop-blur-[16px] p-8 rounded-xl border border-white/5 shadow-2xl shadow-black/40">
+          <form onSubmit={handleRegister} className="space-y-6">
+            {/* Username Field */}
             <div className="space-y-2">
-              <h3 className="text-3xl font-bold tracking-tight text-white">Join the Collective</h3>
-              <p className="text-on-surface-variant font-light">Create an account to enter the MessApp.</p>
+              <label className="block font-label text-xs font-semibold text-on-surface-variant tracking-wider uppercase ml-1">
+                Username
+              </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline-variant group-focus-within:text-primary transition-colors" style={{ fontVariationSettings: "'wght' 200", fontSize: '20px' }}>
+                  person
+                </span>
+                <input
+                  className="w-full bg-surface-container-lowest/50 border-none rounded-lg py-3.5 pl-12 pr-4 text-on-surface placeholder:text-outline-variant focus:ring-1 focus:ring-primary/40 transition-all outline-none"
+                  placeholder="CosmosExplorer"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
             </div>
 
-            <form onSubmit={handleRegister} className="space-y-5">
-              <div className="space-y-4">
-                <div className="group">
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-on-surface-variant font-bold mb-2 ml-1" htmlFor="username">Display Name</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">person</span>
-                    <input
-                      className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
-                      id="username"
-                      placeholder="User"
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="group">
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-on-surface-variant font-bold mb-2 ml-1" htmlFor="email">Email Address</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">alternate_email</span>
-                    <input
-                      className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
-                      id="email"
-                      placeholder="user@MessApp.com"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="group">
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-on-surface-variant font-bold mb-2 ml-1" htmlFor="password">Security Key</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">lock</span>
-                    <input
-                      className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
-                      id="password"
-                      placeholder="••••••••"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="group">
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-on-surface-variant font-bold mb-2 ml-1" htmlFor="confirmPassword">Confirm Security Key</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">lock</span>
-                    <input
-                      className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-3.5 rounded-lg transition-all placeholder:text-outline"
-                      id="confirmPassword"
-                      placeholder="••••••••"
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
+            {/* Email Field */}
+            <div className="space-y-2">
+              <label className="block font-label text-xs font-semibold text-on-surface-variant tracking-wider uppercase ml-1">
+                Email Address
+              </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline-variant group-focus-within:text-primary transition-colors" style={{ fontVariationSettings: "'wght' 200", fontSize: '20px' }}>
+                  alternate_email
+                </span>
+                <input
+                  className="w-full bg-surface-container-lowest/50 border-none rounded-lg py-3.5 pl-12 pr-4 text-on-surface placeholder:text-outline-variant focus:ring-1 focus:ring-primary/40 transition-all outline-none"
+                  placeholder="stardust@galaxy.io"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-gradient-to-br from-primary to-primary-container text-on-primary-fixed font-bold py-4 rounded-lg shadow-lg shadow-primary/10 hover:shadow-primary/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
-              >
-                {loading ? <Loader2 size={20} className="animate-spin" /> : (
-                  <>
-                    <span>Create Profile</span>
-                    <span className="material-symbols-outlined text-lg">arrow_right_alt</span>
-                  </>
-                )}
-              </button>
-            </form>
+            {/* Password Field */}
+            <div className="space-y-2">
+              <label className="block font-label text-xs font-semibold text-on-surface-variant tracking-wider uppercase ml-1">
+                Password
+              </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline-variant group-focus-within:text-primary transition-colors" style={{ fontVariationSettings: "'wght' 200", fontSize: '20px' }}>
+                  lock
+                </span>
+                <input
+                  className="w-full bg-surface-container-lowest/50 border-none rounded-lg py-3.5 pl-12 pr-4 text-on-surface placeholder:text-outline-variant focus:ring-1 focus:ring-primary/40 transition-all outline-none"
+                  placeholder="••••••••"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Confirm Password Field */}
+            <div className="space-y-2">
+              <label className="block font-label text-xs font-semibold text-on-surface-variant tracking-wider uppercase ml-1">
+                Confirm Password
+              </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline-variant group-focus-within:text-primary transition-colors" style={{ fontVariationSettings: "'wght' 200", fontSize: '20px' }}>
+                  lock
+                </span>
+                <input
+                  className="w-full bg-surface-container-lowest/50 border-none rounded-lg py-3.5 pl-12 pr-4 text-on-surface placeholder:text-outline-variant focus:ring-1 focus:ring-primary/40 transition-all outline-none"
+                  placeholder="••••••••"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-primary to-primary-container text-on-primary font-headline font-bold py-4 rounded-full shadow-lg shadow-primary/20 hover:shadow-primary/40 active:scale-95 transition-all duration-200 mt-4 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 size={20} className="animate-spin" /> : 'Create Account'}
+            </button>
 
             {message && (
               <div className={`mt-4 p-3 rounded-xl text-center relative z-10 border ${message.includes('Success') ? 'bg-primary-container/20 border-primary-container/50 text-primary' : 'bg-error-container/20 border-error-container/50 text-error'}`}>
@@ -207,20 +172,43 @@ export default function Register({ switchToLogin }) {
               </div>
             )}
 
-            {switchToLogin && (
-              <p className="text-center text-sm text-on-surface-variant mt-6">
-                Already curated?
-                <button
-                  type="button"
-                  onClick={switchToLogin}
-                  className="text-primary font-bold ml-1 hover:underline underline-offset-4 cursor-pointer"
-                >
-                  Enter Workspace
+            {/* Footer Links */}
+            <div className="pt-6 text-center space-y-4">
+              {switchToLogin && (
+                <p className="text-sm text-on-surface-variant">
+                  Already have an account?
+                  <button type="button" onClick={switchToLogin} className="text-primary hover:text-primary-fixed transition-colors font-semibold ml-1 cursor-pointer">
+                    Back to Login
+                  </button>
+                </p>
+              )}
+
+              <div className="flex items-center gap-4 py-2">
+                <div className="h-[1px] flex-1 bg-white/5"></div>
+                <span className="text-[10px] font-label text-outline-variant tracking-widest uppercase">Encryption Guaranteed</span>
+                <div className="h-[1px] flex-1 bg-white/5"></div>
+              </div>
+
+              <div className="flex justify-center gap-6">
+                <button className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-2 text-xs cursor-pointer group" type="button">
+                  <span className="material-symbols-outlined group-hover:text-primary transition-colors" style={{ fontVariationSettings: "'wght' 200", fontSize: '16px' }}>policy</span>
+                  Terms
                 </button>
-              </p>
-            )}
-          </div>
-        </section>
+                <button className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-2 text-xs cursor-pointer group" type="button">
+                  <span className="material-symbols-outlined group-hover:text-primary transition-colors" style={{ fontVariationSettings: "'wght' 200", fontSize: '16px' }}>security</span>
+                  Privacy
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        {/* Optional App Version / Footer */}
+        <div className="mt-12 text-center pointer-events-none">
+          <span className="text-[10px] text-outline-variant font-label tracking-tighter opacity-50">
+            MESSAPP CLIENT V2.4.0 — DISTRIBUTED OBSERVATORY PROTOCOL
+          </span>
+        </div>
       </main>
     </div>
   )

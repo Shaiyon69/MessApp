@@ -737,9 +737,9 @@ export default function Dashboard({ session }) {
       <Toaster position="top-center" toastOptions={{ style: { background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' } }} />
       
       {/* SIDE NAV BAR (Vertical Rail) */}
-      <nav className="fixed left-0 top-0 h-full flex flex-col items-center py-6 z-50 bg-slate-950/70 backdrop-blur-xl docked w-20 border-r border-white/5">
+      <nav className="fixed left-0 top-0 h-full flex flex-col items-center py-6 z-50 bg-[#111318] border-r border-white/5 w-20 flex-shrink-0 hidden md:flex">
         <div className="mb-8 group cursor-pointer" onClick={handleHomeClick}>
-          <div className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 ${view === 'home' ? 'bg-primary shadow-[0_0_15px_rgba(184,196,255,0.3)] text-on-primary-fixed' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}>
+          <div className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 ${view === 'home' ? 'bg-gradient-to-br from-primary to-primary-container shadow-lg shadow-primary/20 text-on-primary' : 'bg-[#1d2025] text-[#85adff] hover:bg-white/10'}`}>
             <span className="material-symbols-outlined font-bold">home_app_logo</span>
           </div>
         </div>
@@ -749,7 +749,7 @@ export default function Dashboard({ session }) {
             <button
               key={s.id}
               onClick={() => handleServerClick(s)}
-              className={`relative group p-3 rounded-xl transition-all duration-300 scale-95 active:scale-90 ${activeServer?.id === s.id && view === 'server' ? 'bg-[#b8c4ff]/10 text-[#b8c4ff] shadow-[0_0_15px_rgba(184,196,255,0.2)]' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
+              className={`relative group flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-300 scale-95 active:scale-90 ${activeServer?.id === s.id && view === 'server' ? 'bg-[#1d2025] text-[#85adff] border border-white/10 shadow-lg' : 'bg-surface-container-highest text-slate-500 hover:text-slate-300 hover:bg-white/5 border border-white/5'}`}
             >
               {activeServer?.id === s.id && view === 'server' && (
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full"></span>
@@ -885,7 +885,7 @@ export default function Dashboard({ session }) {
 
       {/* MAIN CHAT INTERFACE (Right) */}
       <main className="flex-1 h-screen flex flex-col bg-surface relative min-w-0">
-        <header className="h-16 flex items-center justify-between px-8 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/5 shrink-0 w-full md:w-[calc(100%-16rem)]">
+        <header className="h-16 flex items-center justify-between px-8 z-40 bg-white/5 dark:bg-black/40 backdrop-blur-md border-b border-white/10 shrink-0 w-full md:w-[calc(100%-16rem)] shadow-2xl shadow-black/40">
           <div className="flex items-center gap-4 min-w-0 flex-1">
             {view === 'home' && activeDm ? (
               <div className="flex items-center gap-4 min-w-0 shrink-0"><span className="text-2xl text-on-surface-variant font-light shrink-0">@</span><h1 className="font-headline font-black text-white text-lg tracking-tight truncate">{activeDm.profiles.username}</h1></div>

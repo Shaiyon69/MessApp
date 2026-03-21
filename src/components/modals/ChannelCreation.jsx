@@ -23,7 +23,7 @@ export default function ChannelCreationModal({ handleCreate, onClose, name, setN
                 #
               </div>
               <input
-                className="w-full bg-white/5 border-none focus:ring-2 focus:ring-[#85adff]/50 rounded-lg py-4 pl-10 pr-4 text-on-surface placeholder:text-outline-variant font-medium transition-all duration-300 shadow-inner"
+                className="w-full bg-white/5 border-none focus:ring-2 focus:ring-[#85adff]/50 rounded-lg py-4 pl-10 pr-4 text-on-surface placeholder:text-outline-variant font-medium transition-all duration-300 shadow-inner outline-none"
                 id="channel-name"
                 placeholder="marketing-sync"
                 type="text"

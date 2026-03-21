@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
+import { Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function ServerSettingsModal({ session, activeServer, handleUpdate, handleDelete, onClose, name, setName }) {
   const [loading, setLoading] = useState(false)
-  const [inviteCode, setInviteCode] = useState(null)
+  const [inviteCode, setInviteCode] = useState(activeServer?.invite_code || null)
   const [copied, setCopied] = useState(false)
 
   const generateInvite = async () => {
@@ -167,7 +168,7 @@ export default function ServerSettingsModal({ session, activeServer, handleUpdat
                     className="bg-primary hover:bg-primary-container text-on-primary-container font-bold px-6 py-2.5 rounded-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 24" }}>add</span>
-                    {loading ? 'Generating...' : 'Generate'}
+                    {loading ? <Loader2 size={18} className="animate-spin" /> : 'Generate'}
                   </button>
                   )}
                 </div>

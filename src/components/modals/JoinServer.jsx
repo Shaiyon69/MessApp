@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
+import { Loader2 } from 'lucide-react'
 
 export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
   const [inviteCode, setInviteCode] = useState('')
@@ -82,7 +83,7 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
               <label className="font-label text-xs font-semibold uppercase tracking-wider text-on-surface-variant ml-1">Invite Code</label>
               <div className="relative">
                 <input
-                  className="w-full bg-surface-container-lowest text-on-surface border-none rounded-lg py-4 px-4 focus:ring-1 focus:ring-primary/50 placeholder:text-outline/40 transition-all duration-300"
+                  className="w-full bg-surface-container-lowest text-on-surface border-none rounded-lg py-4 px-4 focus:ring-1 focus:ring-primary/50 placeholder:text-outline/40 transition-all duration-300 outline-none"
                   placeholder="hTK6-zP9q-vR2"
                   type="text"
                   value={inviteCode}
@@ -106,7 +107,7 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
             >
               <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary-container transition-opacity group-hover:opacity-90"></div>
               <span className="relative flex items-center gap-2">
-                {loading ? 'Joining...' : 'Join Server'}
+                {loading ? <Loader2 size={18} className="animate-spin" /> : 'Join Server'}
                 {!loading && <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 24" }}>arrow_forward</span>}
               </span>
             </button>
