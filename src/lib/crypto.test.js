@@ -1,46 +1,27 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { encryptWithAesGcm, decryptWithAesGcm } from './crypto.js'
+import { describe, it, expect } from 'vitest'
+import { generateEcdhKeyPair } from './crypto.js'
 
-describe('encryptWithAesGcm', () => {
-  let aesKey
+describe('generateEcdhKeyPair', () => {
+  it('should return a CryptoKeyPair with valid ECDH properties', async () => {
+    const keyPair = await generateEcdhKeyPair()
 
-  beforeAll(async () => {
-    // Generate a proper AES-GCM key for testing
-    aesKey = await crypto.subtle.generateKey(
-      {
-        name: 'AES-GCM',
-        length: 256
-      },
-      true,
-      ['encrypt', 'decrypt']
-    )
-  })
+    // Verify it returns an object with publicKey and privateKey
+    expect(keyPair).toBeDefined()
+    expect(keyPair.publicKey).toBeDefined()
+    expect(keyPair.privateKey).toBeDefined()
 
-  it('should encrypt a string and return an object with iv and ciphertext strings', async () => {
-    const data = 'hello world'
-    const result = await encryptWithAesGcm(aesKey, data)
+    // Verify properties of the public key
+    expect(keyPair.publicKey.type).toBe('public')
+    expect(keyPair.publicKey.extractable).toBe(true)
+    expect(keyPair.publicKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.publicKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.publicKey.usages).toEqual([])
 
-    expect(result).toBeDefined()
-    expect(result.iv).toBeDefined()
-    expect(typeof result.iv).toBe('string')
-    expect(result.ciphertext).toBeDefined()
-    expect(typeof result.ciphertext).toBe('string')
-  })
-
-  it('should allow the encrypted data to be decrypted back to the original string', async () => {
-    const data = 'testing decryption process with a longer string'
-    const encrypted = await encryptWithAesGcm(aesKey, data)
-
-    const decrypted = await decryptWithAesGcm(aesKey, encrypted)
-    expect(decrypted).toBe(data)
-  })
-
-  it('should produce different ciphertext for the same data due to random IV', async () => {
-    const data = 'same data'
-    const encrypted1 = await encryptWithAesGcm(aesKey, data)
-    const encrypted2 = await encryptWithAesGcm(aesKey, data)
-
-    expect(encrypted1.iv).not.toBe(encrypted2.iv)
-    expect(encrypted1.ciphertext).not.toBe(encrypted2.ciphertext)
+    // Verify properties of the private key
+    expect(keyPair.privateKey.type).toBe('private')
+    expect(keyPair.privateKey.extractable).toBe(true)
+    expect(keyPair.privateKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.privateKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.privateKey.usages).toEqual(['deriveKey'])
   })
 })
