@@ -130,36 +130,3 @@ export async function fingerprintKey(key) {
   const hex = Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('')
   return hex.slice(0, 12).match(/.{1,4}/g).join(':')
 }
-
-/**
- * Generates a cryptographically secure random number between min and max (inclusive).
- * Used as a replacement for Math.random().
- */
-export function generateSecureRandomNumber(min, max) {
-  const range = max - min + 1;
-  const maxSafeVal = Math.floor((0xFFFFFFFF + 1) / range) * range;
-  const array = new Uint32Array(1);
-
-  while (true) {
-    crypto.getRandomValues(array);
-    if (array[0] < maxSafeVal) {
-      return min + (array[0] % range);
-    }
-  }
-}
-
-/**
- * Generates a cryptographically secure random string of a given length.
- * Uses a character set suitable for base-36 like strings.
- */
-export function generateSecureRandomString(length) {
-  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-
-  for (let i = 0; i < length; i++) {
-    result += charset[array[i] % charset.length];
-  }
-  return result;
-}
