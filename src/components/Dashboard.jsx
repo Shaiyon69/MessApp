@@ -2,7 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
@@ -730,7 +730,14 @@ export default function Dashboard({ session }) {
       }
   }
 
-  const filteredMessages = searchQuery ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase())) : messages
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery) return messages;
+    const lowerQuery = searchQuery.toLowerCase();
+    return messages.filter(m =>
+      m.content.toLowerCase().includes(lowerQuery) ||
+      m.profiles?.username?.toLowerCase().includes(lowerQuery)
+    );
+  }, [messages, searchQuery]);
 
   return (
     <div className="flex h-screen w-full bg-surface text-on-surface overflow-hidden text-on-background selection:bg-primary/30 min-h-screen">
