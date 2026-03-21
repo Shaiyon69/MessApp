@@ -2,7 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
@@ -38,6 +38,7 @@ export default function Dashboard({ session }) {
   const [activeTheme, setActiveTheme] = useState('59 130 246')
 
   const [onlineUsers, setOnlineUsers] = useState([])
+  const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers])
   const [serverMembers, setServerMembers] = useState([])
   const [channelReads, setChannelReads] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
@@ -806,7 +807,7 @@ export default function Dashboard({ session }) {
                       <div className="w-8 h-8 rounded-full bg-surface-container-highest object-cover flex items-center justify-center overflow-hidden">
                         {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="font-bold text-sm uppercase">{dm.profiles.username[0]}</span>}
                       </div>
-                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface-container-low rounded-full ${onlineUsers.includes(dm.profiles.id) ? 'bg-emerald-500' : 'bg-outline'}`}></span>
+                      <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface-container-low rounded-full ${onlineUsersSet.has(dm.profiles.id) ? 'bg-emerald-500' : 'bg-outline'}`}></span>
                     </div>
                     <div className="flex-1 min-w-0 flex flex-col justify-center">
                       <p className={`text-sm font-medium truncate ${activeDm?.dm_room_id === dm.dm_room_id ? 'text-primary' : 'text-on-surface'}`}>{dm.profiles.username}</p>
@@ -1079,7 +1080,7 @@ export default function Dashboard({ session }) {
                 {rightTab === 'members' && view === 'server' && (
                   <div className="space-y-4">
                     {serverMembers.map(m => {
-                      const isOnline = onlineUsers.includes(m.profiles.id)
+                      const isOnline = onlineUsersSet.has(m.profiles.id)
                       return (
                         <div key={m.profiles.id} className={`flex items-center gap-3 group cursor-pointer transition-opacity ${isOnline ? 'opacity-100' : 'opacity-50 hover:opacity-100'}`}>
                           <div className="relative shrink-0">
