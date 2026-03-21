@@ -88,6 +88,7 @@ export default function Login({ switchToRegister }) {
 
             <div className="space-y-2">
               <h3 className="text-3xl font-bold tracking-tight text-white">MessApp Access</h3>
+              <p className="text-primary text-[10px] uppercase tracking-widest font-bold mt-1">Making MESSUP one mess at a time</p>
               <p className="text-on-surface-variant font-light">Enter your credentials to enter the MessApp.</p>
             </div>
 

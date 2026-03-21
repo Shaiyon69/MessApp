@@ -36,6 +36,15 @@ export default function Dashboard({ session }) {
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
   const [activeTheme, setActiveTheme] = useState('59 130 246')
+  const [isGlassMode, setIsGlassMode] = useState(true)
+
+  useEffect(() => {
+    if (isGlassMode) {
+      document.documentElement.classList.add('glass-mode')
+    } else {
+      document.documentElement.classList.remove('glass-mode')
+    }
+  }, [isGlassMode])
 
   const [onlineUsers, setOnlineUsers] = useState([])
   const [serverMembers, setServerMembers] = useState([])
@@ -733,11 +742,11 @@ export default function Dashboard({ session }) {
   const filteredMessages = searchQuery ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase())) : messages
 
   return (
-    <div className="flex h-screen w-full bg-surface text-on-surface overflow-hidden text-on-background selection:bg-primary/30 min-h-screen">
+    <div className={`flex h-screen w-full bg-surface text-on-surface overflow-hidden text-on-background selection:bg-primary/30 min-h-screen ${isGlassMode ? 'glass-mode' : ''}`}>
       <Toaster position="top-center" toastOptions={{ style: { background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' } }} />
       
       {/* SIDE NAV BAR (Vertical Rail) */}
-      <nav className="fixed left-0 top-0 h-full flex flex-col items-center py-6 z-50 bg-slate-950/70 backdrop-blur-xl docked w-20 border-r border-white/5">
+      <nav className="fixed left-0 top-0 h-full flex flex-col items-center py-6 z-50 glass-nav docked w-20 border-r border-white/5">
         <div className="mb-8 group cursor-pointer" onClick={handleHomeClick}>
           <div className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 ${view === 'home' ? 'bg-primary shadow-[0_0_15px_rgba(184,196,255,0.3)] text-on-primary-fixed' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}>
             <span className="material-symbols-outlined font-bold">home_app_logo</span>
@@ -780,19 +789,52 @@ export default function Dashboard({ session }) {
       </nav>
 
       {/* CHANNEL LIST SIDEBAR (Left-Middle) */}
-      <aside className="ml-20 w-72 h-full bg-surface-container-low flex flex-col border-r border-white/5 shrink-0 z-40">
+      <aside className="ml-20 w-72 h-full bg-surface-container-low flex flex-col border-r border-white/5 shrink-0 z-40 glass-surface">
         <header className="h-16 px-6 flex items-center justify-between border-b border-white/5">
           <h2 className="font-headline font-bold text-on-surface tracking-tight truncate">
-            {view === 'home' ? 'Direct Messages' : activeServer?.name}
+            {view === 'home' ? 'MessApp' : activeServer?.name}
           </h2>
           {view === 'server' && activeServer?.owner_id === session.user.id && (
-            <button onClick={() => { setServerSettingsName(activeServer.name); setShowServerSettings(true); }} className="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer p-1.5 hover:bg-white/10 rounded-lg">
-              <span className="material-symbols-outlined text-sm">settings</span>
+            <button
+              onClick={() => {
+                setServerSettingsName(activeServer.name);
+                setShowServerSettings(true);
+              }}
+              className="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer hover:text-white transition-colors p-1 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              aria-label="Server settings"
+            >
+              expand_more
             </button>
           )}
         </header>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar py-6 space-y-8">
+          {/* Glass Mode Toggle */}
+          <section className="px-6 pb-2">
+            <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface" id="glass-toggle-label">Glass Effects</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isGlassMode}
+                  aria-labelledby="glass-toggle-label"
+                  className="w-10 h-5 bg-black/40 rounded-full p-0.5 cursor-pointer relative transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  data-active={isGlassMode}
+                  onClick={() => setIsGlassMode(!isGlassMode)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setIsGlassMode(!isGlassMode);
+                    }
+                  }}
+                >
+                  <div className={`w-4 h-4 rounded-full transition-transform duration-300 ease-in-out ${isGlassMode ? 'transform translate-x-5 bg-primary' : 'bg-outline'}`}></div>
+                </button>
+              </div>
+              <p className="text-[10px] text-on-surface-variant leading-tight">Enable translucent surfaces and backdrop blurs.</p>
+            </div>
+          </section>
           {view === 'home' ? (
             <section className="px-3">
               <div className="flex items-center justify-between px-3 mb-2">
@@ -884,8 +926,8 @@ export default function Dashboard({ session }) {
       </aside>
 
       {/* MAIN CHAT INTERFACE (Right) */}
-      <main className="flex-1 h-screen flex flex-col bg-surface relative min-w-0">
-        <header className="h-16 flex items-center justify-between px-8 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/5 shrink-0">
+      <main className="flex-1 h-screen flex flex-col bg-surface relative min-w-0 glass-surface">
+        <header className="h-16 flex items-center justify-between px-8 z-40 glass-header border-b border-white/5 shrink-0">
           <div className="flex items-center gap-4 min-w-0 flex-1">
             {view === 'home' && activeDm ? (
               <div className="flex items-center gap-4 min-w-0 shrink-0"><span className="text-2xl text-on-surface-variant font-light shrink-0">@</span><h1 className="font-headline font-black text-white text-lg tracking-tight truncate">{activeDm.profiles.username}</h1></div>
@@ -945,7 +987,7 @@ export default function Dashboard({ session }) {
                         </form>
                       ) : (
                         <>
-                          <div className={`max-w-3xl p-5 rounded-2xl rounded-tl-none border backdrop-blur-sm ${m.profile_id === session.user.id ? 'bg-surface-container-low border-white/[0.03]' : 'bg-surface-container-high/40 border-white/[0.05]'}`}>
+                          <div className={`max-w-3xl p-5 rounded-2xl rounded-tl-none border backdrop-blur-sm ${m.profile_id === session.user.id ? 'bg-surface-container-low border-white/[0.03] glass-surface-light' : 'bg-surface-container-high/40 border-white/[0.05] glass-surface-light'}`}>
                             <div className="text-on-surface leading-relaxed text-[15px] markdown-body">
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
@@ -993,7 +1035,7 @@ export default function Dashboard({ session }) {
             {(activeChannel || activeDm) && (
               <footer className="p-6 bg-gradient-to-t from-surface to-transparent shrink-0">
                 <div className="max-w-5xl mx-auto relative">
-                  <form onSubmit={handleSendMessage} className="flex items-center gap-4 bg-surface-container-low border border-white/5 rounded-2xl p-3 shadow-2xl focus-within:border-primary/30 transition-all duration-300">
+                  <form onSubmit={handleSendMessage} className="flex items-center gap-4 bg-surface-container-low border border-white/5 rounded-2xl p-3 shadow-2xl focus-within:border-primary/30 transition-all duration-300 glass-surface-light">
                     <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                     <button
                       type="button"
@@ -1026,7 +1068,7 @@ export default function Dashboard({ session }) {
           </div>
 
           {showRightSidebar && (
-            <aside className="w-64 h-full bg-surface-container-low border-l border-white/5 hidden lg:flex flex-col shrink-0">
+            <aside className="w-64 h-full bg-surface-container-low border-l border-white/5 hidden lg:flex flex-col shrink-0 glass-surface">
               <header className="h-16 flex items-center px-6 border-b border-white/5 justify-between">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
                   {rightTab === 'members' ? `Members — ${serverMembers.length}` :
