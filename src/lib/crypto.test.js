@@ -1,40 +1,27 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
-import { encryptBinaryAesGcm, decryptBinaryAesGcm } from './crypto.js'
+import { describe, it, expect } from 'vitest'
+import { generateEcdhKeyPair } from './crypto.js'
 
-describe('AES-GCM Binary Encryption/Decryption', () => {
-  it('should encrypt and successfully decrypt an ArrayBuffer back to the exact original', async () => {
-    // 1. Generate a test AES-GCM key
-    const key = await crypto.subtle.generateKey(
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt', 'decrypt']
-    )
+describe('generateEcdhKeyPair', () => {
+  it('should return a CryptoKeyPair with valid ECDH properties', async () => {
+    const keyPair = await generateEcdhKeyPair()
 
-    // 2. Create some sample binary data (ArrayBuffer)
-    const originalData = new Uint8Array([1, 2, 3, 4, 5, 255, 128, 0, 42]).buffer
+    // Verify it returns an object with publicKey and privateKey
+    expect(keyPair).toBeDefined()
+    expect(keyPair.publicKey).toBeDefined()
+    expect(keyPair.privateKey).toBeDefined()
 
-    // 3. Encrypt the binary data
-    const encryptedObj = await encryptBinaryAesGcm(key, originalData)
+    // Verify properties of the public key
+    expect(keyPair.publicKey.type).toBe('public')
+    expect(keyPair.publicKey.extractable).toBe(true)
+    expect(keyPair.publicKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.publicKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.publicKey.usages).toEqual([])
 
-    // Ensure it returned the expected format
-    assert.ok(encryptedObj.iv, 'Encrypted object should have an iv')
-    assert.ok(encryptedObj.ciphertext, 'Encrypted object should have a ciphertext')
-
-    // 4. Decrypt the binary data
-    const decryptedBuffer = await decryptBinaryAesGcm(key, encryptedObj)
-
-    // Ensure it decrypted successfully into an ArrayBuffer
-    assert.ok(decryptedBuffer instanceof ArrayBuffer, 'Decrypted data should be an ArrayBuffer')
-
-    // 5. Compare the decrypted ArrayBuffer with the original ArrayBuffer
-    const originalView = new Uint8Array(originalData)
-    const decryptedView = new Uint8Array(decryptedBuffer)
-
-    assert.equal(decryptedView.length, originalView.length, 'Decrypted buffer length should match original')
-
-    for (let i = 0; i < originalView.length; i++) {
-      assert.equal(decryptedView[i], originalView[i], `Byte at index ${i} should match`)
-    }
+    // Verify properties of the private key
+    expect(keyPair.privateKey.type).toBe('private')
+    expect(keyPair.privateKey.extractable).toBe(true)
+    expect(keyPair.privateKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.privateKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.privateKey.usages).toEqual(['deriveKey'])
   })
 })
