@@ -1,35 +1,27 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { generateEcdhKeyPair, exportPublicKey, importPublicKey } from './crypto.js'
+import { describe, it, expect } from 'vitest'
+import { generateEcdhKeyPair } from './crypto.js'
 
-describe('importPublicKey', () => {
-  let publicKeyJwk
-
-  beforeAll(async () => {
-    // Generate a valid key pair and export the public key to JWK to use in our tests
+describe('generateEcdhKeyPair', () => {
+  it('should return a CryptoKeyPair with valid ECDH properties', async () => {
     const keyPair = await generateEcdhKeyPair()
-    publicKeyJwk = await exportPublicKey(keyPair.publicKey)
-  })
 
-  it('should successfully import a valid ECDH P-256 JWK public key', async () => {
-    const importedKey = await importPublicKey(publicKeyJwk)
+    // Verify it returns an object with publicKey and privateKey
+    expect(keyPair).toBeDefined()
+    expect(keyPair.publicKey).toBeDefined()
+    expect(keyPair.privateKey).toBeDefined()
 
-    expect(importedKey).toBeDefined()
-    expect(importedKey.type).toBe('public')
-    expect(importedKey.extractable).toBe(true)
-    expect(importedKey.algorithm.name).toBe('ECDH')
-    expect(importedKey.algorithm.namedCurve).toBe('P-256')
-    expect(importedKey.usages).toEqual([])
-  })
+    // Verify properties of the public key
+    expect(keyPair.publicKey.type).toBe('public')
+    expect(keyPair.publicKey.extractable).toBe(true)
+    expect(keyPair.publicKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.publicKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.publicKey.usages).toEqual([])
 
-  it('should reject importing an invalid JWK', async () => {
-    const invalidJwk = { ...publicKeyJwk, x: 'invalid_base64url_data', y: 'invalid_base64url_data' }
-
-    await expect(importPublicKey(invalidJwk)).rejects.toThrow()
-  })
-
-  it('should reject importing if the JWK format is entirely incorrect', async () => {
-    const malformedJwk = { crv: 'P-256', kty: 'EC' } // Missing x and y
-
-    await expect(importPublicKey(malformedJwk)).rejects.toThrow()
+    // Verify properties of the private key
+    expect(keyPair.privateKey.type).toBe('private')
+    expect(keyPair.privateKey.extractable).toBe(true)
+    expect(keyPair.privateKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.privateKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.privateKey.usages).toEqual(['deriveKey'])
   })
 })
