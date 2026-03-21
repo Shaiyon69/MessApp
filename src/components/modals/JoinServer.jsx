@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import { X, Link as LinkIcon, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
   const [inviteCode, setInviteCode] = useState('')
@@ -15,7 +15,6 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
 
     const cleanedCode = inviteCode.trim().toUpperCase()
     
-    // Using maybeSingle() prevents crashes if the code is wrong
     const { data: inviteData, error: inviteError } = await supabase
       .from('invites')
       .select('server_id')
@@ -43,49 +42,69 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
 
     const { error: joinError } = await supabase
       .from('server_members')
-      .insert([{ 
-        server_id: inviteData.server_id, 
-        profile_id: session.user.id, 
-        role: 'member' 
-      }])
+      .insert([{ server_id: inviteData.server_id, profile_id: session.user.id, role: 'member' }])
 
-    if (joinError) {
-      setError('Failed to join the server. Please try again.')
-    } else {
-      onJoinSuccess()
-      onClose()
-    }
+    if (joinError) setError('Failed to join the server. Please try again.')
+    else { onJoinSuccess(); onClose(); }
     setLoading(false)
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors cursor-pointer">
-          <X size={24} />
-        </button>
-        <h3 className="text-3xl font-bold text-center mb-2 tracking-tight">Join a Server</h3>
-        <p className="text-gray-400 text-center mb-8">Enter an invite code to join your friends.</p>
-        <form onSubmit={handleJoin}>
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Invite Code</label>
-          <div className="flex items-center bg-black/30 rounded-xl border border-white/5 mt-2 mb-4 px-4 focus-within:border-primary transition-all">
-            <LinkIcon size={18} className="text-gray-500 mr-3" />
-            <input 
-              className="bg-transparent border-none outline-none w-full py-3 text-white placeholder-gray-600" 
-              type="text" 
-              value={inviteCode} 
-              onChange={(e) => setInviteCode(e.target.value)} 
-              placeholder="e.g. MS-ABC123" 
-            />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-hidden">
+      <div className="bg-white/[0.05] backdrop-blur-[12px] outline outline-1 outline-[rgba(70,72,77,0.15)] rounded-2xl p-8 shadow-2xl shadow-black/60 relative overflow-hidden w-full max-w-md">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#85adff] to-[#6e9fff]"></div>
+
+        <div className="flex flex-col items-center text-center">
+          <div className="mb-6">
+            <span className="font-headline font-extrabold text-3xl bg-gradient-to-r from-[#85adff] to-[#6e9fff] bg-clip-text text-transparent tracking-tight">MessApp</span>
           </div>
-          {error && <p className="text-red-400 text-sm font-medium mb-4 text-center">{error}</p>}
-          <div className="flex justify-end items-center gap-4 mt-8">
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-            <button type="submit" disabled={loading} className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer disabled:opacity-50 flex items-center gap-2">
-              {loading ? <Loader2 size={18} className="animate-spin" /> : 'Join Server'}
+
+          <h2 className="font-headline text-2xl font-bold mb-2 tracking-tight text-white">Join a Server</h2>
+          <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+            Enter an invitation link or code below to join an existing community in the Digital Observatory.
+          </p>
+
+          <form onSubmit={handleJoin} className="w-full space-y-6">
+            <div className="space-y-2 text-left">
+              <label className="font-label text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Invite Code</label>
+              <div className="relative">
+                <input
+                  className="w-full bg-[#0c0e12] text-white border-none rounded-xl py-4 px-4 focus:ring-2 focus:ring-[#85adff]/50 placeholder:text-slate-600 transition-all duration-300 outline-none shadow-inner"
+                  placeholder="hTK6-zP9q-vR2"
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  required
+                  autoFocus
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[#85adff]/40">
+                  <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 0, 'wght' 200" }}>key</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-500 px-1">Invites should look like <span className="text-[#85adff] font-bold">MS-ABC123</span>.</p>
+            </div>
+
+            {error && <p className="text-sm text-error font-medium p-3 bg-error/10 rounded-lg">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full group relative flex items-center justify-center overflow-hidden rounded-full py-4 font-headline font-bold text-[#002a62] shadow-lg shadow-[#85adff]/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-[#85adff] to-[#6e9fff] transition-opacity group-hover:opacity-90"></div>
+              <span className="relative flex items-center gap-2">
+                {loading ? <Loader2 size={18} className="animate-spin" /> : 'Join Server'}
+                {!loading && <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 0, 'wght' 200" }}>arrow_forward</span>}
+              </span>
             </button>
-          </div>
-        </form>
+
+            <div className="pt-2">
+              <button onClick={onClose} type="button" className="text-slate-400 hover:text-white text-sm font-medium transition-colors duration-200 cursor-pointer">
+                Back to Dashboard
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   )
