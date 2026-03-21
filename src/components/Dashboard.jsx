@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
-import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
+import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey, generateSecureRandomString } from '../lib/crypto'
 import { cacheMessage, cacheThumbnail } from '../lib/cacheManager'
 
 import ServerCreationModal from './modals/ServerCreation'
@@ -479,7 +479,7 @@ export default function Dashboard({ session }) {
         toast.success('Encrypted image sent P2P')
       } else {
         const fileExt = file.name.split('.').pop()
-        const fileName = `${Math.random()}.${fileExt}`
+        const fileName = `${generateSecureRandomString(16)}.${fileExt}`
         const filePath = `${session.user.id}/${fileName}`
 
         const { error: uploadError } = await supabase.storage
