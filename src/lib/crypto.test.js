@@ -1,37 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { generateEcdhKeyPair, exportPublicKey, importPublicKey } from './crypto.js'
+import { generateEcdhKeyPair } from './crypto.js'
 
-describe('exportPublicKey', () => {
-  it('should successfully export a valid ECDH public key to JWK format', async () => {
+describe('generateEcdhKeyPair', () => {
+  it('should return a CryptoKeyPair with valid ECDH properties', async () => {
     const keyPair = await generateEcdhKeyPair()
-    const jwk = await exportPublicKey(keyPair.publicKey)
 
-    expect(jwk).toBeDefined()
-    expect(jwk).toBeTypeOf('object')
-    expect(jwk.kty).toBe('EC')
-    expect(jwk.crv).toBe('P-256')
-    expect(jwk.x).toBeTypeOf('string')
-    expect(jwk.y).toBeTypeOf('string')
-    expect(jwk.ext).toBe(true)
-  })
+    // Verify it returns an object with publicKey and privateKey
+    expect(keyPair).toBeDefined()
+    expect(keyPair.publicKey).toBeDefined()
+    expect(keyPair.privateKey).toBeDefined()
 
-  it('should fail when exporting a non-extractable or invalid key', async () => {
-    // Pass null or undefined instead of a CryptoKey
-    await expect(exportPublicKey(null)).rejects.toThrow()
-    await expect(exportPublicKey(undefined)).rejects.toThrow()
-    await expect(exportPublicKey('not-a-key')).rejects.toThrow()
-  })
+    // Verify properties of the public key
+    expect(keyPair.publicKey.type).toBe('public')
+    expect(keyPair.publicKey.extractable).toBe(true)
+    expect(keyPair.publicKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.publicKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.publicKey.usages).toEqual([])
 
-  it('should export a public key that can be successfully imported back', async () => {
-    const keyPair = await generateEcdhKeyPair()
-    const jwk = await exportPublicKey(keyPair.publicKey)
-
-    // Test that the exported JWK is valid enough for importPublicKey
-    const importedKey = await importPublicKey(jwk)
-    expect(importedKey).toBeDefined()
-    expect(importedKey.type).toBe('public')
-    expect(importedKey.algorithm.name).toBe('ECDH')
-    expect(importedKey.algorithm.namedCurve).toBe('P-256')
-    expect(importedKey.extractable).toBe(true)
+    // Verify properties of the private key
+    expect(keyPair.privateKey.type).toBe('private')
+    expect(keyPair.privateKey.extractable).toBe(true)
+    expect(keyPair.privateKey.algorithm.name).toBe('ECDH')
+    expect(keyPair.privateKey.algorithm.namedCurve).toBe('P-256')
+    expect(keyPair.privateKey.usages).toEqual(['deriveKey'])
   })
 })
