@@ -55,18 +55,16 @@ export default function Login({ switchToRegister }) {
               <span className="text-xl font-black text-white tracking-tighter uppercase">MessApp</span>
             </div>
             <h1 className="text-5xl lg:text-6xl font-extrabold tracking-tighter text-white leading-tight mb-6">
-              Connect<br/>through craft.
+              Connected<br/>through MESS.
             </h1>
             <p className="text-on-surface-variant text-lg max-w-md font-light leading-relaxed">
-              Welcome to the Digital MessApp. A sanctuary for meaningful dialogue and curated collaboration.
+              Welcome to the MessApp. A sanctuary for fun conversations.
             </p>
           </div>
 
           {/* Footer Decorative */}
           <div className="z-10 flex items-center gap-6 text-xs tracking-[0.2em] uppercase text-primary/60 font-medium">
-            <span>Fine Coded</span>
-            <span className="w-8 h-px bg-primary/20"></span>
-            <span>MessApp Standard v.2.4</span>
+            <span>MessApp v.1.1</span>
           </div>
 
           {/* Abstract Visual Layer */}
@@ -89,7 +87,7 @@ export default function Login({ switchToRegister }) {
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-3xl font-bold tracking-tight text-white">Curator Access</h3>
+              <h3 className="text-3xl font-bold tracking-tight text-white">MessApp Access</h3>
               <p className="text-on-surface-variant font-light">Enter your credentials to enter the MessApp.</p>
             </div>
 
@@ -104,7 +102,7 @@ export default function Login({ switchToRegister }) {
                     <input
                       className="w-full bg-surface-container-low border-none border-b-2 border-outline-variant focus:border-primary focus:ring-0 text-white pl-12 py-4 rounded-lg transition-all placeholder:text-outline"
                       id="email"
-                      placeholder="curator@MessApp.design"
+                      placeholder="Shaiyon@MessApp.com"
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
@@ -117,7 +115,7 @@ export default function Login({ switchToRegister }) {
                 <div className="group">
                   <div className="flex justify-between items-center mb-2 px-1">
                     <label className="text-[10px] uppercase tracking-[0.15em] text-on-surface-variant font-bold" htmlFor="password">Security Key</label>
-                    <a className="text-[10px] uppercase tracking-[0.1em] text-primary/80 hover:text-primary transition-colors cursor-pointer">Recover?</a>
+                    {/* <a className="text-[10px] uppercase tracking-[0.1em] text-primary/80 hover:text-primary transition-colors cursor-pointer">Recover?</a> */}
                   </div>
                   <div className="relative">
                     <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">lock</span>
@@ -142,7 +140,7 @@ export default function Login({ switchToRegister }) {
               >
                 {loading ? <Loader2 size={20} className="animate-spin" /> : (
                   <>
-                    <span>Enter Workspace</span>
+                    <span>Login</span>
                     <span className="material-symbols-outlined text-lg">arrow_right_alt</span>
                   </>
                 )}
@@ -156,14 +154,14 @@ export default function Login({ switchToRegister }) {
             )}
 
             {/* Divider */}
-            <div className="relative flex items-center py-4">
+            {/* <div className="relative flex items-center py-4">
               <div className="flex-grow border-t border-white/5"></div>
               <span className="flex-shrink mx-4 text-[10px] uppercase tracking-widest text-outline">or authenticate via</span>
               <div className="flex-grow border-t border-white/5"></div>
-            </div>
+            </div> */}
 
             {/* Social Logins */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* <div className="grid grid-cols-2 gap-4">
               <button type="button" className="flex items-center justify-center gap-3 py-3 bg-surface-container-high border border-white/5 rounded-lg hover:bg-surface-container-highest transition-all group">
                 <svg className="w-5 h-5 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"></path>
@@ -179,18 +177,18 @@ export default function Login({ switchToRegister }) {
                 </svg>
                 <span className="text-xs font-semibold tracking-wide text-on-surface">Apple ID</span>
               </button>
-            </div>
+            </div> */}
 
             {/* Sign Up Link */}
             {switchToRegister && (
               <p className="text-center text-sm text-on-surface-variant">
-                Not yet curated?
+                Not yet Messed Up?
                 <button
                   type="button"
                   onClick={switchToRegister}
                   className="text-primary font-bold ml-1 hover:underline underline-offset-4 cursor-pointer"
                 >
-                  Join the Collective
+                  Create Mess (Register)
                 </button>
               </p>
             )}
@@ -198,9 +196,9 @@ export default function Login({ switchToRegister }) {
 
           {/* Bottom Disclaimer */}
           <div className="mt-auto pt-10 text-[10px] text-outline uppercase tracking-[0.2em] flex flex-wrap justify-center gap-x-8 gap-y-2 opacity-50">
-            <a className="hover:text-primary transition-colors cursor-pointer">Privacy</a>
+            {/* <a className="hover:text-primary transition-colors cursor-pointer">Privacy</a>
             <a className="hover:text-primary transition-colors cursor-pointer">Terms</a>
-            <a className="hover:text-primary transition-colors cursor-pointer">Manifesto</a>
+            <a className="hover:text-primary transition-colors cursor-pointer">Manifesto</a> */}
           </div>
         </section>
       </main>

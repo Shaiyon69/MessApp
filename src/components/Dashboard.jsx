@@ -895,7 +895,6 @@ export default function Dashboard({ session }) {
               <h1 className="font-headline font-black text-white text-lg tracking-tight shrink-0 truncate">Welcome</h1>
             )}
             <div className="w-[1px] h-6 bg-outline-variant/30 mx-2 shrink-0 hidden sm:block"></div>
-            <p className="text-sm text-on-surface-variant font-medium truncate hidden sm:block">Curating global aesthetics and shared visions.</p>
           </div>
           <div className="flex items-center gap-6 shrink-0 ml-4">
             <div className="hidden md:flex gap-6 items-center">
