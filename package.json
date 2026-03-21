@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test",
     "build": "vite build",
+    "test": "vitest run",
     "lint": "eslint .",
+    "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
@@ -14,7 +17,7 @@
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:open": "npx cap open android",
     "mobile:build": "npm run build && npx cap copy && cd android && ./gradlew assembleRelease",
-    "test": "vitest"
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^7.6.0",
