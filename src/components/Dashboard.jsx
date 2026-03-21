@@ -479,7 +479,7 @@ export default function Dashboard({ session }) {
         toast.success('Encrypted image sent P2P')
       } else {
         const fileExt = file.name.split('.').pop()
-        const fileName = `${Math.random()}.${fileExt}`
+        const fileName = `${crypto.randomUUID()}.${fileExt}`
         const filePath = `${session.user.id}/${fileName}`
 
         const { error: uploadError } = await supabase.storage
