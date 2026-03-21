@@ -189,8 +189,8 @@ export default function Dashboard({ session }) {
                   setMessages((prev) => [...prev, { profile_id: payload.from, content: parsed.text, created_at: new Date().toISOString(), profiles: { username: 'Peer' } }])
                 }
               }
-            } catch (e) {
-              console.error(e)
+            } catch {
+              // Ignore err
             }
           },
           onOpen: () => setP2pStatus('connected'),
