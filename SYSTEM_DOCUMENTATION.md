@@ -36,7 +36,8 @@ MessApp is a React + Vite secure chat platform built with Supabase for authentic
 - `App.jsx`: Auth gating (login/register vs dashboard)
 - `Login.jsx`, `Register.jsx`: User onboarding flows with Supabase auth
 - `Dashboard.jsx`: Main chat UI, server/channel/DM selection, message CRUD, presence, themes
-- `src/components/modals/*`: UI forms for server/channel/DM/user settings
+- `src/components/modals/*`: UI forms for server/channel/DM/user settings. Note: Channel and Server creation have been unified into `CreationModal.jsx`.
+- `src/components/Sidebar.jsx`: Unified left-side navigation for servers, DM entry, and user actions.
 
 ## 5) Key Feature Map
 - Authentication: secure signup/login/logout
@@ -112,11 +113,12 @@ Recommended core tables:
 
 ## 11) Where to Customize
 - `src/supabaseClient.js`: Supabase initialization and auth helper
-- `src/components/Dashboard.jsx`: Main chat logic (the bulk of features), including secure P2P handshake, channel CRUD, and invite handling
+- `src/components/Dashboard.jsx`: Main chat logic, right-sidebar context panels, and message layout.
+- `src/components/Sidebar.jsx`: The primary left-side navigation rail.
 - `src/components/modals/ServerSettings.jsx`: Server invite code generation and sharing
 - `src/components/modals/JoinServer.jsx`: Join by invite code maps correctly to server_id
-- `src/components/modals/ChannelCreation.jsx`: Channel creation UI
-- `src/style/index.css`: Global theme + appearance
+- `src/components/modals/CreationModal.jsx`: Reusable creation UI for Servers and Channels.
+- `src/style/index.css`: Global theme mapping (`@theme` variables, `data-theme` selectors) and Glassmorphism utility classes.
 
 ## 12) Contribution Guide
 - Use feature branches named like `feature/e2ee` or `fix/read-marker`

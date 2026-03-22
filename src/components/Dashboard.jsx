@@ -2,26 +2,27 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
-import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
+import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey, generateSecureRandomString } from '../lib/crypto'
 import { cacheMessage, cacheThumbnail } from '../lib/cacheManager'
 
-import ServerCreationModal from './modals/ServerCreation'
+import CreationModal from './modals/CreationModal'
 import ServerSettingsModal from './modals/ServerSettings'
-import ChannelCreationModal from './modals/ChannelCreation'
 import ChannelSettingsModal from './modals/ChannelSettings'
 import UserSettingsModal from './modals/UserSettings'
 import JoinServerModal from './modals/JoinServer'
 import StartDMModal from './modals/StartDirectMessages'
+import Sidebar from './Sidebar'
 
 const THEME_COLORS = [
-  { name: 'Blue', value: '133 173 255' },
-  { name: 'Pink', value: '241 153 247' },
-  { name: 'Purple', value: '168 85 247' },
-  { name: 'Slate', value: '100 116 139' }
+  { name: 'Blue', value: '133, 173, 255' },
+  { name: 'Pink', value: '241, 153, 247' },
+  { name: 'Purple', value: '168, 85, 247' },
+  { name: 'Slate', value: '100, 116, 139' },
+  { name: 'Emerald', value: '52, 211, 153' }
 ]
 
 export default function Dashboard({ session }) {
@@ -32,9 +33,22 @@ export default function Dashboard({ session }) {
   const [activeChannel, setActiveChannel] = useState(null)
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
-  const [activeTheme, setActiveTheme] = useState('133 173 255')
+  const [activeTheme, setActiveTheme] = useState('133, 173, 255')
+  const [isDarkMode, setIsDarkMode] = useState(true)
 
-  const [onlineUsers, setOnlineUsers] = useState([])
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent-color', activeTheme);
+  }, [activeTheme])
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.removeAttribute('data-theme')
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light')
+    }
+  }, [isDarkMode])
+
+  const [onlineUsers, setOnlineUsers] = useState(new Set())
   const [serverMembers, setServerMembers] = useState([])
   const [channelReads, setChannelReads] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
@@ -95,7 +109,7 @@ export default function Dashboard({ session }) {
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState()
-        setOnlineUsers(Object.keys(state))
+        setOnlineUsers(new Set(Object.keys(state)))
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -356,7 +370,7 @@ export default function Dashboard({ session }) {
         toast.success('Encrypted image sent P2P')
       } else {
         const fileExt = file.name.split('.').pop()
-        const fileName = `${Math.random()}.${fileExt}`
+        const fileName = `${generateSecureRandomString(12)}.${fileExt}`
         const filePath = `${session.user.id}/${fileName}`
         const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, file)
         if (uploadError) throw uploadError
@@ -519,54 +533,34 @@ export default function Dashboard({ session }) {
       finally { setShowServerSettings(false) }
   }
 
-  const filteredMessages = searchQuery ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase())) : messages
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery) return messages
+    const lowerQuery = searchQuery.toLowerCase()
+    return messages.filter(m =>
+      m.content.toLowerCase().includes(lowerQuery) ||
+      m.profiles?.username.toLowerCase().includes(lowerQuery)
+    )
+  }, [searchQuery, messages])
 
   return (
-    <div className="flex h-screen w-full bg-[#0c0e12] text-white overflow-hidden font-body selection:bg-[#85adff]/30">
-      <Toaster position="top-center" toastOptions={{ style: { background: '#1d2025', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' } }} />
+    <div className="flex h-screen w-full theme-bg theme-text overflow-hidden font-body selection:bg-[#85adff]/30">
+      <Toaster position="top-right" toastOptions={{ className: 'glass-card theme-text' }} />
       
       {/* 1. SIDE NAV BAR (Vertical Rail) */}
-      <nav className="hidden md:flex flex-col h-full w-[76px] bg-[#111318] border-r border-white/5 py-4 items-center shrink-0 z-50">
-        <div className="mb-6 group cursor-pointer" onClick={handleHomeClick}>
-          <div className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 ${view === 'home' ? 'bg-gradient-to-br from-[#85adff] to-[#6e9fff] text-[#002a62] shadow-[0_0_15px_rgba(133,173,255,0.3)]' : 'bg-[#1d2025] text-[#85adff] hover:bg-white/10'}`}>
-            <span className="material-symbols-outlined font-bold" style={{ fontVariationSettings: "'FILL' 1" }}>rocket_launch</span>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4 items-center flex-1 overflow-y-auto custom-scrollbar w-full">
-          {servers.map(s => (
-            <button
-              key={s.id}
-              onClick={() => handleServerClick(s)}
-              className={`relative group flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-300 ${activeServer?.id === s.id && view === 'server' ? 'bg-[#1d2025] text-[#85adff] border border-[#85adff]/30 shadow-lg' : 'bg-[#171a1f] text-slate-500 hover:text-white hover:bg-white/5 border border-white/5'}`}
-            >
-              {activeServer?.id === s.id && view === 'server' && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#85adff] rounded-r-full"></span>
-              )}
-              <span className="font-headline font-bold text-lg">{s.name[0].toUpperCase()}</span>
-            </button>
-          ))}
-
-          <div className="w-8 h-[1px] bg-white/10 my-2"></div>
-
-          <button onClick={() => setShowCreateModal(true)} aria-label="Create Server" className="group w-12 h-12 flex items-center justify-center text-slate-500 hover:text-white transition-colors hover:bg-white/5 rounded-xl duration-300">
-            <span className="material-symbols-outlined">add</span>
-          </button>
-          <button onClick={() => setShowJoinModal(true)} aria-label="Join Server" className="group w-12 h-12 flex items-center justify-center text-slate-500 hover:text-[#85adff] transition-colors hover:bg-white/5 rounded-xl duration-300">
-            <span className="material-symbols-outlined">explore</span>
-          </button>
-        </div>
-
-        <div className="mt-auto flex flex-col gap-4 items-center pt-4 border-t border-white/5 w-full">
-          <button onClick={() => { setShowRightSidebar(!showRightSidebar); setRightTab('notifications'); }} aria-label="Notifications" className="group w-12 h-12 flex items-center justify-center text-slate-500 hover:text-white transition-colors hover:bg-white/5 rounded-xl duration-300 relative">
-            <span className="material-symbols-outlined">notifications</span>
-            {friendRequests.length > 0 && <span className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>}
-          </button>
-          <button onClick={() => setShowUserSettings(true)} aria-label="Settings" className="group w-12 h-12 flex items-center justify-center text-[#85adff] hover:bg-white/10 transition-colors rounded-xl duration-300 bg-[#1d2025]">
-            <span className="material-symbols-outlined">settings</span>
-          </button>
-        </div>
-      </nav>
+      <Sidebar
+        view={view}
+        servers={servers}
+        activeServer={activeServer}
+        handleHomeClick={handleHomeClick}
+        handleServerClick={handleServerClick}
+        setShowCreateModal={setShowCreateModal}
+        setShowJoinModal={setShowJoinModal}
+        showRightSidebar={showRightSidebar}
+        setShowRightSidebar={setShowRightSidebar}
+        setRightTab={setRightTab}
+        friendRequests={friendRequests}
+        setShowUserSettings={setShowUserSettings}
+      />
 
       {/* 2. SECONDARY SIDEBAR (Channels / DMs) */}
       <aside className="w-72 h-full bg-[#0c0e12] flex flex-col border-r border-white/5 shrink-0 z-40">
@@ -601,7 +595,7 @@ export default function Dashboard({ session }) {
                         <div className="h-8 w-8 rounded-full bg-[#23262c] flex items-center justify-center overflow-hidden border border-white/5">
                           {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="h-full w-full object-cover"/> : <span className="font-bold text-xs uppercase text-white">{dm.profiles.username[0]}</span>}
                         </div>
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#0c0e12] rounded-full ${onlineUsers.includes(dm.profiles.id) ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#0c0e12] rounded-full ${onlineUsers.has(dm.profiles.id) ? 'bg-emerald-500' : 'bg-slate-600'}`}></div>
                       </div>
                       <div className="flex-1 min-w-0 text-left">
                         <p className={`text-sm font-medium truncate ${activeDm?.dm_room_id === dm.dm_room_id ? 'text-[#85adff]' : ''}`}>{dm.profiles.username}</p>
@@ -863,7 +857,7 @@ export default function Dashboard({ session }) {
                 {rightTab === 'members' && view === 'server' && (
                   <div className="space-y-2">
                     {serverMembers.map(m => {
-                      const isOnline = onlineUsers.includes(m.profiles.id)
+                      const isOnline = onlineUsers.has(m.profiles.id)
                       return (
                         <div key={m.profiles.id} className={`flex items-center gap-3 p-2 rounded-xl transition-all hover:bg-white/5 cursor-pointer ${isOnline ? 'opacity-100' : 'opacity-50 hover:opacity-100'}`}>
                           <div className="relative shrink-0">
@@ -907,7 +901,16 @@ export default function Dashboard({ session }) {
                   <div className="space-y-6">
                     <div>
                       <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Aesthetic Profile</h3>
-                      <div className="bg-[#1d2025] p-4 rounded-2xl border border-white/5">
+                      <div className="glass-panel p-4 rounded-2xl">
+                        <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--glass-border)]">
+                          <span className="text-sm font-medium theme-text">Dark Mode</span>
+                          <button
+                            onClick={() => setIsDarkMode(!isDarkMode)}
+                            className={`w-10 h-5 rounded-full relative transition-colors ${isDarkMode ? 'bg-[rgb(var(--accent-color))]' : 'bg-slate-400'}`}
+                          >
+                            <span className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full transition-all ${isDarkMode ? 'left-[22px]' : 'left-[4px]'}`} />
+                          </button>
+                        </div>
                         <div className="flex flex-wrap gap-3 justify-center">
                           {THEME_COLORS.map(c => (
                             <button
@@ -945,12 +948,40 @@ export default function Dashboard({ session }) {
       </main>
 
       {/* Modals */}
-      {showCreateModal && <ServerCreationModal onClose={() => setShowCreateModal(false)} handleCreate={handleCreateServer} name={newServerName} setName={setNewServerName} />}
+      {showCreateModal && (
+        <CreationModal
+          type="server"
+          title="Create Your Galaxy"
+          description="Servers are where you and your friends hang out. Set a name and launch your new workspace."
+          icon="add_circle"
+          inputLabel="Server Name"
+          placeholder="The MessApp Hub"
+          buttonText="Launch"
+          value={newServerName}
+          onChange={setNewServerName}
+          onSubmit={handleCreateServer}
+          onClose={() => setShowCreateModal(false)}
+        />
+      )}
       {showJoinModal && <JoinServerModal session={session} onClose={() => setShowJoinModal(false)} onJoinSuccess={fetchServers} />}
       {showDmModal && <StartDMModal session={session} onClose={() => setShowDmModal(false)} onChatStarted={() => { fetchDms(); setView('home'); }} />}
       {showUserSettings && <UserSettingsModal session={session} onClose={() => setShowUserSettings(false)} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={handleUpdateServer} handleDelete={handleDeleteServer} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
-      {showChannelModal && <ChannelCreationModal handleCreate={handleCreateChannel} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
+      {showChannelModal && (
+        <CreationModal
+          type="channel"
+          title="Create New Channel"
+          description={`Designate a new space for ${activeServer?.name || "your team"}'s collective focus.`}
+          icon="#"
+          inputLabel="Channel Name"
+          placeholder="general-chat"
+          buttonText="Create"
+          value={newChannelName}
+          onChange={setNewChannelName}
+          onSubmit={handleCreateChannel}
+          onClose={() => setShowChannelModal(false)}
+        />
+      )}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={handleUpdateChannel} handleDelete={handleDeleteChannel} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
     </div>
   )

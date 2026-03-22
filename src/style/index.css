@@ -2,6 +2,21 @@
 
 :root {
   color-scheme: dark;
+  --accent-color: 133, 173, 255;
+  --bg-color: #0c0e12;
+  --panel-bg: rgba(29, 32, 37, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --text-main: #ffffff;
+  --text-muted: #94a3b8;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-color: #f8fafc;
+  --panel-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(0, 0, 0, 0.05);
+  --text-main: #0f172a;
+  --text-muted: #64748b;
 }
 
 @theme {
@@ -155,45 +170,33 @@
     transform: scale(1);
   }
 
-  /* Glassmorphism Toggle Logic */
-  .glass-mode .glass-surface {
-    background-color: rgba(14, 14, 14, 0.6);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-  }
-  .glass-mode .glass-surface-light {
-    background-color: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
-  .glass-mode .glass-nav {
-    background-color: rgba(2, 6, 23, 0.5);
+  /* Universal Glassmorphism Classes */
+  .glass-panel {
+    background: var(--panel-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-  }
-  .glass-mode .glass-header {
-    background-color: rgba(2, 6, 23, 0.4);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
   }
 
-  /* Default Solid Fallbacks */
-  .glass-surface { background-color: var(--color-surface-container-low, #131313); transition: all 0.3s ease; }
-  .glass-surface-light { background-color: var(--color-surface-container, #191919); transition: all 0.3s ease; }
-  .glass-nav { background-color: #020617; transition: all 0.3s ease; }
-  .glass-header { background-color: #020617; transition: all 0.3s ease; }
+  .glass-nav {
+    background: var(--panel-bg);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid var(--glass-border);
+    transition: background-color 0.3s ease;
+  }
 }
 
 @layer utilities {
+  .theme-bg { background-color: var(--bg-color); transition: background-color 0.3s ease; }
+  .theme-text { color: var(--text-main); transition: color 0.3s ease; }
+  .theme-text-muted { color: var(--text-muted); transition: color 0.3s ease; }
+
   .glass-card {
-    background: rgba(31, 31, 31, 0.7);
-    backdrop-filter: blur(20px);
-  }
-  .mesh-bg {
-    background-color: #0e0e0e;
-    background-image:
-      radial-gradient(circle at 0% 0%, rgba(184, 196, 255, 0.15) 0px, transparent 50%),
-      radial-gradient(circle at 100% 100%, rgba(63, 78, 143, 0.1) 0px, transparent 50%);
-    background-attachment: fixed;
+    background: var(--panel-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
   }
 }

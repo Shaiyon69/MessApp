@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generateSecureRandomString } from '../../lib/crypto'
 
 export default function ServerSettingsModal({ session, activeServer, handleUpdate, handleDelete, onClose, name, setName }) {
   const [loading, setLoading] = useState(false)
@@ -11,7 +12,7 @@ export default function ServerSettingsModal({ session, activeServer, handleUpdat
   const generateInvite = async () => {
     if (!activeServer?.id) return toast.error('No active server selected.')
     setLoading(true)
-    const newCode = `MS-${Math.random().toString(36).replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase()}`
+    const newCode = `MS-${generateSecureRandomString(6).toUpperCase()}`
 
     const { data, error } = await supabase.from('invites').insert([{ server_id: activeServer.id, creator_id: session.user.id, code: newCode }]).select()
     if (error || !data || data.length === 0) {

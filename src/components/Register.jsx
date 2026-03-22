@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
+import { generateSecureRandomNumber } from '../lib/crypto'
 
 export default function Register({ switchToLogin }) {
   const [email, setEmail] = useState('')
@@ -25,7 +26,7 @@ export default function Register({ switchToLogin }) {
 
     setLoading(true)
     setMessage('')
-    const randomDiscriminator = Math.floor(1000 + Math.random() * 9000)
+    const randomDiscriminator = generateSecureRandomNumber(1000, 9999)
     const baseName = username.trim().toLowerCase().replace(/\s+/g, '')
     const generatedTag = `${baseName}#${randomDiscriminator}`
 

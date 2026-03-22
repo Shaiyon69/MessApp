@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generateSecureRandomString } from '../../lib/crypto'
 
 export default function UserSettingsModal({ session, onClose }) {
   const [loading, setLoading] = useState(false)
@@ -28,7 +29,7 @@ export default function UserSettingsModal({ session, onClose }) {
       if (!event.target.files || event.target.files.length === 0) throw new Error('You must select an image to upload.')
       const file = event.target.files[0]
       const fileExt = file.name.split('.').pop()
-      const fileName = `${session.user.id}-${Math.random()}.${fileExt}`
+      const fileName = `${session.user.id}-${generateSecureRandomString(8)}.${fileExt}`
       const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file)
       if (uploadError) throw uploadError
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)

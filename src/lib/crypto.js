@@ -136,3 +136,21 @@ export async function fingerprintKey(key) {
   const hex = Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('')
   return hex.slice(0, 12).match(/.{1,4}/g).join(':')
 }
+
+export function generateSecureRandomString(length) {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').substring(0, length);
+}
+
+export function generateSecureRandomNumber(min, max) {
+  const range = max - min + 1;
+  const array = new Uint32Array(1);
+  const maxSafeValue = 4294967296 - (4294967296 % range);
+  let randomValue;
+  do {
+    crypto.getRandomValues(array);
+    randomValue = array[0];
+  } while (randomValue >= maxSafeValue);
+  return min + (randomValue % range);
+}
