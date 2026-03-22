@@ -1,18 +1,18 @@
 export default function ChannelCreationModal({ handleCreate, onClose, name, setName, serverName }) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-hidden">
+      <div className="glass-panel ghost-border text-on-surface p-8 rounded-3xl w-full max-w-md shadow-[0_20px_50px_rgba(0,0,0,0.5)] max-h-[90vh] overflow-y-auto custom-scrollbar">
         <h3 className="text-2xl font-bold mb-1 tracking-tight">Create Channel</h3>
-        <p className="text-gray-400 text-sm mb-8">in <span className="text-primary font-medium">{serverName}</span></p>
+        <p className="text-outline text-sm mb-8">in <span className="text-primary font-medium">{serverName}</span></p>
         <form onSubmit={handleCreate}>
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Channel Name</label>
-          <div className="flex items-center bg-black/30 rounded-xl border border-white/5 mt-2 mb-8 px-4 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
-            <span className="text-gray-500 text-xl mr-3 font-light">#</span>
-            <input className="bg-transparent border-none outline-none w-full py-3 text-white placeholder-gray-600" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="new-channel" autoFocus />
+          <label className="text-xs font-bold text-outline uppercase tracking-widest ml-1 block mb-2">Channel Name</label>
+          <div className="flex items-center bg-surface-container-lowest rounded-xl border border-outline-variant/10 mb-8 px-4 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all shadow-sm">
+            <span className="material-symbols-outlined text-outline text-[18px] mr-2" aria-hidden="true">tag</span>
+            <input className="bg-transparent border-none outline-none w-full py-3 text-on-surface placeholder:text-outline/60 font-medium" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="new-channel" autoFocus />
           </div>
-          <div className="flex justify-end gap-4">
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-            <button type="submit" className="bg-primary text-white px-6 py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer">Create</button>
+          <div className="flex justify-end gap-3 pt-4 border-t border-outline-variant/10">
+            <button type="button" onClick={onClose} className="bg-surface-container-high hover:bg-surface-variant text-on-surface py-3 px-6 rounded-xl font-bold transition-colors cursor-pointer border border-outline-variant/10">Cancel</button>
+            <button type="submit" className="bg-primary text-on-primary px-8 py-3 rounded-xl font-bold hover:bg-primary-dim transition-colors shadow-md cursor-pointer">Create</button>
           </div>
         </form>
       </div>
