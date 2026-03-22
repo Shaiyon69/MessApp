@@ -1,10 +1,12 @@
+@import "tailwindcss";
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #121212;
+  background-color: #121417;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -13,27 +15,34 @@
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
 }
 
-@import "tailwindcss";
-
 @theme {
-  --color-gray-900: #202225;
-  --color-gray-800: #2f3136;
-  --color-gray-700: #36393f;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+
+  --color-gray-950: #0a0a0a;
+  --color-gray-900: #121417;
+  --color-gray-800: #1a1b1e;
+  --color-gray-700: #2c2d31;
   --color-gray-600: #4f545c;
   --color-gray-400: #d4d7dc;
   --color-gray-300: #e3e5e8;
   --color-gray-200: #ebedef;
   --color-gray-100: #f2f3f5;
   --color-primary: #E75480;
+  --color-primary-blue: #6366f1; /* Adjusted based on the image gradient */
 }
 
 @layer components {
+  .glass-panel {
+    @apply bg-[#15171a] border border-[#23252a] shadow-2xl;
+  }
+
+  .ghost-border {
+    @apply border border-[#23252a] focus-within:border-[#3b3d42] transition-colors;
+  }
+
   .sidebar-icon {
     @apply relative flex items-center justify-center 
            h-12 w-12 mt-2 mb-2 mx-auto shadow-sm
