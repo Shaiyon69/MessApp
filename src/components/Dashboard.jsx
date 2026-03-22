@@ -9,7 +9,7 @@ import { Settings, Pen, Send, LogOut, Plus, Hash, Compass, Home, MessageSquare, 
 import toast, { Toaster } from 'react-hot-toast'
 import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
 import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
-import { cacheMessage, getCachedMessages, pruneCache, cacheThumbnail } from '../lib/cacheManager'
+import { cacheMessage, cacheThumbnail } from '../lib/cacheManager'
 
 import ServerCreationModal from './modals/ServerCreation'
 import ServerSettingsModal from './modals/ServerSettings'
@@ -69,7 +69,7 @@ export default function Dashboard({ session }) {
   const [editingMessageId, setEditingMessageId] = useState(null)
   const [editContent, setEditContent] = useState('')
   const [p2pStatus, setP2pStatus] = useState('idle')
-  const [p2pFingerprint, setP2pFingerprint] = useState('')
+  const [_p2pFingerprint, setP2pFingerprint] = useState('')
 
   const messagesEndRef = useRef(null)
   const scrollContainerRef = useRef(null)
@@ -153,7 +153,7 @@ export default function Dashboard({ session }) {
       fetchFriendRequests()
       fetchDms()
       toast.success("Friend request accepted!")
-    } catch (err) {
+    } catch (_err) {
       toast.error("Failed to accept request.")
     }
   }
@@ -162,7 +162,7 @@ export default function Dashboard({ session }) {
     try {
       await supabase.from('friendships').delete().eq('id', requestId)
       fetchFriendRequests()
-    } catch (err) {
+    } catch (_err) {
       toast.error("Failed to decline request.")
     }
   }
@@ -436,7 +436,7 @@ export default function Dashboard({ session }) {
       if (data?.[0]) {
         setMessages((prev) => [...prev, data[0]])
       }
-    } catch (err) {
+    } catch (_err) {
       toast.error('Failed to send message. Please try again.')
       setNewMessage(text)
     }
@@ -496,7 +496,7 @@ export default function Dashboard({ session }) {
         cacheThumbnail(targetId || 'global', publicUrl)
         toast.success('Image uploaded')
       }
-    } catch (err) {
+    } catch (_err) {
       toast.error('Failed to upload image')
     } finally {
       setIsUploading(false)
@@ -553,7 +553,7 @@ export default function Dashboard({ session }) {
               profiles: { username: activeDm.profiles.username }
             }])
           }
-        } catch (err) {
+        } catch (_err) {
         }
       },
       onOpen: () => setP2pStatus('connected'),
@@ -631,7 +631,7 @@ export default function Dashboard({ session }) {
         setShowCreateModal(false)
         toast.success(`Server created successfully.`)
       }
-    } catch (err) {
+    } catch (_err) {
       toast.error("Failed to create server")
     }
   }
@@ -654,7 +654,7 @@ export default function Dashboard({ session }) {
         setActiveChannel(channelData)
         setNewChannelName('')
         setShowChannelModal(false)
-      } catch (err) {
+      } catch (_err) {
         toast.error('Could not create channel')
       }
   }
@@ -688,7 +688,7 @@ export default function Dashboard({ session }) {
             setMessages([])
           }
         }
-      } catch (err) {
+      } catch (_err) {
         toast.error('Failed to delete channel')
       } finally {
         setShowChannelSettings(false)
@@ -716,7 +716,7 @@ export default function Dashboard({ session }) {
         setActiveServer(null)
         setView('home')
         fetchServers()
-      } catch (err) {
+      } catch (_err) {
         toast.error('Could not delete server')
       } finally {
         setShowServerSettings(false)
