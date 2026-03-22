@@ -24,7 +24,7 @@ export default function Login({ switchToRegister }) {
   }
 
   return (
-    <div className="glass-panel rounded-[32px] w-full max-w-5xl flex flex-col md:flex-row relative overflow-hidden min-h-[600px] text-white">
+    <div className="glass-panel rounded-[32px] w-full max-w-5xl flex flex-col md:flex-row relative overflow-hidden min-h-[600px] text-white animate-slide-up">
       {/* Left Column: Branding and Hero */}
       <div className="w-full md:w-1/2 p-10 md:p-14 flex flex-col justify-between border-b md:border-b-0 md:border-r border-[#23252a] relative">
         <div>
