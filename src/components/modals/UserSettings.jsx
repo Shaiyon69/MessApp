@@ -84,7 +84,7 @@ export default function UserSettingsModal({ session, onClose }) {
 
       toast.success('Profile updated')
       onClose()
-    } catch {
+    } catch (err) {
       toast.error('Failed to update profile')
     } finally {
       setLoading(false)
