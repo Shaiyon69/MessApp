@@ -60,18 +60,18 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900/90 backdrop-blur-xl border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors cursor-pointer">
+      <div className="bg-white/[0.03] backdrop-blur-[12px] border border-white/5 shadow-2xl text-on-surface p-8 rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar relative">
+        <button aria-label="Close Modal" title="Close Modal" onClick={onClose} className="absolute top-6 right-6 text-on-surface-variant hover:text-primary transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none rounded-xl p-1">
           <X size={24} />
         </button>
         <h3 className="text-3xl font-bold text-center mb-2 tracking-tight">Join a Server</h3>
-        <p className="text-gray-400 text-center mb-8">Enter an invite code to join your friends.</p>
+        <p className="text-on-surface-variant text-center mb-8">Enter an invite code to join your friends.</p>
         <form onSubmit={handleJoin}>
           <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Invite Code</label>
-          <div className="flex items-center bg-black/30 rounded-xl border border-white/5 mt-2 mb-4 px-4 focus-within:border-primary transition-all">
-            <LinkIcon size={18} className="text-gray-500 mr-3" />
+          <div className="flex items-center bg-surface-container-lowest border border-transparent shadow-inner rounded-xl mt-2 mb-4 px-4 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary focus-within:outline-none transition-all">
+            <LinkIcon size={18} className="text-gray-500 mr-3" aria-hidden="true" />
             <input 
-              className="bg-transparent border-none outline-none w-full py-3 text-white placeholder-gray-600" 
+              className="bg-transparent border-none outline-none w-full py-3 text-on-surface placeholder-gray-600 focus-visible:outline-none"
               type="text" 
               value={inviteCode} 
               onChange={(e) => setInviteCode(e.target.value)} 
@@ -80,8 +80,8 @@ export default function JoinServerModal({ session, onClose, onJoinSuccess }) {
           </div>
           {error && <p className="text-red-400 text-sm font-medium mb-4 text-center">{error}</p>}
           <div className="flex justify-end items-center gap-4 mt-8">
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer px-4 py-2 font-medium transition-colors">Cancel</button>
-            <button type="submit" disabled={loading} className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-opacity-90 transition-all shadow-lg shadow-primary/30 cursor-pointer disabled:opacity-50 flex items-center gap-2">
+            <button type="button" onClick={onClose} className="bg-white/5 text-on-surface-variant hover:text-white hover:bg-white/10 font-bold py-3.5 px-6 rounded-xl transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none">Cancel</button>
+            <button type="submit" disabled={loading} className="bg-gradient-to-r from-primary to-primary-container text-on-primary-fixed font-bold py-3.5 px-6 rounded-xl hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none">
               {loading ? <Loader2 size={18} className="animate-spin" /> : 'Join Server'}
             </button>
           </div>

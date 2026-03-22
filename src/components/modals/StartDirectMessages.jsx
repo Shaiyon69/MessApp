@@ -66,11 +66,11 @@ export default function StartDMModal({ session, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-      <div className="bg-[#0B0F19] border border-white/10 text-white p-8 rounded-3xl w-full max-w-md shadow-2xl relative overflow-hidden">
+      <div className="bg-white/[0.03] backdrop-blur-[12px] border border-white/5 shadow-2xl text-on-surface p-8 rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar relative overflow-hidden">
         
         <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-[rgb(var(--accent))]/10 to-transparent pointer-events-none" />
 
-        <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors cursor-pointer z-10">
+        <button aria-label="Close Modal" title="Close Modal" onClick={onClose} className="absolute top-6 right-6 text-on-surface-variant hover:text-primary transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none rounded-xl p-1 z-10">
           <X size={24} />
         </button>
         
@@ -81,10 +81,10 @@ export default function StartDMModal({ session, onClose }) {
         {!foundUser ? (
           <form onSubmit={handleSearch} className="relative z-10">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 block mb-2">Recipient Tag</label>
-            <div className="flex items-center bg-black/40 rounded-xl border border-white/10 px-4 focus-within:border-[rgb(var(--accent))] focus-within:shadow-[0_0_15px_rgba(var(--accent),0.15)] transition-all mb-4 shadow-inner">
-              <Search size={18} className="text-gray-500 mr-3" />
+            <div className="flex items-center bg-surface-container-lowest border border-transparent focus-within:border-[rgb(var(--accent))] focus-within:shadow-[0_0_15px_rgba(var(--accent),0.15)] focus-within:ring-2 focus-within:ring-[rgb(var(--accent))] focus-within:outline-none transition-all mb-4 shadow-inner rounded-xl px-4">
+              <Search size={18} className="text-gray-500 mr-3" aria-hidden="true" />
               <input 
-                className="bg-transparent border-none outline-none w-full py-4 text-white placeholder-gray-600 font-medium" 
+                className="bg-transparent border-none outline-none w-full py-4 text-on-surface placeholder-gray-600 font-medium focus-visible:outline-none"
                 type="text" 
                 value={tag} 
                 onChange={(e) => setTag(e.target.value)} 
@@ -98,16 +98,16 @@ export default function StartDMModal({ session, onClose }) {
             <button 
               type="submit" 
               disabled={loading} 
-              className="w-full bg-[rgb(var(--accent))] text-white py-4 rounded-xl font-bold hover:brightness-110 shadow-[0_0_15px_rgba(var(--accent),0.3)] flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-primary to-primary-container text-on-primary-fixed font-bold py-3.5 px-6 rounded-xl hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
             >
-              {loading ? <Loader2 size={20} className="animate-spin" /> : <><Search size={20} /> Search User</>}
+              {loading ? <Loader2 size={20} className="animate-spin" /> : <><Search size={20} aria-hidden="true" /> Search User</>}
             </button>
           </form>
         ) : (
           <div className="relative z-10 flex flex-col items-center">
             
-            <div className="bg-black/40 border border-white/10 p-6 rounded-2xl w-full flex flex-col items-center gap-4 mb-8 shadow-inner">
-              <div className="h-24 w-24 rounded-full bg-black/50 border-2 border-[rgb(var(--accent))] shadow-[0_0_15px_rgba(var(--accent),0.3)] flex items-center justify-center overflow-hidden">
+            <div className="bg-surface-container-lowest border border-transparent p-6 rounded-2xl w-full flex flex-col items-center gap-4 mb-8 shadow-inner">
+              <div className="h-24 w-24 rounded-full bg-surface-container border-2 border-[rgb(var(--accent))] shadow-[0_0_15px_rgba(var(--accent),0.3)] flex items-center justify-center overflow-hidden">
                 {foundUser.avatar_url ? (
                   <img src={foundUser.avatar_url} alt={foundUser.username} className="h-full w-full object-cover" />
                 ) : (
@@ -115,7 +115,7 @@ export default function StartDMModal({ session, onClose }) {
                 )}
               </div>
               <div className="text-center">
-                <h4 className="text-2xl font-bold text-white">{foundUser.username}</h4>
+                <h4 className="text-2xl font-bold text-on-surface">{foundUser.username}</h4>
                 <p className="text-[rgb(var(--accent))] font-mono font-medium mt-1 bg-[rgb(var(--accent))]/10 px-3 py-1 rounded-lg border border-[rgb(var(--accent))]/20 inline-block">
                   {foundUser.unique_tag}
                 </p>
@@ -129,18 +129,18 @@ export default function StartDMModal({ session, onClose }) {
                 type="button" 
                 onClick={() => { setFoundUser(null); setError(''); }}
                 disabled={loading}
-                className="flex-1 bg-white/5 text-gray-300 py-4 rounded-xl font-bold hover:bg-white/10 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="flex-1 bg-white/5 text-on-surface-variant hover:text-white hover:bg-white/10 font-bold py-3.5 px-6 rounded-xl transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                <ArrowLeft size={18} /> Back
+                <ArrowLeft size={18} aria-hidden="true" /> Back
               </button>
               
               <button 
                 type="button" 
                 onClick={handleSendRequest}
                 disabled={loading} 
-                className="flex-[2] bg-[rgb(var(--accent))] text-white py-4 rounded-xl font-bold hover:brightness-110 shadow-[0_0_15px_rgba(var(--accent),0.3)] flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                className="flex-[2] bg-gradient-to-r from-primary to-primary-container text-on-primary-fixed font-bold py-3.5 px-6 rounded-xl hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
               >
-                {loading ? <Loader2 size={20} className="animate-spin" /> : <><UserPlus size={20} /> Send Request</>}
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <><UserPlus size={20} aria-hidden="true" /> Send Request</>}
               </button>
             </div>
           </div>

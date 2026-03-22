@@ -725,40 +725,43 @@ export default function Dashboard({ session }) {
 
   const filteredMessages = searchQuery ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase())) : messages
 
-  const glassPanel = "bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl flex flex-col overflow-hidden"
+  const glassPanel = "bg-white/[0.03] backdrop-blur-[12px] border border-white/5 shadow-2xl rounded-2xl flex flex-col overflow-hidden"
 
   return (
-    <div className="flex h-screen w-screen bg-[#0B0F19] p-4 gap-4 text-gray-100 overflow-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-[rgb(var(--accent))]/10 via-[#0B0F19] to-[#05080f]">
+    <div className="flex h-screen w-screen bg-background p-4 gap-4 text-on-surface overflow-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-[rgb(var(--accent))]/10 via-background to-background">
       <Toaster position="top-center" toastOptions={{ style: { background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' } }} />
       
       <div className={`w-20 items-center py-4 gap-4 shrink-0 ${glassPanel}`}>
         <div 
           onClick={handleHomeClick} 
-          className={`h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer transition-all border border-white/10 mb-2 ${view === 'home' ? 'bg-[rgb(var(--accent))] text-white shadow-[0_0_15px_rgba(var(--accent),0.5)]' : 'bg-white/5 text-gray-400 hover:bg-[rgb(var(--accent))]/20 hover:text-white'}`}
+          className={`h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer transition-all border border-white/5 mb-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${view === 'home' ? 'bg-[rgb(var(--accent))] text-white shadow-[0_0_15px_rgba(var(--accent),0.5)]' : 'bg-white/5 text-gray-400 hover:bg-[rgb(var(--accent))]/20 hover:text-white'}`}
+          aria-label="Home"
+          title="Home"
+          tabIndex={0}
         >
           <Home size={22} />
         </div>
-        <div className="w-8 h-[1px] bg-white/10 mb-2" />
+        <div className="w-8 h-[1px] bg-white/5 mb-2" />
         {servers.map(s => (
-          <div key={s.id} onClick={() => handleServerClick(s)} className={`h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer transition-all mb-2 border border-white/10 font-bold text-lg ${activeServer?.id === s.id && view === 'server' ? 'bg-[rgb(var(--accent))] text-white shadow-[0_0_15px_rgba(var(--accent),0.5)]' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'}`}>
+          <div key={s.id} onClick={() => handleServerClick(s)} tabIndex={0} className={`h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer transition-all mb-2 border border-white/5 font-bold text-lg focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${activeServer?.id === s.id && view === 'server' ? 'bg-[rgb(var(--accent))] text-white shadow-[0_0_15px_rgba(var(--accent),0.5)]' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'}`}>
             {s.name[0].toUpperCase()}
           </div>
         ))}
-        <div onClick={() => setShowCreateModal(true)} className="h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer bg-white/5 text-[rgb(var(--accent))] border border-white/10 hover:bg-[rgb(var(--accent))] hover:text-white mt-auto mb-2 transition-all"><Plus size={22} /></div>
-        <div onClick={() => setShowJoinModal(true)} className="h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer bg-white/5 text-green-400 border border-white/10 hover:bg-green-500 hover:text-white transition-all"><Compass size={22} /></div>
+        <div onClick={() => setShowCreateModal(true)} tabIndex={0} aria-label="Create Server" title="Create Server" className="h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer bg-white/5 text-[rgb(var(--accent))] border border-white/5 hover:bg-[rgb(var(--accent))] hover:text-white mt-auto mb-2 transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><Plus size={22} /></div>
+        <div onClick={() => setShowJoinModal(true)} tabIndex={0} aria-label="Join Server" title="Join Server" className="h-12 w-12 flex items-center justify-center rounded-2xl cursor-pointer bg-white/5 text-green-400 border border-white/5 hover:bg-green-500 hover:text-white transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><Compass size={22} /></div>
       </div>
 
       <div className={`w-72 shrink-0 ${glassPanel}`}>
-        <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/[0.02]">
-          <h3 className="font-bold text-lg truncate text-white">{view === 'home' ? 'Direct Messages' : activeServer?.name}</h3>
+        <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-surface/80 backdrop-blur-xl shrink-0">
+          <h3 className="font-bold text-lg truncate text-on-surface">{view === 'home' ? 'Direct Messages' : activeServer?.name}</h3>
           {view === 'server' && activeServer?.owner_id === session.user.id && (
-            <button onClick={() => { setServerSettingsName(activeServer.name); setShowServerSettings(true); }} className="text-gray-400 hover:text-white transition-colors cursor-pointer p-1.5 hover:bg-white/10 rounded-lg"><Settings size={18} /></button>
+            <button aria-label="Server Settings" title="Server Settings" onClick={() => { setServerSettingsName(activeServer.name); setShowServerSettings(true); }} className="text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer p-2 rounded-xl shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><Settings size={18} /></button>
           )}
         </div>
         <div className="flex-1 p-4 overflow-y-auto custom-scrollbar">
           {view === 'home' ? (
              <div className="space-y-4">
-                <button onClick={() => setShowDmModal(true)} className="w-full flex items-center gap-2 p-3 rounded-xl bg-[rgb(var(--accent))]/10 text-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/20 transition-all font-bold text-sm border border-[rgb(var(--accent))]/20">
+                <button onClick={() => setShowDmModal(true)} className="w-full flex items-center gap-2 p-3 rounded-xl bg-[rgb(var(--accent))]/10 text-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/20 transition-all font-bold text-sm border border-[rgb(var(--accent))]/20 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none">
                   <UserPlus size={16}/> Add Friend
                 </button>
                 <div className="space-y-1 mt-2">
@@ -782,7 +785,7 @@ export default function Dashboard({ session }) {
             <>
                <div className="flex items-center justify-between mb-4 px-2 text-gray-400">
                 <span className="text-xs font-bold uppercase tracking-widest">Text Channels</span>
-                {activeServer?.owner_id === session.user.id && <button onClick={() => setShowChannelModal(true)} className="cursor-pointer hover:text-white p-1 hover:bg-white/10 rounded-md transition-all"><Plus size={16} /></button>}
+                {activeServer?.owner_id === session.user.id && <button aria-label="Create Channel" title="Create Channel" onClick={() => setShowChannelModal(true)} className="p-2 rounded-xl text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><Plus size={16} /></button>}
               </div>
               <div className="space-y-1">
                 {channels.map(c => {
@@ -798,8 +801,10 @@ export default function Dashboard({ session }) {
                       <div className="flex items-center gap-2 shrink-0">
                         {activeServer?.owner_id === session.user.id && (
                           <button 
+                            aria-label="Channel Settings"
+                            title="Channel Settings"
                             onClick={(e) => { e.stopPropagation(); setChannelToEdit(c); setChannelSettingsName(c.name); setShowChannelSettings(true); }} 
-                            className="text-gray-500 hover:text-white p-1.5 rounded-md hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            className="text-on-surface-variant hover:text-primary hover:bg-primary/10 p-2 rounded-xl transition-colors shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
                           >
                             <Settings size={16}/>
                           </button>
@@ -814,14 +819,14 @@ export default function Dashboard({ session }) {
           )}
         </div>
         
-        <div className="p-4 border-t border-white/5 bg-black/20 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3 overflow-hidden cursor-pointer group flex-1 p-1 hover:bg-white/5 rounded-xl transition-all" onClick={() => setShowUserSettings(true)}>
+        <div className="p-4 border-t border-white/5 bg-surface/80 flex items-center justify-between gap-2 shrink-0">
+          <div tabIndex={0} aria-label="User Settings" className="flex items-center gap-3 overflow-hidden cursor-pointer group flex-1 p-1 hover:bg-white/5 rounded-xl transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none" onClick={() => setShowUserSettings(true)}>
             <div className="h-10 w-10 rounded-full bg-[rgb(var(--accent))] flex items-center justify-center shadow-lg shrink-0 overflow-hidden border border-white/10 relative">
               {myAvatar ? <img src={myAvatar} alt="Avatar" className="h-full w-full object-cover" /> : <span className="font-bold text-sm text-white">{session.user.user_metadata?.username?.charAt(0) || 'U'}</span>}
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Settings size={16} className="text-white" /></div>
             </div>
             <div className="flex flex-col truncate">
-              <span className="text-sm font-bold text-white truncate">{session.user.user_metadata?.username}</span>
+              <span className="text-sm font-bold text-on-surface truncate">{session.user.user_metadata?.username}</span>
               <span className="text-[10px] text-[rgb(var(--accent))] font-bold tracking-wide">Online</span>
             </div>
           </div>
@@ -830,44 +835,45 @@ export default function Dashboard({ session }) {
               e.stopPropagation();
               supabase.auth.signOut();
             }} 
-            className="text-gray-400 hover:text-[rgb(var(--accent))] p-2.5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+            className="p-2 rounded-xl text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
             title="Log Out"
+            aria-label="Log Out"
           >
             <LogOut size={18} />
           </button>
         </div>
       </div>
 
-      <div className={`flex-1 ${glassPanel} flex flex-col relative`}>
-        <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/[0.02] shrink-0">
+      <div className={`flex-1 min-w-0 ${glassPanel} flex flex-col relative`}>
+        <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-surface/80 backdrop-blur-xl shrink-0">
           <div className="flex items-center gap-3">
             {view === 'home' && activeDm ? (
-              <><span className="text-gray-500">@</span><h2 className="font-bold text-lg text-white">{activeDm.profiles.username}</h2></>
+              <><span className="text-gray-500">@</span><h2 className="font-bold text-lg text-on-surface">{activeDm.profiles.username}</h2></>
             ) : view === 'server' && activeChannel ? (
-              <><Hash size={20} className="text-gray-500" /><h2 className="font-bold text-lg text-white">{activeChannel.name}</h2></>
+              <><Hash size={20} className="text-gray-500" /><h2 className="font-bold text-lg text-on-surface">{activeChannel.name}</h2></>
             ) : (
               <h2 className="font-bold text-lg text-gray-400">Welcome</h2>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => { setShowRightSidebar(true); setRightTab('search'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'search' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Search size={20}/></button>
+            <button aria-label="Search" title="Search" onClick={() => { setShowRightSidebar(true); setRightTab('search'); }} className={`p-2 rounded-xl transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'search' && showRightSidebar ? 'bg-primary/20 text-primary' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Search size={20}/></button>
             
-            <button onClick={() => { setShowRightSidebar(true); setRightTab('notifications'); }} className={`relative p-2 rounded-lg transition-all ${rightTab === 'notifications' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
+            <button aria-label="Notifications" title="Notifications" onClick={() => { setShowRightSidebar(true); setRightTab('notifications'); }} className={`relative p-2 rounded-xl transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'notifications' && showRightSidebar ? 'bg-primary/20 text-primary' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}>
               <Bell size={20}/>
               {friendRequests.length > 0 && <span className="absolute top-1 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>}
             </button>
             
             {view === 'server' && (
-              <button onClick={() => { setShowRightSidebar(true); setRightTab('members'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'members' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Users size={20}/></button>
+              <button aria-label="Members" title="Members" onClick={() => { setShowRightSidebar(true); setRightTab('members'); }} className={`p-2 rounded-xl transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'members' && showRightSidebar ? 'bg-primary/20 text-primary' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Users size={20}/></button>
             )}
             
-            <button onClick={() => { setShowRightSidebar(true); setRightTab('info'); }} className={`p-2 rounded-lg transition-all ${rightTab === 'info' && showRightSidebar ? 'bg-[rgb(var(--accent))]/20 text-[rgb(var(--accent))]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}><Info size={20}/></button>
+            <button aria-label="Info" title="Info" onClick={() => { setShowRightSidebar(true); setRightTab('info'); }} className={`p-2 rounded-xl transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'info' && showRightSidebar ? 'bg-primary/20 text-primary' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Info size={20}/></button>
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 flex flex-col relative overflow-hidden">
-            <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-6" ref={scrollContainerRef}>
+        <div className="flex-1 min-w-0 flex overflow-hidden">
+          <div className="flex-1 min-w-0 flex flex-col relative overflow-hidden">
+            <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-6 custom-scrollbar" ref={scrollContainerRef}>
               {messages.length === 0 && (activeChannel || activeDm) && (
                 <div className="flex-1 flex flex-col items-center justify-center text-gray-500 opacity-50">
                   <div className="h-20 w-20 bg-white/5 rounded-3xl flex items-center justify-center mb-4 border border-white/10 shadow-lg">
@@ -889,7 +895,7 @@ export default function Dashboard({ session }) {
                     </div>
                     {editingMessageId === m.id ? (
                       <form onSubmit={(e) => handleUpdateMessage(e, m.id)} className="mt-1">
-                        <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className="w-full bg-black/40 text-white px-4 py-2.5 rounded-xl border border-[rgb(var(--accent))] outline-none shadow-inner text-sm" autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
+                        <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className="w-full bg-surface-container-lowest border border-transparent focus:border-[rgb(var(--accent))] px-4 py-2.5 rounded-xl outline-none shadow-inner text-sm text-on-surface focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none" autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
                         <span className="text-[10px] text-gray-500 mt-1 block">Press Enter to save, Esc to cancel</span>
                       </form>
                     ) : (
@@ -921,9 +927,9 @@ export default function Dashboard({ session }) {
                     )}
                   </div>
                   {m.profile_id === session.user.id && editingMessageId !== m.id && (
-                    <div className="absolute -top-3 right-4 hidden group-hover:flex gap-1 bg-[#121826] border border-white/10 p-1 rounded-lg shadow-xl">
-                      <button onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); }} className="text-gray-400 hover:text-white p-1.5 hover:bg-white/10 rounded-md transition-all"><Pen size={14}/></button>
-                      <button onClick={() => handleDeleteMessage(m.id)} className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/20 rounded-md transition-all"><Trash2 size={14}/></button>
+                    <div className="absolute -top-3 right-4 hidden group-hover:flex gap-1 bg-surface-container border border-white/10 p-1 rounded-lg shadow-xl">
+                      <button aria-label="Edit Message" title="Edit Message" onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); }} className="text-on-surface-variant hover:text-primary hover:bg-primary/10 p-1.5 rounded-md transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><Pen size={14}/></button>
+                      <button aria-label="Delete Message" title="Delete Message" onClick={() => handleDeleteMessage(m.id)} className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/20 rounded-md transition-all focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><Trash2 size={14}/></button>
                     </div>
                   )}
                 </div>
@@ -932,19 +938,21 @@ export default function Dashboard({ session }) {
             </div>
 
             {(activeChannel || activeDm) && (
-              <form onSubmit={handleSendMessage} className="p-4 bg-white/[0.02] border-t border-white/5 shrink-0 flex items-end gap-3 z-10">
+              <form onSubmit={handleSendMessage} className="p-4 bg-surface/80 border-t border-white/5 shrink-0 flex items-end gap-3 z-10">
                 <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                 <button 
                   type="button"
+                  aria-label="Upload Image"
+                  title="Upload Image"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
-                  className={`p-3.5 rounded-2xl bg-black/40 border border-white/10 transition-all mb-1 flex items-center justify-center shadow-inner ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/10 text-gray-400 hover:text-[rgb(var(--accent))] hover:border-[rgb(var(--accent))]/30'}`}
+                  className={`p-3.5 rounded-2xl bg-surface-container-lowest border border-transparent transition-all mb-1 flex items-center justify-center shadow-inner focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/10 text-on-surface-variant hover:text-primary'}`}
                 >
                   <ImagePlus size={20} className={isUploading ? "animate-pulse" : ""} />
                 </button>
                 <div className="flex-1 relative">
                   <textarea 
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-[rgb(var(--accent))] focus:shadow-[0_0_15px_rgba(var(--accent),0.15)] text-white resize-none custom-scrollbar transition-all shadow-inner" 
+                    className="w-full bg-surface-container-lowest border border-transparent rounded-2xl px-6 py-4 outline-none focus:border-[rgb(var(--accent))] focus:shadow-[0_0_15px_rgba(var(--accent),0.15)] text-on-surface resize-none custom-scrollbar transition-all shadow-inner focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
                     placeholder={view === 'home' ? `Message @${activeDm?.profiles?.username}` : `Message #${activeChannel?.name}`} 
                     value={newMessage} 
                     onChange={(e) => setNewMessage(e.target.value)} 
@@ -958,17 +966,17 @@ export default function Dashboard({ session }) {
           </div>
 
           {showRightSidebar && (
-            <div className="w-72 bg-black/20 border-l border-white/5 flex flex-col shrink-0">
+            <div className="w-72 bg-surface border-l border-white/5 flex flex-col shrink-0">
               <div className="h-[52px] flex items-center justify-between px-4 border-b border-white/5">
-                <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
+                <div className="flex gap-1 bg-surface-container-lowest p-1 rounded-lg border border-transparent shadow-inner">
                   {view === 'server' && (
-                    <button onClick={() => setRightTab('members')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'members' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Users size={14}/></button>
+                    <button aria-label="Members Tab" title="Members Tab" onClick={() => setRightTab('members')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'members' ? 'bg-primary/20 text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Users size={14}/></button>
                   )}
-                  <button onClick={() => setRightTab('search')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'search' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Search size={14}/></button>
-                  <button onClick={() => setRightTab('notifications')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'notifications' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Bell size={14}/></button>
-                  <button onClick={() => setRightTab('info')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 ${rightTab === 'info' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}><Info size={14}/></button>
+                  <button aria-label="Search Tab" title="Search Tab" onClick={() => setRightTab('search')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'search' ? 'bg-primary/20 text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Search size={14}/></button>
+                  <button aria-label="Notifications Tab" title="Notifications Tab" onClick={() => setRightTab('notifications')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'notifications' ? 'bg-primary/20 text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Bell size={14}/></button>
+                  <button aria-label="Info Tab" title="Info Tab" onClick={() => setRightTab('info')} className={`p-1.5 rounded-md transition-all flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none ${rightTab === 'info' ? 'bg-primary/20 text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}><Info size={14}/></button>
                 </div>
-                <button onClick={() => setShowRightSidebar(false)} className="text-gray-500 hover:text-white p-1 rounded-md hover:bg-white/10 transition-all"><X size={16}/></button>
+                <button aria-label="Close Sidebar" title="Close Sidebar" onClick={() => setShowRightSidebar(false)} className="text-on-surface-variant hover:text-primary p-2 rounded-xl hover:bg-primary/10 transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"><X size={16}/></button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
@@ -1037,14 +1045,14 @@ export default function Dashboard({ session }) {
                 
                 {rightTab === 'search' && (
                   <div>
-                    <div className="bg-black/40 border border-white/10 rounded-xl flex items-center px-3 py-2 mb-4 focus-within:border-[rgb(var(--accent))] transition-all shadow-inner">
+                    <div className="bg-surface-container-lowest border border-transparent rounded-xl flex items-center px-3 py-2 mb-4 focus-within:border-[rgb(var(--accent))] focus-within:ring-2 focus-within:ring-[rgb(var(--accent))] transition-all shadow-inner focus-within:outline-none">
                       <Search size={16} className="text-gray-500 mr-2" />
                       <input 
                         type="text" 
                         placeholder="Search messages..." 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-transparent border-none outline-none text-white text-sm w-full"
+                        className="bg-transparent border-none outline-none text-on-surface text-sm w-full focus-visible:outline-none"
                       />
                     </div>
                     {searchQuery && filteredMessages.length === 0 && (
