@@ -54,9 +54,7 @@ export function createPeerConnection({ onData, onOpen, onClose, onIce }) {
     createAnswer: async () => await pc.createAnswer(),
     addIceCandidate: async (candidate) => await pc.addIceCandidate(candidate),
     close: () => {
-      try { pc.close() } catch {
-        // ignore errors on close
-      }
+      try { pc.close() } catch {};
     }
   }
 }
