@@ -21,6 +21,7 @@
     "@capacitor/core": "^7.6.0",
     "@supabase/supabase-js": "^2.49.1",
     "@tailwindcss/vite": "^4.0.9",
+    "browser-image-compression": "^2.0.2",
     "lucide-react": "^0.477.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

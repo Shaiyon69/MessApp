@@ -79,7 +79,7 @@ export default function Register({ switchToLogin }) {
         <div className="flex gap-6 mt-16 md:mt-0 pt-8 text-xs font-bold text-gray-500 uppercase tracking-widest">
           <span>BUILT BY SKIBIDEVS</span>
           <span className="w-8 h-[1px] bg-gray-700 my-auto"></span>
-          <span>MESSAPP BETA V0.1.0</span>
+          <span>MESSAPP BETA V0.1.1</span>
         </div>
       </div>
 
@@ -162,7 +162,7 @@ export default function Register({ switchToLogin }) {
                 <span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>
               ) : (
                 <>
-                  <span className="text-[#0d0f12]">Establish Identity</span>
+                  <span className="text-[#0d0f12]">Establish Who You Are</span>
                   <span className="material-symbols-outlined text-[20px] text-[#0d0f12]" aria-hidden="true">arrow_forward</span>
                 </>
               )}
