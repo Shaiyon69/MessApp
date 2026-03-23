@@ -49,7 +49,7 @@ export default function Login({ switchToRegister }) {
         <div className="flex gap-6 mt-16 md:mt-0 pt-8 text-xs font-bold text-gray-500 uppercase tracking-widest">
           <span>BUILT BY SKIBIDEVS</span>
           <span className="w-8 h-[1px] bg-gray-700 my-auto"></span>
-          <span>MESSAPP BETA V0.1.0</span>
+          <span>MESSAPP BETA V0.1.1</span>
         </div>
       </div>
 
