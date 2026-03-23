@@ -1,13 +1,16 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import imageCompression from 'browser-image-compression'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
+import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
+import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
 import { cacheMessage, cacheThumbnail } from '../lib/cacheManager'
-import { Settings, Pen, Send, LogOut, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, MoreVertical, Lock, User } from 'lucide-react'
+import { Settings, Pen, Send, LogOut, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, MoreVertical, Lock, User, Ban } from 'lucide-react'
 
 import ServerCreationModal from './modals/ServerCreation'
 import ServerSettingsModal from './modals/ServerSettings'
@@ -18,11 +21,28 @@ import JoinServerModal from './modals/JoinServer'
 import StartDMModal from './modals/StartDirectMessages'
 
 const THEME_COLORS = [
-  { name: 'Indigo', value: '99 102 241' },
-  { name: 'Pink', value: '241 153 247' },
-  { name: 'Green', value: '16 185 129' },
-  { name: 'Purple', value: '168 85 247' }
+  { name: 'Indigo', value: '#6366f1' },
+  { name: 'Pink', value: '#ec4899' },
+  { name: 'Green', value: '#10b981' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Rose', value: '#f43f5e' },
+  { name: 'Amber', value: '#f59e0b' }
 ]
+
+const WALLPAPERS = [
+  { id: 'default', name: 'Clean Dark' },
+  { id: 'doodles', name: 'Doodles' },
+  { id: 'galaxy', name: 'Galaxy' },
+  { id: 'glow', name: 'Ambient Glow' }
+]
+
+// Dynamically generate wallpaper CSS based on the chosen theme color
+const getWallpaperCSS = (id, hexColor) => {
+  if (id === 'doodles') return 'url("https://www.transparenttextures.com/patterns/connected.png")'
+  if (id === 'galaxy') return `radial-gradient(circle at top right, ${hexColor}40 0%, transparent 60%), radial-gradient(circle at bottom left, ${hexColor}1a 0%, transparent 50%)`
+  if (id === 'glow') return `radial-gradient(circle at center, ${hexColor}33 0%, transparent 70%)`
+  return 'none'
+}
 
 export default function Dashboard({ session }) {
   const [view, setView] = useState('home')
@@ -34,12 +54,12 @@ export default function Dashboard({ session }) {
   const [activeChannel, setActiveChannel] = useState(null)
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
-  const [activeTheme, setActiveTheme] = useState('99 102 241')
 
   const [onlineUsers, setOnlineUsers] = useState([])
   const [serverMembers, setServerMembers] = useState([])
   const [channelReads, setChannelReads] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
+  const [blockedUsers, setBlockedUsers] = useState([]) 
 
   const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [rightTab, setRightTab] = useState('search')
@@ -55,6 +75,10 @@ export default function Dashboard({ session }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showUserSettings, setShowUserSettings] = useState(false)
+  const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
+  const [messageToDelete, setMessageToDelete] = useState(null)
+  const [deleteMode, setDeleteMode] = useState('everyone') 
 
   const [newServerName, setNewServerName] = useState('')
   const [serverSettingsName, setServerSettingsName] = useState('')
@@ -111,6 +135,36 @@ export default function Dashboard({ session }) {
     }
   }, [session]) 
 
+  // 🎨 Real-time Sync for DM Settings (Theme / Wallpapers)
+  useEffect(() => {
+    const roomSub = supabase.channel('dm-rooms-updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_rooms' }, (payload) => {
+         setDms(current => current.map(dm => {
+           if (dm.dm_room_id === payload.new.id) {
+              return { ...dm, dm_rooms: { theme_color: payload.new.theme_color, wallpaper: payload.new.wallpaper } }
+           }
+           return dm
+         }))
+         
+         if (activeDm && activeDm.dm_room_id === payload.new.id) {
+           setActiveDm(prev => ({ ...prev, dm_rooms: { theme_color: payload.new.theme_color, wallpaper: payload.new.wallpaper } }))
+         }
+      }).subscribe()
+
+    return () => supabase.removeChannel(roomSub)
+  }, [activeDm])
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault()
+        setShowQuickSwitcher(true)
+      }
+    }
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
   const fetchFriendRequests = async () => {
     const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag)').eq('receiver_id', session.user.id).eq('status', 'pending')
     if (data) setFriendRequests(data)
@@ -148,10 +202,54 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const handleThemeChange = (colorValue) => {
-    setActiveTheme(colorValue)
-    document.documentElement.style.setProperty('--color-primary', `#${colorValue.replace(/ /g, '')}`)
-    localStorage.setItem('dashboard-theme', colorValue)
+  // 🎨 OPTIMISTIC UI: Instantly update theme before saving to DB
+  const handleThemeChange = async (colorHex) => {
+    if (!activeDm) return;
+    
+    // Instantly update Local UI State
+    const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
+    setActiveDm(updatedDm)
+    setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
+
+    // Background push to Supabase
+    try {
+      const { error } = await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id);
+      if (error) throw error;
+    } catch (e) { 
+      console.error(e)
+      toast.error("Failed to save theme to database") 
+    }
+  }
+
+  // 🎨 OPTIMISTIC UI: Instantly update wallpaper before saving to DB
+  const handleWallpaperChange = async (wallpaperId) => {
+    if (!activeDm) return;
+    
+    // Instantly update Local UI State
+    const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), wallpaper: wallpaperId } }
+    setActiveDm(updatedDm)
+    setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
+
+    // Background push to Supabase
+    try {
+      const { error } = await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id);
+      if (error) throw error;
+    } catch (e) { 
+      console.error(e)
+      toast.error("Failed to save wallpaper to database") 
+    }
+  }
+
+  const handleToggleBlock = () => {
+    if (!activeDm) return;
+    const targetId = activeDm.profiles.id;
+    if (blockedUsers.includes(targetId)) {
+      setBlockedUsers(prev => prev.filter(id => id !== targetId));
+      toast.success(`Unblocked ${activeDm.profiles.username}`);
+    } else {
+      setBlockedUsers(prev => [...prev, targetId]);
+      toast.error(`Blocked ${activeDm.profiles.username}`, { icon: '🚫' });
+    }
   }
 
   const fetchServers = async () => {
@@ -166,27 +264,20 @@ export default function Dashboard({ session }) {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
     if (!myRooms || myRooms.length === 0) { setDms([]); return }
     const roomIds = myRooms.map(r => r.dm_room_id)
-    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, profiles!inner(id, username, avatar_url, unique_tag)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
+    const { data: otherMembers } = await supabase
+      .from('dm_members')
+      .select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag)')
+      .in('dm_room_id', roomIds)
+      .neq('profile_id', session.user.id)
+      
     if (otherMembers) {
       const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
       setDms(uniqueDms)
     }
   }
 
-  const handleServerClick = (server) => {
-    toast('Servers are currently a Work in Progress!')
-  }
-
   const handleHomeClick = () => {
     setView('home')
-    setActiveServer(null)
-    setActiveChannel(null)
-    setActiveDm(null)
-    setShowRightSidebar(false)
-  }
-
-  const handleNotificationsClick = () => {
-    setView('notifications')
     setActiveServer(null)
     setActiveChannel(null)
     setActiveDm(null)
@@ -288,6 +379,7 @@ export default function Dashboard({ session }) {
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+
     try {
       const { data, error } = await supabase.from('messages').insert([{ profile_id: session.user.id, content: text, [field]: targetId }])
       if (error) throw error
@@ -307,21 +399,41 @@ export default function Dashboard({ session }) {
     const file = e.target.files[0]
     if (!file) return
     setIsUploading(true)
+    
     try {
-      const fileExt = file.name.split('.').pop()
+      const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true, initialQuality: 0.8 }
+      toast('Optimizing image...', { icon: '🪄', id: 'compress-toast' })
+      const compressedFile = await imageCompression(file, options)
+      toast.dismiss('compress-toast')
+
+      const fileExt = compressedFile.name.split('.').pop()
       const fileName = `${Math.random()}.${fileExt}`
       const filePath = `${session.user.id}/${fileName}`
-      const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, file)
+      
+      const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, compressedFile)
       if (uploadError) throw uploadError
+      
       const { data: { publicUrl } } = await supabase.storage.from('chat-attachments').getPublicUrl(filePath)
+      
       const field = view === 'server' ? 'channel_id' : 'dm_room_id'
       const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+      
       if (!targetId) { toast.error('Select a channel or DM before sending images.'); return; }
       await supabase.from('messages').insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
       cacheThumbnail(targetId || 'global', publicUrl)
-      toast.success('Image uploaded')
-    } catch { toast.error('Failed to upload image') } 
-    finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
+      toast.success('Image optimized and uploaded')
+
+      setTimeout(() => {
+        if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
+      }, 50)
+    } catch (error) { 
+      console.error(error)
+      toast.error('Failed to upload image') 
+    } 
+    finally { 
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = '' 
+    }
   }
 
   const handleUpdateMessage = async (e, id) => {
@@ -335,17 +447,30 @@ export default function Dashboard({ session }) {
     } catch { toast.error("Failed to update message") }
   }
 
-  const handleDeleteMessage = async (id) => {
+  const confirmDeleteMessage = async () => {
+    if (!messageToDelete) return
     try {
-      const { error } = await supabase.from('messages').delete().eq('id', id)
-      if (error) throw error
+      if (deleteMode === 'everyone') {
+        const { error } = await supabase.from('messages').delete().eq('id', messageToDelete.id)
+        if (error) throw error
+      } else {
+        toast('Delete for you is pending database schema updates.', { icon: '🚧' })
+      }
       toast.success("Message deleted")
     } catch { toast.error("Failed to delete message") }
+    finally { setMessageToDelete(null) }
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage(e)
+    }
   }
 
   const handleCreateServer = async (e) => {
     e.preventDefault()
-    toast('Server creation is currently in development!')
+    toast('Server creation is currently in development!', { icon: '🚧' })
   }
 
   const handleCreateChannel = async (e) => {
@@ -395,40 +520,54 @@ export default function Dashboard({ session }) {
   
   const handleUpdateServer = async (e) => {
       e.preventDefault()
-      toast('Server settings are currently in development!')
+      toast('Server settings are currently in development!', { icon: '🚧' })
   }
   
   const handleDeleteServer = async () => {
-      toast('Server deletion is currently in development!')
-  }
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage(e)
-    }
+      toast('Server deletion is currently in development!', { icon: '🚧' })
   }
 
   const filteredMessages = searchQuery ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase())) : messages
+  const isBlocked = activeDm && blockedUsers.includes(activeDm.profiles.id)
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
+  const quickSwitcherResults = quickSwitcherQuery ? dms.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : dms
+  
+  // 🎨 DYNAMIC THEME & CSS VARIABLES
+  const currentThemeHex = (activeDm?.dm_rooms?.theme_color || '#6366f1')
+  const currentWallpaper = activeDm?.dm_rooms?.wallpaper || 'default'
+  const wallpaperCSS = getWallpaperCSS(currentWallpaper, currentThemeHex)
+
+  // Scope valid Hex colors and Hex+Opacity variables specifically to the Chat wrapper
+  const scopedChatStyle = isChatActive ? { 
+    '--theme-base': currentThemeHex,
+    '--theme-10': currentThemeHex + '1a',
+    '--theme-20': currentThemeHex + '33',
+    '--theme-50': currentThemeHex + '80',
+  } : {
+    '--theme-base': '#6366f1',
+    '--theme-10': '#6366f11a',
+    '--theme-20': '#6366f133',
+    '--theme-50': '#6366f180',
+  }
 
   return (
-    <div className="flex h-screen w-screen bg-[#0d0f12] text-white overflow-hidden font-sans selection:bg-indigo-500/30 relative z-0">
+    <div className="flex h-screen w-screen bg-[#0d0f12] text-white overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
       
-      {/* Ambient Orbs */}
+      {/* Background Ambience */}
       <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
 
       <Toaster position="top-center" toastOptions={{ style: { background: '#15171a', border: '1px solid #23252a', color: '#fff' } }} />
       
-      {/* 1. SIDE NAV BAR (Vertical Rail) */}
+      {/* 1. SIDE NAV BAR (Vertical Rail) - Always Standard Indigo */}
       <nav className="hidden md:flex flex-col h-full w-20 bg-[#0d0f12] border-r border-[#23252a] py-4 items-center shrink-0 z-50">
         <div className="mb-6 group">
           <button
             onClick={handleHomeClick}
             aria-label="Home Dashboard"
             title="Dashboard"
-            className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer ${view === 'home' || view === 'notifications' ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-[#15171a] text-indigo-500 hover:bg-white/10'}`}
+            className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer ${view === 'home' || view === 'notifications' ? 'text-white shadow-lg' : 'bg-[#15171a] text-indigo-500 hover:bg-white/10'}`}
+            style={view === 'home' || view === 'notifications' ? { backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' } : {}}
           >
             <Home size={22} aria-hidden="true" />
           </button>
@@ -440,9 +579,7 @@ export default function Dashboard({ session }) {
           {servers.map(s => (
             <button
               key={s.id}
-              onClick={() => handleServerClick(s)}
               aria-label={`Open Server: ${s.name}`}
-              title={s.name}
               className={`sidebar-icon group focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none relative`}
             >
               <span className="font-headline font-bold text-lg">{s.name[0].toUpperCase()}</span>
@@ -452,20 +589,16 @@ export default function Dashboard({ session }) {
 
         <div className="mt-auto flex flex-col gap-4 items-center pt-4 border-t border-[#23252a] w-full shrink-0">
           <button 
-            onClick={() => toast('Server creation is currently in development!')} 
-            aria-label="Create new server (WIP)" 
-            title="Create Server (WIP)"
-            className="sidebar-icon group focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none opacity-50 cursor-not-allowed"
+            onClick={() => toast('Server creation is currently in development!', { icon: '🚧' })} 
+            className="sidebar-icon group opacity-50 cursor-not-allowed"
           >
             <Plus size={24} className="text-gray-400 group-hover:text-white" aria-hidden="true" />
             <span className="sidebar-tooltip group-hover:scale-100 flex items-center gap-1"><Lock size={12}/> WIP: Create Server</span>
           </button>
           
           <button 
-            onClick={() => toast('Server exploration is currently in development!')} 
-            aria-label="Join server (WIP)" 
-            title="Explore Servers (WIP)"
-            className="sidebar-icon group focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none opacity-50 cursor-not-allowed"
+            onClick={() => toast('Server exploration is currently in development!', { icon: '🚧' })} 
+            className="sidebar-icon group opacity-50 cursor-not-allowed"
           >
             <Compass size={24} className="text-gray-400 group-hover:text-white" aria-hidden="true" />
             <span className="sidebar-tooltip group-hover:scale-100 flex items-center gap-1"><Lock size={12}/> WIP: Explore Servers</span>
@@ -473,56 +606,51 @@ export default function Dashboard({ session }) {
         </div>
       </nav>
 
-      {/* 2. SECONDARY SIDEBAR (Channels / DMs) */}
-      <aside className="w-72 h-full bg-[#15171a] flex flex-col border-r border-[#23252a] shrink-0 z-40 shadow-xl">
+      {/* 2. SECONDARY SIDEBAR (Channels / DMs) - Base Indigo overrides */}
+      <aside className="w-72 h-full bg-[#15171a] flex flex-col border-r border-[#23252a] shrink-0 z-40 shadow-xl" style={scopedChatStyle}>
         <header className="h-16 px-6 flex items-center justify-between border-b border-[#23252a] shrink-0 bg-[#0d0f12]/80 backdrop-blur-xl">
           <h2 className="font-headline font-bold text-white tracking-tight truncate">
-            {view === 'home' || view === 'notifications' ? 'MESSAPP' : activeServer?.name}
+            {view === 'home' || view === 'notifications' ? 'MessApp Home' : activeServer?.name}
           </h2>
-          {view === 'server' && activeServer?.owner_id === session.user.id && (
-            <button 
-              aria-label="Server Settings"
-              title="Server Settings"
-              onClick={() => toast('Server settings are currently in development!')} 
-              className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none shrink-0 cursor-pointer"
-            >
-              <Settings size={18} aria-hidden="true" />
-            </button>
-          )}
         </header>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar py-6 space-y-8 px-4">
           {view === 'home' || view === 'notifications' ? (
             <div className="space-y-6">
               <button 
-                onClick={() => document.getElementById('dm-search-input')?.focus()} 
-                aria-label="Start a conversation"
-                className="w-full bg-[#1c1e22] ghost-border text-white font-bold py-3.5 px-6 rounded-xl hover:bg-[#23252a] active:scale-[0.98] transition-all flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none text-sm cursor-pointer"
+                onClick={() => setShowQuickSwitcher(true)} 
+                className="w-full bg-[#1c1e22] ghost-border text-white font-bold py-3.5 px-6 rounded-xl hover:bg-[#23252a] active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-sm cursor-pointer"
               >
-                <MessageSquare size={18} aria-hidden="true" /> Start Conversation
+                <Search size={18} aria-hidden="true" /> Find or Start
               </button>
               
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3 block px-2">Direct Messages</span>
                 <div className="space-y-1">
-                  {dms.map(dm => (
-                    <button 
-                      key={dm.dm_room_id} 
-                      onClick={() => { setView('home'); setActiveDm(dm); }} 
-                      aria-label={`Direct message with ${dm.profiles.username}`}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border ${activeDm?.dm_room_id === dm.dm_room_id && view === 'home' ? 'bg-[#1c1e22] border-[#23252a] text-white shadow-inner' : 'hover:bg-white/5 text-gray-400 hover:text-white border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none'}`}
-                    >
-                      <div className="relative shrink-0">
-                        <div className="h-8 w-8 rounded-full bg-[#23252a] flex items-center justify-center overflow-hidden ghost-border">
-                          {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="h-full w-full object-cover" alt=""/> : <span className="font-bold text-xs uppercase text-white" aria-hidden="true">{dm.profiles.username[0]}</span>}
+                  {dms.map(dm => {
+                    const isActive = activeDm?.dm_room_id === dm.dm_room_id && view === 'home';
+                    // We extract the color locally so the left rail preview color matches the room theme
+                    const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
+
+                    return (
+                      <button 
+                        key={dm.dm_room_id} 
+                        onClick={() => { setView('home'); setActiveDm(dm); }} 
+                        aria-label={`Direct message with ${dm.profiles.username}`}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border ${isActive ? 'bg-[#1c1e22] border-[#23252a] shadow-inner' : 'hover:bg-white/5 text-gray-400 hover:text-white border-transparent'}`}
+                      >
+                        <div className="relative shrink-0">
+                          <div className="h-8 w-8 rounded-full bg-[#23252a] flex items-center justify-center overflow-hidden ghost-border">
+                            {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="h-full w-full object-cover" alt=""/> : <span className="font-bold text-xs uppercase text-white" aria-hidden="true">{dm.profiles.username[0]}</span>}
+                          </div>
+                          <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#15171a] rounded-full ${onlineUsers.includes(dm.profiles.id) ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></div>
                         </div>
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#15171a] rounded-full ${onlineUsers.includes(dm.profiles.id) ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                      </div>
-                      <div className="flex-1 min-w-0 text-left">
-                        <p className={`text-sm font-medium truncate ${activeDm?.dm_room_id === dm.dm_room_id && view === 'home' ? 'text-indigo-400' : ''}`}>{dm.profiles.username}</p>
-                      </div>
-                    </button>
-                  ))}
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-sm font-medium truncate transition-colors" style={{ color: isActive ? dmColor : '' }}>{dm.profiles.username}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -540,7 +668,6 @@ export default function Dashboard({ session }) {
 
         <div className="p-4 bg-[#0d0f12] border-t border-[#23252a] flex items-center gap-3 shrink-0">
           <button 
-            aria-label="Open User Settings"
             onClick={() => setShowUserSettings(true)} 
             className="flex flex-1 items-center gap-3 min-w-0 p-1.5 hover:bg-white/5 rounded-xl transition-colors text-left group cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"
           >
@@ -558,8 +685,8 @@ export default function Dashboard({ session }) {
         </div>
       </aside>
 
-      {/* 3. MAIN INTERFACE (Right) */}
-      <main className="flex-1 flex flex-col min-w-0 relative bg-[#0d0f12]">
+      {/* 3. MAIN CHAT INTERFACE - Gets the Scoped Custom CSS Variables */}
+      <main className="flex-1 flex flex-col min-w-0 relative bg-[#0d0f12]" style={scopedChatStyle}>
         <header className="h-16 flex items-center justify-between px-6 bg-[#0d0f12]/80 backdrop-blur-xl border-b border-[#23252a] shrink-0 z-30 shadow-md">
           <div className="flex items-center gap-4 min-w-0 flex-1">
             {view === 'home' && !activeDm ? (
@@ -579,7 +706,8 @@ export default function Dashboard({ session }) {
                 </div>
                 <button 
                   onClick={() => setShowDmModal(true)} 
-                  className="ml-auto bg-gradient-to-r from-indigo-500 to-indigo-600 hover:brightness-110 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-white outline-none cursor-pointer"
+                  className="ml-auto text-white px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-lg flex items-center gap-2 cursor-pointer hover:brightness-110"
+                  style={{ backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' }}
                 >
                   <UserPlus size={16} /> Add Friend
                 </button>
@@ -595,7 +723,7 @@ export default function Dashboard({ session }) {
                 <h2 className="font-headline font-bold text-white text-lg tracking-tight truncate">{activeChannel.name}</h2>
               </div>
             ) : (
-              <h2 className="font-headline font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-indigo-600 text-xl tracking-tight shrink-0 truncate animate-fade-in" key="header-dash">MessApp Observatory</h2>
+              <h2 className="font-headline font-bold text-transparent bg-clip-text text-xl tracking-tight shrink-0 truncate animate-fade-in" style={{ backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' }} key="header-dash">MessApp Observatory</h2>
             )}
           </div>
           
@@ -603,28 +731,14 @@ export default function Dashboard({ session }) {
             {isChatActive && (
               <>
                 <button 
-                  aria-label="Search Messages"
-                  title="Search"
                   onClick={() => toggleRightSidebar('search')} 
-                  className={`p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${rightTab === 'search' && showRightSidebar ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-400 hover:bg-white/10 hover:text-indigo-400'}`}
+                  className={`p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none ${rightTab === 'search' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-white/10 hover:text-[var(--theme-base)]'}`}
                 >
                   <Search size={18} aria-hidden="true" />
                 </button>
-                {view === 'server' && (
-                  <button 
-                    aria-label="View Members"
-                    title="Members"
-                    onClick={() => toggleRightSidebar('members')} 
-                    className={`hidden sm:flex p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${rightTab === 'members' && showRightSidebar ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-400 hover:bg-white/10 hover:text-indigo-400'}`}
-                  >
-                    <Users size={18} aria-hidden="true" />
-                  </button>
-                )}
                 <button 
-                  aria-label="View Info & Settings"
-                  title="Info"
                   onClick={() => toggleRightSidebar('info')} 
-                  className={`p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${rightTab === 'info' && showRightSidebar ? 'bg-indigo-500/20 text-indigo-400' : 'text-gray-400 hover:bg-white/10 hover:text-indigo-400'}`}
+                  className={`p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none ${rightTab === 'info' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-white/10 hover:text-[var(--theme-base)]'}`}
                 >
                   <Info size={18} aria-hidden="true" />
                 </button>
@@ -634,8 +748,21 @@ export default function Dashboard({ session }) {
         </header>
 
         <div className="flex-1 flex overflow-hidden relative">
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden z-10" key={view + homeTab + (activeChannel?.id || activeDm?.dm_room_id || '')}>
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative" key={view + homeTab + (activeChannel?.id || activeDm?.dm_room_id || '')}>
             
+            {/* 🎨 DYNAMIC CHAT WALLPAPER (Now fully reacts to chosen Theme Color) */}
+            {isChatActive && currentWallpaper !== 'default' && (
+              <div 
+                className="absolute inset-0 pointer-events-none z-0"
+                style={{
+                  backgroundImage: wallpaperCSS,
+                  backgroundSize: currentWallpaper === 'doodles' ? '400px' : 'cover',
+                  backgroundPosition: 'center',
+                  opacity: currentWallpaper === 'doodles' ? 0.1 : 1
+                }}
+              />
+            )}
+
             {view === 'home' && !activeDm ? (
               <div className="flex-1 flex overflow-hidden animate-fade-in bg-[#0d0f12]">
                 <div className="flex-1 flex flex-col p-6 md:p-8 overflow-y-auto custom-scrollbar border-r border-[#23252a]">
@@ -739,7 +866,7 @@ export default function Dashboard({ session }) {
 
             ) : (
               <>
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 space-y-6 animate-fade-in" ref={scrollContainerRef}>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 space-y-6 animate-fade-in relative z-10" ref={scrollContainerRef}>
                   {messages.length === 0 && (activeChannel || activeDm) && (
                     <div className="flex flex-col justify-end h-full min-h-[300px] max-w-2xl pb-10">
                       <h3 className="font-headline text-3xl font-bold tracking-tight mb-2 text-white">Welcome to {view === 'home' ? 'the beginning' : `#${activeChannel?.name}`}</h3>
@@ -748,6 +875,17 @@ export default function Dashboard({ session }) {
                   )}
 
                   {filteredMessages.map((m, index) => {
+                    const isMessageBlocked = blockedUsers.includes(m.profile_id);
+                    if (isMessageBlocked) {
+                      return (
+                        <div key={m.id} className="text-center my-4">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[#15171a] px-4 py-1.5 rounded-full ghost-border shadow-sm">
+                            Message Hidden (Blocked User)
+                          </span>
+                        </div>
+                      )
+                    }
+
                     const showHeader = index === 0 || messages[index - 1].profile_id !== m.profile_id || new Date(m.created_at) - new Date(messages[index - 1].created_at) > 300000;
                     
                     return (
@@ -765,7 +903,7 @@ export default function Dashboard({ session }) {
                         <div className="flex flex-col w-full min-w-0">
                           {showHeader && (
                             <div className="flex items-baseline gap-2 mb-1">
-                              <span className={`text-[15px] font-bold tracking-tight ${m.profile_id === session.user.id ? 'text-indigo-400' : 'text-white'}`}>{m.profiles?.username}</span>
+                              <span className={`text-[15px] font-bold tracking-tight ${m.profile_id === session.user.id ? 'text-[var(--theme-base)]' : 'text-white'}`}>{m.profiles?.username}</span>
                               <span className="text-[10px] text-gray-500 font-medium">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           )}
@@ -775,7 +913,7 @@ export default function Dashboard({ session }) {
                                 type="text" 
                                 value={editContent} 
                                 onChange={(e) => setEditContent(e.target.value)} 
-                                className="w-full max-w-3xl bg-[#15171a] text-white px-4 py-3 rounded-xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-indigo-500" 
+                                className="w-full max-w-3xl bg-[#15171a] text-white px-4 py-3 rounded-xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" 
                                 autoFocus 
                                 onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} 
                               />
@@ -783,8 +921,8 @@ export default function Dashboard({ session }) {
                             </form>
                           ) : (
                             <>
-                              <div className={`p-4 rounded-2xl rounded-tl-none border w-fit max-w-3xl ${m.profile_id === session.user.id ? 'bg-[#1c1e22] border-[#23252a]' : 'bg-[#15171a] border-[#23252a]'}`}>
-                                <div className="text-gray-200 leading-relaxed markdown-body text-[14px] break-words">
+                              <div className={`p-4 rounded-2xl rounded-tl-none border w-fit max-w-3xl ${m.profile_id === session.user.id ? 'bg-[var(--theme-10)] border-[var(--theme-20)] text-white' : 'bg-[#15171a] border-[#23252a] text-gray-200'} shadow-sm backdrop-blur-md`}>
+                                <div className="leading-relaxed markdown-body text-[14px] break-words">
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
@@ -793,10 +931,10 @@ export default function Dashboard({ session }) {
                                         return !inline && match ? (
                                           <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[#0d0f12]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
                                         ) : (
-                                          <code className="bg-black/50 text-indigo-400 px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-white/5" {...props}>{children}</code>
+                                          <code className="bg-black/50 text-[var(--theme-base)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-white/5" {...props}>{children}</code>
                                         )
                                       },
-                                      a({...props}) { return <a className="text-indigo-400 hover:underline underline-offset-2" target="_blank" rel="noreferrer" {...props} /> }
+                                      a({...props}) { return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" {...props} /> }
                                     }}
                                   >
                                     {m.content}
@@ -804,7 +942,7 @@ export default function Dashboard({ session }) {
                                 </div>
                               </div>
                               {m.image_url && (
-                                <a href={m.image_url} target="_blank" rel="noreferrer" className="block mt-3 max-w-sm rounded-xl overflow-hidden ghost-border hover:opacity-90 transition-opacity shadow-lg focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none">
+                                <a href={m.image_url} target="_blank" rel="noreferrer" className="block mt-3 max-w-sm rounded-xl overflow-hidden ghost-border hover:opacity-90 transition-opacity shadow-lg focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none">
                                   <img src={m.image_url} alt="User attachment" className="w-full object-cover" />
                                 </a>
                               )}
@@ -814,15 +952,13 @@ export default function Dashboard({ session }) {
                         {m.profile_id === session.user.id && editingMessageId !== m.id && (
                           <div className="absolute -top-3 right-4 hidden group-hover:flex gap-1 bg-[#1c1e22] ghost-border p-1 rounded-lg shadow-xl">
                             <button 
-                              aria-label="Edit Message" 
                               onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); }} 
-                              className="text-gray-400 hover:text-white p-1.5 hover:bg-white/5 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer"
+                              className="text-gray-400 hover:text-white p-1.5 hover:bg-white/5 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none cursor-pointer"
                             >
                               <Pen size={14} aria-hidden="true" />
                             </button>
                             <button 
-                              aria-label="Delete Message" 
-                              onClick={() => handleDeleteMessage(m.id)} 
+                              onClick={() => setMessageToDelete(m)} 
                               className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-500/10 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none cursor-pointer"
                             >
                               <Trash2 size={14} aria-hidden="true" />
@@ -835,185 +971,173 @@ export default function Dashboard({ session }) {
                   <div ref={messagesEndRef} className="h-4" />
                 </div>
 
-                <div className="p-6 pt-0 shrink-0 bg-[#0d0f12]">
-                  <form onSubmit={handleSendMessage} className="bg-[#15171a] rounded-2xl ghost-border flex items-end gap-2 p-2 focus-within:border-indigo-500/50 shadow-inner transition-colors">
-                    <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                    <button 
-                      type="button" 
-                      aria-label="Upload Image" 
-                      title="Upload Image"
-                      onClick={() => fileInputRef.current?.click()} 
-                      disabled={isUploading} 
-                      className="p-3 text-gray-500 hover:text-indigo-400 rounded-xl hover:bg-white/5 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer"
-                    >
-                      {isUploading ? <Loader2 className="animate-spin text-indigo-400" size={20} /> : <ImagePlus size={20} aria-hidden="true" />}
-                    </button>
-                    
-                    <textarea 
-                      className="flex-1 bg-transparent border-none outline-none text-white resize-none py-3 custom-scrollbar text-[15px] font-body min-w-0 placeholder:text-gray-600" 
-                      placeholder={`Message ${view === 'home' ? '@' + activeDm?.profiles?.username : '#' + activeChannel?.name}`} 
-                      value={newMessage} 
-                      onChange={(e) => setNewMessage(e.target.value)} 
-                      onKeyDown={handleKeyDown}
-                      rows={1}
-                      style={{ minHeight: '48px', maxHeight: '200px' }}
-                    />
-                    
-                    <button 
-                      type="submit" 
-                      aria-label="Send Message" 
-                      title="Send"
-                      disabled={!newMessage.trim() || isUploading} 
-                      className="p-3 text-indigo-500 hover:text-indigo-400 rounded-xl hover:bg-indigo-500/10 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer"
-                    >
-                      <Send size={20} aria-hidden="true" />
-                    </button>
-                  </form>
-                </div>
+                {isBlocked ? (
+                  <div className="p-4 mx-6 mb-6 text-center text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl font-bold text-sm shadow-inner z-10 relative">
+                    You cannot reply to a blocked conversation. Unblock the user to send messages.
+                  </div>
+                ) : (
+                  <div className="p-6 pt-0 shrink-0 bg-transparent z-10 relative">
+                    <form onSubmit={handleSendMessage} className="bg-[#15171a] rounded-2xl ghost-border flex items-end gap-2 p-2 focus-within:border-[var(--theme-50)] shadow-inner transition-colors">
+                      <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                      <button 
+                        type="button" 
+                        onClick={() => fileInputRef.current?.click()} 
+                        disabled={isUploading} 
+                        className="p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-white/5 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none cursor-pointer"
+                      >
+                        {isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <ImagePlus size={20} aria-hidden="true" />}
+                      </button>
+                      
+                      <textarea 
+                        className="flex-1 bg-transparent border-none outline-none text-white resize-none py-3 custom-scrollbar text-[15px] font-body min-w-0 placeholder:text-gray-600" 
+                        placeholder={`Message ${view === 'home' ? '@' + activeDm?.profiles?.username : '#' + activeChannel?.name}`} 
+                        value={newMessage} 
+                        onChange={(e) => setNewMessage(e.target.value)} 
+                        onKeyDown={handleKeyDown}
+                        rows={1}
+                        style={{ minHeight: '48px', maxHeight: '200px' }}
+                      />
+                      
+                      <button 
+                        type="submit" 
+                        disabled={!newMessage.trim() || isUploading} 
+                        className="p-3 text-[var(--theme-base)] hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--theme-10)] transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none cursor-pointer"
+                      >
+                        <Send size={20} aria-hidden="true" />
+                      </button>
+                    </form>
+                  </div>
+                )}
               </>
             )}
           </div>
 
           {/* Right Sidepanel */}
           {showRightSidebar && isChatActive && (
-            <aside className="w-80 bg-[#15171a] ghost-border flex flex-col shrink-0 z-30 shadow-2xl animate-fade-in">
+            <aside className="w-80 bg-[#15171a] border-l border-[#23252a] flex flex-col shrink-0 z-30 shadow-2xl animate-fade-in" style={scopedChatStyle}>
               <div className="h-16 flex items-center justify-between px-6 border-b border-[#23252a] shrink-0 bg-[#0d0f12]/80 backdrop-blur-xl">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                  {rightTab === 'members' ? `Members — ${serverMembers.length}` : 
-                   rightTab === 'info' ? 'Details' : 'Search'}
+                  {rightTab === 'info' ? 'Details' : 'Search'}
                 </span>
                 <button 
-                  aria-label="Close Sidebar"
                   onClick={() => setShowRightSidebar(false)} 
-                  className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer"
+                  className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none cursor-pointer"
                 >
                   <X size={18} aria-hidden="true" />
                 </button>
               </div>
 
-              {/* MESSENGER STYLE INFO TAB */}
               {rightTab === 'info' && view === 'home' && activeDm && (
                 <div className="flex flex-col h-full overflow-hidden">
                   <div className="flex flex-col items-center pt-8 pb-6 px-6 text-center border-b border-[#23252a] shrink-0">
                     <div className="relative mb-3">
-                      <div className="w-20 h-20 rounded-full bg-[#23252a] border-2 border-indigo-500 overflow-hidden flex items-center justify-center">
-                        {activeDm.profiles.avatar_url ? <img src={activeDm.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="text-2xl font-bold uppercase">{activeDm.profiles.username[0]}</span>}
+                      <div className="w-20 h-20 rounded-full bg-[#23252a] border-2 border-[var(--theme-base)] overflow-hidden flex items-center justify-center shadow-[0_0_15px_var(--theme-20)]">
+                        {activeDm.profiles.avatar_url ? <img src={activeDm.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="text-2xl font-bold uppercase text-white">{activeDm.profiles.username[0]}</span>}
                       </div>
                       {onlineUsers.includes(activeDm.profiles.id) && <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-[#15171a] rounded-full animate-pulse"></div>}
                     </div>
                     <h2 className="text-xl font-bold text-white">{activeDm.profiles.username}</h2>
-                    <p className="text-xs text-indigo-400 font-mono mt-1">{activeDm.profiles.unique_tag}</p>
+                    <p className="text-xs text-[var(--theme-base)] font-mono mt-1">{activeDm.profiles.unique_tag}</p>
 
                     <div className="flex gap-4 mt-6">
                       <button className="flex flex-col items-center gap-1.5 group cursor-pointer">
-                        <div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-indigo-500/20 transition-all"><User size={18}/></div>
+                        <div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><User size={18}/></div>
                         <span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Profile</span>
                       </button>
                       <button className="flex flex-col items-center gap-1.5 group cursor-pointer">
-                        <div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-indigo-500/20 transition-all"><Bell size={18}/></div>
+                        <div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><Bell size={18}/></div>
                         <span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Mute</span>
                       </button>
                       <button onClick={() => toggleRightSidebar('search')} className="flex flex-col items-center gap-1.5 group cursor-pointer">
-                        <div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-indigo-500/20 transition-all"><Search size={18}/></div>
+                        <div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><Search size={18}/></div>
                         <span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Search</span>
                       </button>
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                    <div className="bg-[#1c1e22] rounded-xl overflow-hidden ghost-border">
-                      <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[#23252a]/50">Customization</div>
-                      <button className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors cursor-pointer group">
-                        <span className="text-sm font-medium text-gray-300 group-hover:text-white">Chat Theme</span>
-                        <div className="w-4 h-4 rounded-full border border-white/20" style={{ backgroundColor: `rgb(${activeTheme})`}}></div>
-                      </button>
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-5">
+                    <div className="bg-[#1c1e22] rounded-xl overflow-hidden ghost-border p-4 space-y-5">
+                      <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Customization</div>
+                      
+                      <div>
+                        <span className="text-xs font-bold text-gray-400 block mb-3">Message Color</span>
+                        <div className="flex flex-wrap gap-2">
+                          {THEME_COLORS.map(c => (
+                            <button 
+                              key={c.name} 
+                              onClick={() => handleThemeChange(c.value)} 
+                              title={c.name}
+                              className={`w-6 h-6 rounded-full border-2 transition-all ${currentThemeHex === c.value ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.3)]' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'}`} 
+                              style={{ backgroundColor: c.value }} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-xs font-bold text-gray-400 block mb-3">Chat Wallpaper</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          {WALLPAPERS.map(w => (
+                            <button
+                              key={w.id}
+                              onClick={() => handleWallpaperChange(w.id)}
+                              className={`text-[10px] font-bold uppercase tracking-wide py-2 rounded-lg transition-all cursor-pointer ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border border-[var(--theme-50)] shadow-inner' : 'bg-black/20 text-gray-500 hover:text-white hover:bg-white/5 border border-transparent'}`}
+                            >
+                              {w.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="bg-[#1c1e22] rounded-xl overflow-hidden ghost-border">
                       <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[#23252a]/50">Media & Files</div>
                       <button className="w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors cursor-pointer group text-left">
-                        <ImagePlus size={16} className="text-gray-400 group-hover:text-indigo-400"/>
+                        <ImagePlus size={16} className="text-gray-400 group-hover:text-[var(--theme-base)]"/>
                         <span className="text-sm font-medium text-gray-300 group-hover:text-white flex-1">Media</span>
                       </button>
                       <div className="h-[1px] bg-white/5 mx-4"></div>
                       <button className="w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors cursor-pointer group text-left">
-                        <span className="material-symbols-outlined text-[16px] text-gray-400 group-hover:text-indigo-400" aria-hidden="true">description</span>
+                        <span className="material-symbols-outlined text-[16px] text-gray-400 group-hover:text-[var(--theme-base)]" aria-hidden="true">description</span>
                         <span className="text-sm font-medium text-gray-300 group-hover:text-white flex-1">Files</span>
                       </button>
                     </div>
 
-                    <div className="bg-[#1c1e22] rounded-xl overflow-hidden ghost-border">
+                    <div className="bg-[#1c1e22] rounded-xl overflow-hidden ghost-border mb-6">
                       <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[#23252a]/50">Privacy & Support</div>
-                      <div className="p-4 flex items-center gap-3 bg-indigo-500/10 border-b border-indigo-500/20">
-                        <Lock size={16} className="text-indigo-400" aria-hidden="true"/>
-                        <div className="flex-1 text-left">
-                          <p className="text-xs font-bold text-indigo-400">End-to-End Encrypted</p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">Messages and calls are secured.</p>
-                        </div>
-                      </div>
                       <button className="w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors cursor-pointer group text-left">
                         <Bell size={16} className="text-gray-400 group-hover:text-white"/>
                         <span className="text-sm font-medium text-gray-300 group-hover:text-white flex-1">Mute Notifications</span>
                       </button>
                       <div className="h-[1px] bg-white/5 mx-4"></div>
-                      <button className="w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors cursor-pointer group text-left">
-                        <span className="material-symbols-outlined text-[16px] text-gray-400 group-hover:text-white" aria-hidden="true">visibility_off</span>
-                        <span className="text-sm font-medium text-gray-300 group-hover:text-white flex-1">Restrict</span>
-                      </button>
-                      <div className="h-[1px] bg-white/5 mx-4"></div>
-                      <button className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
-                        <span className="material-symbols-outlined text-[16px] text-red-400 group-hover:text-red-300" aria-hidden="true">block</span>
-                        <span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">Block {activeDm.profiles.username}</span>
+                      <button onClick={handleToggleBlock} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
+                        <Ban size={16} className="text-red-400 group-hover:text-red-300"/>
+                        <span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">
+                          {blockedUsers.includes(activeDm.profiles.id) ? `Unblock ${activeDm.profiles.username}` : `Block ${activeDm.profiles.username}`}
+                        </span>
                       </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* OTHER TABS */}
-              {rightTab !== 'info' && (
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
-                  {rightTab === 'members' && view === 'server' && (
-                    <div className="space-y-2">
-                      {serverMembers.map(m => {
-                        const isOnline = onlineUsers.includes(m.profiles.id)
-                        return (
-                          <div key={m.profiles.id} className={`flex items-center gap-3 p-2 rounded-xl transition-all hover:bg-white/5 cursor-pointer ${isOnline ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}>
-                            <div className="relative shrink-0">
-                              <div className="w-8 h-8 rounded-full bg-[#23252a] overflow-hidden border border-white/5 flex items-center justify-center">
-                                {m.profiles.avatar_url ? <img src={m.profiles.avatar_url} className="h-full w-full object-cover" alt=""/> : <span className="font-bold text-xs uppercase text-white" aria-hidden="true">{m.profiles.username[0]}</span>}
-                              </div>
-                              <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#15171a] rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`} />
-                            </div>
-                            <div className="flex flex-col min-w-0">
-                              <span className={`truncate text-sm font-medium ${isOnline ? 'text-white' : 'text-gray-400'}`}>{m.profiles.username}</span>
-                              {m.role === 'owner' && <span className="text-[9px] text-indigo-400 uppercase tracking-widest font-bold mt-0.5">Admin</span>}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
+              {rightTab === 'search' && (
+                <div className="p-6">
+                  <div className="bg-[#0d0f12] ghost-border rounded-xl flex items-center px-4 py-3 mb-6 focus-within:border-[var(--theme-base)] shadow-inner transition-colors">
+                    <Search size={18} className="text-gray-500 mr-2 shrink-0" aria-hidden="true" />
+                    <input 
+                      type="text" 
+                      placeholder="Search records..." 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-600 font-medium min-w-0"
+                    />
+                  </div>
+                  {searchQuery && filteredMessages.length === 0 && (
+                    <div className="text-center text-gray-500 text-sm mt-8">No records match your query.</div>
                   )}
-
-                  {rightTab === 'search' && (
-                    <div>
-                      <div className="bg-[#0d0f12] ghost-border rounded-xl flex items-center px-4 py-3 mb-6 focus-within:border-indigo-500 shadow-inner transition-colors">
-                        <Search size={18} className="text-gray-500 mr-2 shrink-0" aria-hidden="true" />
-                        <input 
-                          type="text" 
-                          placeholder="Search records..." 
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-600 font-medium min-w-0"
-                        />
-                      </div>
-                      {searchQuery && filteredMessages.length === 0 && (
-                        <div className="text-center text-gray-500 text-sm mt-8">No records match your query.</div>
-                      )}
-                      {searchQuery && filteredMessages.length > 0 && (
-                        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">{filteredMessages.length} Matches Found</div>
-                      )}
-                    </div>
+                  {searchQuery && filteredMessages.length > 0 && (
+                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">{filteredMessages.length} Matches Found</div>
                   )}
                 </div>
               )}
@@ -1022,7 +1146,86 @@ export default function Dashboard({ session }) {
         </div>
       </main>
 
-      {/* Modals */}
+      {/* QUICK SWITCHER MODAL (Discord Style) */}
+      {showQuickSwitcher && (
+        <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[20vh] bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setShowQuickSwitcher(false)}>
+          <div className="bg-[#15171a] w-full max-w-xl rounded-xl border border-[#23252a] shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-[#23252a] flex items-center">
+              <input
+                type="text"
+                autoFocus
+                placeholder="WHERE WOULD YOU LIKE TO GO?"
+                value={quickSwitcherQuery}
+                onChange={(e) => setQuickSwitcherQuery(e.target.value)}
+                className="w-full bg-transparent text-white outline-none text-lg font-medium placeholder-gray-500 uppercase font-display"
+              />
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2 custom-scrollbar">
+              {quickSwitcherResults.length === 0 ? (
+                 <div className="text-center py-8 text-gray-500 text-sm">No friends match that name.</div>
+              ) : (
+                quickSwitcherResults.map(dm => (
+                  <button
+                    key={dm.dm_room_id}
+                    onClick={() => {
+                      setView('home')
+                      setActiveDm(dm)
+                      setShowQuickSwitcher(false)
+                      setQuickSwitcherQuery('')
+                    }}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-[#23252a] rounded-lg transition-colors text-left group focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-[#0d0f12] overflow-hidden flex items-center justify-center border border-[#23252a] shrink-0">
+                      {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xs uppercase">{dm.profiles.username[0]}</span>}
+                    </div>
+                    <span className="text-white font-medium group-hover:text-indigo-400 transition-colors">{dm.profiles.username}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {messageToDelete && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in" style={scopedChatStyle}>
+          <div className="bg-[#15171a] w-full max-w-md rounded-2xl border border-[#23252a] shadow-2xl p-6">
+            <h3 className="text-xl font-bold text-white mb-2">Delete Message</h3>
+            <p className="text-gray-400 text-sm mb-6">Are you sure you want to delete this message?</p>
+            
+            <div className="space-y-3 mb-8">
+              <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all ${deleteMode === 'everyone' ? 'border-red-500 bg-red-500/10' : 'border-[#23252a] hover:bg-white/5'}`}>
+                <input type="radio" name="delete_mode" className="hidden" checked={deleteMode === 'everyone'} onChange={() => setDeleteMode('everyone')} />
+                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${deleteMode === 'everyone' ? 'border-red-500' : 'border-gray-500'}`}>
+                  {deleteMode === 'everyone' && <div className="w-2.5 h-2.5 bg-red-500 rounded-full" />}
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm">Delete for Everyone</div>
+                  <div className="text-xs text-gray-400 mt-0.5">This message will be permanently removed for all users.</div>
+                </div>
+              </label>
+              
+              <label className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all opacity-50 ${deleteMode === 'me' ? 'border-[var(--theme-base)] bg-[var(--theme-10)]' : 'border-[#23252a] hover:bg-white/5'}`}>
+                <input type="radio" name="delete_mode" className="hidden" checked={deleteMode === 'me'} onChange={() => setDeleteMode('me')} />
+                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${deleteMode === 'me' ? 'border-[var(--theme-base)]' : 'border-gray-500'}`}>
+                  {deleteMode === 'me' && <div className="w-2.5 h-2.5 bg-[var(--theme-base)] rounded-full" />}
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm flex items-center gap-2">Delete for Me <span className="bg-[#23252a] text-[10px] px-2 py-0.5 rounded-full text-gray-400">WIP</span></div>
+                  <div className="text-xs text-gray-400 mt-0.5">This removes the message from your view only.</div>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setMessageToDelete(null)} className="flex-1 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-white/10 transition-all focus-visible:ring-2 focus-visible:ring-white cursor-pointer">Cancel</button>
+              <button onClick={confirmDeleteMessage} className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 text-white transition-all shadow-lg shadow-red-500/20 focus-visible:ring-2 focus-visible:ring-white cursor-pointer">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCreateModal && <ServerCreationModal onClose={() => setShowCreateModal(false)} handleCreate={handleCreateServer} name={newServerName} setName={setNewServerName} />}
       {showJoinModal && <JoinServerModal session={session} onClose={() => setShowJoinModal(false)} onJoinSuccess={fetchServers} />}
       {showDmModal && <StartDMModal session={session} onClose={() => setShowDmModal(false)} onChatStarted={() => { fetchDms(); setView('home'); }} />}
