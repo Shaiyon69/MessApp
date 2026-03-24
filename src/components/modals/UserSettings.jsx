@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
-import { X, Upload, Loader2, User, AlertTriangle, ShieldAlert, Copy, Check, LogOut, Palette, Bell, Lock, Link as LinkIcon, Ban, EyeOff, Camera, Edit2, Mail, Phone, Key, Shield } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, ShieldAlert, Copy, Check, LogOut, Palette, Bell, Lock, Link as LinkIcon, Camera, Edit2, Mail, Phone, Key, Shield } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const ToggleSwitch = ({ label, description, checked, onChange }) => (
@@ -31,12 +31,8 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
   const [bio, setBio] = useState(session?.user?.user_metadata?.bio || '')
   const [pronouns, setPronouns] = useState(session?.user?.user_metadata?.pronouns || '')
   
-  const [userEmail, setUserEmail] = useState(session?.user?.email || '')
-  const [userPhone, setUserPhone] = useState(session?.user?.phone || '')
-  const [isEditingEmail, setIsEditingEmail] = useState(false)
-  const [isEditingPhone, setIsEditingPhone] = useState(false)
-  const [newEmail, setNewEmail] = useState(userEmail)
-  const [newPhone, setNewPhone] = useState(userPhone)
+  const [userEmail] = useState(session?.user?.email || '')
+  const [userPhone] = useState(session?.user?.phone || '')
 
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('appTheme') || 'dark')
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('soundEnabled') !== 'false')
@@ -47,6 +43,8 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
   const [restrictedUsers, setRestrictedUsers] = useState(() => JSON.parse(localStorage.getItem(`restricted_${session.user.id}`) || '[]'))
   const [blockedProfiles, setBlockedProfiles] = useState([])
   const [restrictedProfiles, setRestrictedProfiles] = useState([])
+
+  const handleWIP = () => toast('This feature is currently a work in progress.', { icon: '🚧' })
 
   useEffect(() => {
     async function getProfile() {
@@ -148,44 +146,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
     finally { setLoading(false) }
   }
 
-  const handleUpdateEmail = async () => {
-    if (!newEmail.trim() || newEmail === userEmail) return setIsEditingEmail(false)
-    setLoading(true)
-    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() })
-    if (error) {
-      toast.error(error.message)
-    } else {
-      toast.success('Verification link sent to both emails.')
-      setUserEmail(newEmail.trim())
-      setIsEditingEmail(false)
-    }
-    setLoading(false)
-  }
-
-  const handleUpdatePhone = async () => {
-    if (!newPhone.trim() || newPhone === userPhone) return setIsEditingPhone(false)
-    setLoading(true)
-    const { error } = await supabase.auth.updateUser({ phone: newPhone.trim() })
-    if (error) {
-      toast.error(error.message)
-    } else {
-      toast.success('Verification code sent.')
-      setUserPhone(newPhone.trim())
-      setIsEditingPhone(false)
-    }
-    setLoading(false)
-  }
-
-  const handlePasswordReset = async () => {
-    setLoading(true)
-    const { error } = await supabase.auth.resetPasswordForEmail(session.user.email, {
-      redirectTo: window.location.origin
-    })
-    if (error) toast.error(error.message)
-    else toast.success('Password reset link sent to your email.')
-    setLoading(false)
-  }
-
   const handleUnblock = (id) => {
     const updated = blockedUsers.filter(u => u !== id)
     setBlockedUsers(updated)
@@ -200,11 +160,9 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
     toast.success("User unrestricted")
   }
 
-  const handleDeactivate = () => toast.error('Deactivation requires email confirmation in this beta version.')
   const handleLogout = async () => { await supabase.auth.signOut(); onClose(); }
 
   const fullTag = uniqueTag.includes('#') ? uniqueTag : `${username || 'User'}#0000`
-  const displayTagNumber = fullTag.split('#')[1]
 
   const copyTag = () => {
     navigator.clipboard.writeText(fullTag)
@@ -348,22 +306,11 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                         <Mail className="text-gray-500 mt-0.5" size={20} />
                         <div className="flex-1">
                           <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Email Address</span>
-                          {isEditingEmail ? (
-                            <input type="email" autoFocus value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full bg-[#0d0f12] text-white px-3 py-1.5 rounded border border-indigo-500 outline-none text-sm" />
-                          ) : (
-                            <span className="text-white font-medium">{userEmail || 'No email attached'}</span>
-                          )}
+                          <span className="text-white font-medium">{userEmail || 'No email attached'}</span>
                         </div>
                       </div>
                       <div className="flex gap-2 w-full sm:w-auto">
-                        {isEditingEmail ? (
-                          <>
-                            <button type="button" onClick={() => { setIsEditingEmail(false); setNewEmail(userEmail) }} className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer flex-1 sm:flex-none">Cancel</button>
-                            <button type="button" onClick={handleUpdateEmail} disabled={loading} className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer flex-1 sm:flex-none flex items-center justify-center gap-2">{loading ? <Loader2 size={16} className="animate-spin"/> : 'Save'}</button>
-                          </>
-                        ) : (
-                          <button type="button" onClick={() => setIsEditingEmail(true)} className="bg-[#0d0f12] hover:bg-[#23252a] text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer border border-[#23252a] w-full sm:w-auto">Edit</button>
-                        )}
+                         <button type="button" onClick={handleWIP} className="bg-[#0d0f12] hover:bg-[#23252a] text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer border border-[#23252a] w-full sm:w-auto">Edit</button>
                       </div>
                     </div>
 
@@ -372,22 +319,11 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                         <Phone className="text-gray-500 mt-0.5" size={20} />
                         <div className="flex-1">
                           <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Phone Number</span>
-                          {isEditingPhone ? (
-                            <input type="tel" autoFocus value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className="w-full bg-[#0d0f12] text-white px-3 py-1.5 rounded border border-indigo-500 outline-none text-sm" />
-                          ) : (
-                            <span className="text-gray-400 font-medium italic">{userPhone || 'No phone number added'}</span>
-                          )}
+                          <span className="text-gray-400 font-medium italic">{userPhone || 'No phone attached'}</span>
                         </div>
                       </div>
                       <div className="flex gap-2 w-full sm:w-auto">
-                        {isEditingPhone ? (
-                          <>
-                            <button type="button" onClick={() => { setIsEditingPhone(false); setNewPhone(userPhone) }} className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer flex-1 sm:flex-none">Cancel</button>
-                            <button type="button" onClick={handleUpdatePhone} disabled={loading} className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer flex-1 sm:flex-none flex items-center justify-center gap-2">{loading ? <Loader2 size={16} className="animate-spin"/> : 'Save'}</button>
-                          </>
-                        ) : (
-                          <button type="button" onClick={() => setIsEditingPhone(true)} className="bg-[#0d0f12] hover:bg-[#23252a] text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer border border-[#23252a] w-full sm:w-auto">{userPhone ? 'Edit' : 'Add'}</button>
-                        )}
+                         <button type="button" onClick={handleWIP} className="bg-[#0d0f12] hover:bg-[#23252a] text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer border border-[#23252a] w-full sm:w-auto">{userPhone ? 'Edit' : 'Add'}</button>
                       </div>
                     </div>
                   </div>
@@ -398,11 +334,11 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                     <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Shield size={16} /> Password & Authentication</h4>
                   </div>
                   <div className="p-5 sm:p-6 space-y-4">
-                    <button type="button" onClick={handlePasswordReset} disabled={loading} className="w-full bg-[#0d0f12] hover:bg-[#23252a] border border-[#23252a] text-white p-4 rounded-xl flex items-center justify-between transition-colors cursor-pointer group disabled:opacity-50">
+                    <button type="button" onClick={handleWIP} className="w-full bg-[#0d0f12] hover:bg-[#23252a] border border-[#23252a] text-white p-4 rounded-xl flex items-center justify-between transition-colors cursor-pointer group">
                       <div className="flex items-center gap-3"><Key size={20} className="text-indigo-400" /> <span className="font-bold">Reset Password via Email</span></div>
-                      {loading ? <Loader2 size={16} className="animate-spin text-gray-400" /> : <span className="text-xs text-gray-500 group-hover:text-white transition-colors">Send Link</span>}
+                      <span className="text-xs text-gray-500 group-hover:text-white transition-colors">Send Link</span>
                     </button>
-                    <button type="button" onClick={() => toast('Configure MFA Policies in Supabase dashboard to enable this.')} className="w-full bg-[#0d0f12] hover:bg-[#23252a] border border-[#23252a] text-white p-4 rounded-xl flex items-center justify-between transition-colors cursor-pointer group">
+                    <button type="button" onClick={handleWIP} className="w-full bg-[#0d0f12] hover:bg-[#23252a] border border-[#23252a] text-white p-4 rounded-xl flex items-center justify-between transition-colors cursor-pointer group">
                       <div className="flex items-center gap-3"><ShieldAlert size={20} className="text-green-400" /> <span className="font-bold">Enable Two-Factor Auth</span></div>
                       <span className="text-xs text-gray-500 group-hover:text-white transition-colors">Setup</span>
                     </button>
@@ -417,7 +353,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                         <h5 className="text-white font-bold mb-0.5">Disable Account</h5>
                         <p className="text-xs text-gray-400">Temporarily hide your profile and messages.</p>
                       </div>
-                      <button type="button" onClick={handleDeactivate} className="w-full sm:w-auto bg-transparent border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 py-2.5 rounded-xl font-bold transition-all cursor-pointer">
+                      <button type="button" onClick={handleWIP} className="w-full sm:w-auto bg-transparent border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 py-2.5 rounded-xl font-bold transition-all cursor-pointer">
                         Disable
                       </button>
                     </div>
@@ -427,7 +363,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                         <h5 className="text-white font-bold mb-0.5">Delete Account</h5>
                         <p className="text-xs text-gray-400">Permanently erase your account and data.</p>
                       </div>
-                      <button type="button" onClick={() => toast.error('Account deletion requires custom RPC setup in Supabase.')} className="w-full sm:w-auto bg-red-500/10 border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 py-2.5 rounded-xl font-bold transition-all cursor-pointer">
+                      <button type="button" onClick={handleWIP} className="w-full sm:w-auto bg-red-500/10 border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 py-2.5 rounded-xl font-bold transition-all cursor-pointer">
                         Delete
                       </button>
                     </div>
@@ -514,7 +450,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                     <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">App Theme</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       {['dark', 'midnight', 'light'].map(theme => (
-                        <button key={theme} onClick={() => { setAppTheme(theme); toast("Global themes coming soon!", { icon: '🎨'}) }} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-indigo-500 bg-indigo-500/10 shadow-md' : 'border-[#23252a] hover:border-gray-500'}`}>
+                        <button key={theme} onClick={() => { setAppTheme(theme); handleWIP(); }} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-indigo-500 bg-indigo-500/10 shadow-md' : 'border-[#23252a] hover:border-gray-500'}`}>
                           <div className={`w-full h-16 rounded-lg ghost-border ${theme === 'dark' ? 'bg-[#0d0f12]' : theme === 'midnight' ? 'bg-black' : 'bg-gray-200'}`}></div>
                           <span className="text-sm font-bold capitalize text-white">{theme}</span>
                         </button>
@@ -551,7 +487,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                 <p className="text-sm text-gray-400 mb-6">Connect your accounts to unlock special integrations and display them on your profile.</p>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                  <button onClick={handleWIP} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                     <div className="w-10 h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
                       <span className="font-bold text-lg">S</span>
                     </div>
@@ -561,7 +497,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                     </div>
                   </button>
 
-                  <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                  <button onClick={handleWIP} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                     <div className="w-10 h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
                       <span className="font-bold text-lg">G</span>
                     </div>
@@ -571,7 +507,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                     </div>
                   </button>
                   
-                  <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                  <button onClick={handleWIP} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                     <div className="w-10 h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-[#1DB954] opacity-70 group-hover:opacity-100 transition-colors">
                       <span className="font-bold text-lg">Sp</span>
                     </div>
