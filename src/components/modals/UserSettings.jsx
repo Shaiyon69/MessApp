@@ -111,7 +111,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
 
       const file = event.target.files[0]
       const fileExt = file.name.split('.').pop()
-      const fileName = `${session.user.id}-${type}-${Math.random()}.${fileExt}`
+      const fileName = `${session.user.id}-${type}-${crypto.randomUUID()}.${fileExt}`
       const bucketName = type === 'avatar' ? 'avatars' : 'banners' 
 
       const { error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, file)

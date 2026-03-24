@@ -529,7 +529,7 @@ export default function Dashboard({ session }) {
       toast.dismiss('compress-toast')
 
       const fileExt = compressedFile.name.split('.').pop()
-      const fileName = `${Math.random()}.${fileExt}`
+      const fileName = `${crypto.randomUUID()}.${fileExt}`
       const filePath = `${session.user.id}/${fileName}`
       
       const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, compressedFile)
