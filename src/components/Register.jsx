@@ -56,45 +56,47 @@ export default function Register({ switchToLogin }) {
   }
 
   return (
-    <div className="glass-panel rounded-[32px] w-full max-w-5xl flex flex-col md:flex-row relative overflow-hidden min-h-[600px] text-white animate-slide-up">
+    // PRESERVED: glass-panel, max-w-5xl, min-h-[600px] for desktop.
+    <div className="glass-panel rounded-none md:rounded-[32px] w-full h-[100dvh] md:h-auto md:min-h-[600px] max-w-5xl flex flex-col md:flex-row relative overflow-hidden text-white animate-slide-up">
+      
       {/* Left Column: Branding and Hero */}
-      <div className="w-full md:w-1/2 p-10 md:p-14 flex flex-col justify-between border-b md:border-b-0 md:border-r border-[#23252a] relative">
+      <div className="w-full md:w-1/2 p-8 pt-safe md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[#23252a] relative shrink-0">
         <div>
-          <div className="flex items-center gap-3 mb-16">
+          <div className="flex items-center gap-3 mb-6 md:mb-16">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-300 flex items-center justify-center">
               <span className="material-symbols-outlined text-white text-sm" aria-hidden="true">apps</span>
             </div>
             <span className="font-bold tracking-wider text-sm">MESSAPP</span>
           </div>
 
-          <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6 font-display leading-[1.1]">
-            Claim your<br/>
-            identity.
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight mb-2 md:mb-6 font-display leading-[1.1]">
+            Claim your<br className="hidden md:block"/>
+            <span className="md:hidden"> </span>identity.
           </h1>
 
-          <p className="text-gray-400 text-lg max-w-sm mt-4 leading-relaxed font-sans">
+          <p className="hidden md:block text-gray-400 text-lg max-w-sm mt-4 leading-relaxed font-sans">
             Join the network and start messaging without the mess. Secure, fun, and built by Skibidevs.
           </p>
         </div>
 
-        <div className="flex gap-6 mt-16 md:mt-0 pt-8 text-xs font-bold text-gray-500 uppercase tracking-widest">
+        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 text-xs font-bold text-gray-500 uppercase tracking-widest">
           <span>BUILT BY SKIBIDEVS</span>
           <span className="w-8 h-[1px] bg-gray-700 my-auto"></span>
-          <span>MESSAPP BETA V0.1.1</span>
+          <span>MESSAPP BETA V0.1.2</span>
         </div>
       </div>
 
       {/* Right Column: Register Form */}
-      <div className="w-full md:w-1/2 p-10 md:p-14 flex flex-col justify-center bg-[#0d0f12]">
-        <div className="max-w-md w-full mx-auto">
-          <h2 className="text-3xl font-bold tracking-tight mb-2 font-display">Join MessApp</h2>
-          <p className="text-gray-400 text-sm mb-8">Create your user profile.</p>
+      <div className="w-full md:w-1/2 p-6 md:p-10 lg:p-14 flex flex-col justify-center bg-[#0d0f12] flex-1 overflow-y-auto custom-scrollbar pb-safe">
+        <div className="max-w-md w-full mx-auto my-auto md:my-0 pt-4 md:pt-0">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight mb-2 font-display">Join MessApp</h2>
+          <p className="text-gray-400 text-sm mb-6 md:mb-8">Create your user profile.</p>
 
           <form onSubmit={handleRegister} className="flex flex-col gap-4">
             {/* Username Input */}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 block">Username</label>
-              <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all">
+              <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-14 md:h-auto">
                 <span className="material-symbols-outlined text-gray-500 mr-3 text-[20px]" aria-hidden="true">person</span>
                 <input
                   type="text"
@@ -102,7 +104,7 @@ export default function Register({ switchToLogin }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
-                  className="bg-transparent border-none outline-none w-full py-3.5 text-white placeholder-gray-600 font-sans"
+                  className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
                 />
               </div>
             </div>
@@ -110,7 +112,7 @@ export default function Register({ switchToLogin }) {
             {/* Email Input */}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 block">Email Address</label>
-              <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all">
+              <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-14 md:h-auto">
                 <span className="material-symbols-outlined text-gray-500 mr-3 text-[20px]" aria-hidden="true">alternate_email</span>
                 <input
                   type="email"
@@ -118,7 +120,7 @@ export default function Register({ switchToLogin }) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="bg-transparent border-none outline-none w-full py-3.5 text-white placeholder-gray-600 font-sans"
+                  className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
                 />
               </div>
             </div>
@@ -127,7 +129,7 @@ export default function Register({ switchToLogin }) {
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 block">Password</label>
               <div className="flex flex-col gap-3">
-                <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all">
+                <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-14 md:h-auto">
                   <span className="material-symbols-outlined text-gray-500 mr-3 text-[20px]" aria-hidden="true">lock</span>
                   <input
                     type="password"
@@ -135,11 +137,11 @@ export default function Register({ switchToLogin }) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="bg-transparent border-none outline-none w-full py-3.5 text-white placeholder-gray-600 font-sans"
+                    className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
                   />
                 </div>
 
-                <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all">
+                <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-14 md:h-auto">
                   <span className="material-symbols-outlined text-gray-500 mr-3 text-[20px]" aria-hidden="true">lock</span>
                   <input
                     type="password"
@@ -147,7 +149,7 @@ export default function Register({ switchToLogin }) {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    className="bg-transparent border-none outline-none w-full py-3.5 text-white placeholder-gray-600 font-sans"
+                    className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
                   />
                 </div>
               </div>
@@ -157,13 +159,13 @@ export default function Register({ switchToLogin }) {
             <button
               type="submit"
               disabled={loading}
-              className="mt-4 w-full bg-gradient-to-r from-indigo-300 to-indigo-600 text-[#0d0f12] py-4 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="mt-2 w-full h-14 md:h-auto md:py-4 bg-gradient-to-r from-indigo-300 to-indigo-600 text-[#0d0f12] rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>
               ) : (
                 <>
-                  <span className="text-[#0d0f12]">Establish Who You Are</span>
+                  <span className="text-[#0d0f12] text-base md:text-sm font-bold">Establish Who You Are</span>
                   <span className="material-symbols-outlined text-[20px] text-[#0d0f12]" aria-hidden="true">arrow_forward</span>
                 </>
               )}
@@ -178,9 +180,9 @@ export default function Register({ switchToLogin }) {
           )}
 
           {/* Divider */}
-          <div className="flex items-center gap-4 my-8">
+          <div className="flex items-center gap-4 my-6 md:my-8">
             <div className="flex-1 h-[1px] bg-gray-800"></div>
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Already have an account?</span>
+            <span className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest">Already have an account?</span>
             <div className="flex-1 h-[1px] bg-gray-800"></div>
           </div>
 
@@ -189,7 +191,7 @@ export default function Register({ switchToLogin }) {
             <button
               onClick={switchToLogin}
               type="button"
-              className="w-full bg-[#1c1e22] hover:bg-[#23252a] text-white py-4 rounded-xl font-bold transition-all ghost-border cursor-pointer"
+              className="w-full h-14 md:h-auto md:py-4 bg-[#1c1e22] hover:bg-[#23252a] text-white rounded-xl font-bold transition-all ghost-border cursor-pointer text-base md:text-sm"
             >
               Return to Login
             </button>
