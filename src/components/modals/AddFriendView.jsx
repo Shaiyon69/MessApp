@@ -66,7 +66,7 @@ export default function AddFriendView({ session }) {
                 type="text" 
                 value={tag} 
                 onChange={(e) => setTag(e.target.value)} 
-                placeholder="e.g. shaine#1234" 
+                placeholder="e.g. example#1234" 
                 autoFocus 
               />
               <button 
