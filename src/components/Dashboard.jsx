@@ -7,10 +7,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
-import { createP2PSignalingChannel, createPeerConnection } from '../lib/p2pSignaling'
-import { generateEcdhKeyPair, exportPublicKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm, fingerprintKey } from '../lib/crypto'
 import { cacheMessage, cacheThumbnail } from '../lib/cacheManager'
-import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, MoreVertical, Lock, User, Ban, EyeOff, CornerDownLeft, Edit3, Copy, LogOut, Menu } from 'lucide-react'
+import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
 import ServerActionPopout from './modals/ServerActionPopout'
@@ -35,7 +33,45 @@ const WALLPAPERS = [
   { id: 'emerald', name: 'Emerald', css: 'radial-gradient(circle at bottom left, rgba(6, 78, 59, 0.4) 0%, transparent 60%)' }
 ]
 
-// Atomic Memoized Component for Performance & Clean Message Rendering
+// ATOMIC COMPONENT: Pixel-Perfect Discord-Style Avatar with SVG Masking
+const StatusAvatar = ({ url, username, isOnline, showStatus = true, className = "" }) => {
+  const maskId = `mask-${Math.random().toString(36).substr(2, 9)}`;
+  const center = 50;
+  const statusOffset = 85; 
+  const statusRadius = 14; 
+  const cutoutRadius = 19; 
+  
+  const statusColor = isOnline ? '#23a559' : '#80848e';
+
+  return (
+    <div className={`relative shrink-0 flex items-center justify-center ${className}`}>
+      <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
+        <defs>
+          <mask id={maskId}>
+            <circle cx={center} cy={center} r={center} fill="white" />
+            {showStatus && <circle cx={statusOffset} cy={statusOffset} r={cutoutRadius} fill="black" />}
+          </mask>
+        </defs>
+        <g mask={`url(#${maskId})`}>
+          {url ? (
+            <image href={url} width="100" height="100" preserveAspectRatio="xMidYMid slice" />
+          ) : (
+            <>
+              <circle cx={center} cy={center} r={center} fill="#23252a" />
+              <text x="50%" y="50%" textAnchor="middle" dy=".35em" fill="white" fontSize="45" fontWeight="bold" fontFamily="sans-serif">
+                {username?.[0]?.toUpperCase() || '?'}
+              </text>
+            </>
+          )}
+        </g>
+        {showStatus && (
+          <circle cx={statusOffset} cy={statusOffset} r={statusRadius} fill={statusColor} />
+        )}
+      </svg>
+    </div>
+  )
+}
+
 const MemoizedMessage = React.memo(({ 
   m, isMe, showHeader, alignRight, isHighlighted, 
   isEditing, editContent, setEditContent, handleUpdateMessage, setEditingMessageId,
@@ -44,21 +80,16 @@ const MemoizedMessage = React.memo(({
   return (
     <div id={`message-${m.id}`} className={`flex gap-3 md:gap-4 group transition-all duration-500 ${showHeader ? 'mt-6 md:mt-8' : 'mt-1'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse' : ''}`}>
       
-      {/* Avatar Container */}
       {showHeader ? (
-        <div className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-[#1c1e22] shrink-0 overflow-hidden shadow-md mt-1 ghost-border">
-          {m.profiles?.avatar_url ? <img src={m.profiles?.avatar_url} className="h-full w-full object-cover" alt=""/> : <div className="h-full w-full flex items-center justify-center font-bold text-sm uppercase text-white" aria-hidden="true">{m.profiles?.username?.[0] || '?'}</div>}
-        </div>
+        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} showStatus={false} className="h-8 w-8 md:h-10 md:w-10 mt-1 shadow-md ghost-border rounded-full" />
       ) : (
         <div className={`w-8 md:w-10 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 group-hover:opacity-100 text-[10px] text-gray-500 font-medium select-none hidden md:flex`}>
           {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       )}
       
-      {/* Message Content wrapper */}
       <div className={`flex flex-col w-full min-w-0 ${alignRight ? 'items-end' : ''}`}>
         
-        {/* Username Header */}
         {showHeader && (
           <div className={`flex items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
             <span className={`text-[14px] md:text-[15px] font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-white'}`}>{m.profiles?.username}</span>
@@ -72,10 +103,8 @@ const MemoizedMessage = React.memo(({
             <span className={`text-[10px] text-gray-500 mt-2 block ${alignRight ? 'text-right' : ''}`}>Press Enter to save, Esc to cancel</span>
           </form>
         ) : (
-          /* Flex container to place actions directly beside the bubble */
           <div className={`flex items-center gap-2 max-w-full ${alignRight ? 'flex-row-reverse' : ''} mt-0.5`}>
             
-            {/* Bubble & Image */}
             <div className={`flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%] shrink-0`}>
               {m.is_deleted ? (
                 <div className={`p-3 md:p-4 rounded-2xl border w-fit max-w-full ${alignRight ? 'rounded-tr-none border-[var(--theme-20)] text-gray-400/80' : 'rounded-tl-none border-[#23252a] text-gray-500'} bg-transparent border-dashed shadow-sm text-left flex items-center gap-2 select-none`}>
@@ -113,7 +142,6 @@ const MemoizedMessage = React.memo(({
               )}
             </div>
 
-            {/* Inline Action Menu (Properly Anchored using Flexbox) */}
             {!m.is_deleted && (
               <div className={`flex items-center gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 ${inlineDeleteMessageId === m.id ? 'opacity-100' : ''}`}>
                 {inlineDeleteMessageId === m.id ? (
@@ -218,6 +246,9 @@ export default function Dashboard({ session }) {
   const messageCacheRef = useRef({})
 
   const myAvatar = session.user.user_metadata?.avatar_url
+  const myBanner = session.user.user_metadata?.banner_url
+  const myBio = session.user.user_metadata?.bio
+  const myPronouns = session.user.user_metadata?.pronouns
   const myUsername = session.user.user_metadata?.username || session.user.email.split('@')[0]
   const myTag = session.user.user_metadata?.unique_tag || `${myUsername}#0000`
 
@@ -269,8 +300,8 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
-        const { username, unique_tag, avatar_url } = session.user.user_metadata
-        await supabase.from('profiles').upsert({ id: session.user.id, username: username || session.user.email.split('@')[0], unique_tag: unique_tag, avatar_url: avatar_url || null }, { onConflict: 'id' }) 
+        const { username, unique_tag, avatar_url, banner_url, bio, pronouns } = session.user.user_metadata
+        await supabase.from('profiles').upsert({ id: session.user.id, username: username || session.user.email.split('@')[0], unique_tag: unique_tag, avatar_url: avatar_url || null, banner_url: banner_url || null, bio: bio || null, pronouns: pronouns || null }, { onConflict: 'id' }) 
       }
     }
     syncProfile()
@@ -279,7 +310,16 @@ export default function Dashboard({ session }) {
     fetchFriendRequests()
     
     const presenceChannel = supabase.channel('global-presence')
-    presenceChannel.on('presence', { event: 'sync' }, () => setOnlineUsers(Object.keys(presenceChannel.presenceState()))).subscribe(async (status) => { if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id }) })
+    
+    presenceChannel.on('presence', { event: 'sync' }, () => {
+      const state = presenceChannel.presenceState()
+      // Extract actual user_ids from the presence state object instead of connection UUIDs
+      const activeUserIds = Object.values(state).flatMap(presences => presences.map(p => p.user_id))
+      setOnlineUsers([...new Set(activeUserIds)])
+    }).subscribe(async (status) => { 
+      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id }) 
+    })
+    
     const requestsSub = supabase.channel('friend-requests').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests).subscribe()
 
     return () => { supabase.removeChannel(presenceChannel); supabase.removeChannel(requestsSub) }
@@ -312,7 +352,7 @@ export default function Dashboard({ session }) {
   }, [])
 
   const fetchFriendRequests = async () => {
-    const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag)').eq('receiver_id', session.user.id).eq('status', 'pending')
+    const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns)').eq('receiver_id', session.user.id).eq('status', 'pending')
     if (data) setFriendRequests(data)
   }
 
@@ -383,7 +423,7 @@ export default function Dashboard({ session }) {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
     if (!myRooms || myRooms.length === 0) { setDms([]); return }
     const roomIds = myRooms.map(r => r.dm_room_id)
-    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
+    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
       
     if (otherMembers) {
       const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
@@ -403,7 +443,7 @@ export default function Dashboard({ session }) {
       const getServerData = async () => {
         const [channelsRes, membersRes, readsRes] = await Promise.all([
           supabase.from('channels').select('*').eq('server_id', activeServer.id).order('created_at', { ascending: true }),
-          supabase.from('server_members').select('role, profiles!inner(id, username, avatar_url)').eq('server_id', activeServer.id),
+          supabase.from('server_members').select('role, profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns)').eq('server_id', activeServer.id),
           supabase.from('channel_reads').select('channel_id, last_read_at').eq('profile_id', session.user.id)
         ])
         setChannels(channelsRes.data || [])
@@ -529,7 +569,7 @@ export default function Dashboard({ session }) {
       toast.dismiss('compress-toast')
 
       const fileExt = compressedFile.name.split('.').pop()
-      const fileName = `${crypto.randomUUID()}.${fileExt}`
+      const fileName = `${Math.random()}.${fileExt}`
       const filePath = `${session.user.id}/${fileName}`
       
       const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, compressedFile)
@@ -662,14 +702,10 @@ export default function Dashboard({ session }) {
                     {dms.map(dm => {
                       const isActive = activeDm?.dm_room_id === dm.dm_room_id && view === 'home';
                       const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
+                      const isOnline = onlineUsers.includes(dm.profiles.id);
                       return (
                         <button key={dm.dm_room_id} onClick={() => { setView('home'); selectDm(dm); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[#1c1e22] border-[#23252a] shadow-inner' : 'hover:bg-white/5 text-gray-400 hover:text-white border-transparent'}`}>
-                          <div className="relative shrink-0">
-                            <div className="h-8 w-8 rounded-full bg-[#23252a] flex items-center justify-center overflow-hidden ghost-border">
-                              {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="h-full w-full object-cover" alt=""/> : <span className="font-bold text-xs uppercase text-white" aria-hidden="true">{dm.profiles.username[0]}</span>}
-                            </div>
-                            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#15171a] rounded-full ${onlineUsers.includes(dm.profiles.id) ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                          </div>
+                          <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={isOnline} className="w-8 h-8" />
                           <div className="flex-1 min-w-0 text-left">
                             <p className="text-sm font-medium truncate transition-colors" style={{ color: isActive ? dmColor : '' }}>{dm.profiles.username}</p>
                           </div>
@@ -687,30 +723,30 @@ export default function Dashboard({ session }) {
           </div>
 
           {showProfilePopout && (
-            <div ref={popoutRef} className="absolute bottom-20 left-3 w-[264px] bg-[#111214] rounded-2xl border border-[#23252a] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden z-50 animate-fade-in">
-              <div className="h-16 bg-gradient-to-r from-indigo-600 to-purple-600"></div>
+            <div ref={popoutRef} className="absolute bottom-20 left-3 w-[280px] bg-[#111214] rounded-2xl border border-[#23252a] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden z-50 animate-fade-in flex flex-col">
+              <div className="h-20 bg-[#1c1e22] shrink-0 relative" style={{ background: myBanner || 'linear-gradient(to right, #4f46e5, #9333ea)' }}>
+              </div>
               <div className="px-4 pb-4">
                 <div className="flex justify-between items-start">
-                  <div className="relative -mt-8 mb-2">
-                    <div className="w-16 h-16 rounded-full border-[6px] border-[#111214] bg-[#23252a] overflow-hidden flex items-center justify-center">
-                       {myAvatar ? <img src={myAvatar} className="w-full h-full object-cover"/> : <span className="text-xl font-bold uppercase text-white">{myUsername[0]}</span>}
-                    </div>
-                    <div className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 border-[3px] border-[#111214] rounded-full"></div>
+                  <div className="relative -mt-10 mb-2">
+                     {/* Popout Avatar (Large) */}
+                     <StatusAvatar url={myAvatar} username={myUsername} isOnline={true} className="w-[72px] h-[72px] bg-[#111214] rounded-full" />
                   </div>
                 </div>
                 
                 <div className="bg-[#1e1f22] p-3 rounded-xl mb-3 shadow-inner">
-                  <h3 className="font-bold text-white text-lg leading-tight">{myUsername}</h3>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <h3 className="font-bold text-white text-lg leading-tight truncate">{myUsername}</h3>
+                    {myPronouns && <span className="text-[10px] text-gray-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 shrink-0">{myPronouns}</span>}
+                  </div>
                   <p className="text-xs text-gray-400 font-mono">{myTag}</p>
+                  {myBio && <div className="mt-3 pt-3 border-t border-white/5 text-xs text-gray-300 line-clamp-3">{myBio}</div>}
                 </div>
 
                 <div className="space-y-1">
                   <button onClick={() => { setShowProfilePopout(false); setSettingsModalConfig({ isOpen: true, tab: 'account' }) }} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-[#2b2d31] transition-colors cursor-pointer text-gray-300 hover:text-white">
                     <Edit3 size={16} /> <span className="text-sm font-medium">Edit Profile</span>
                   </button>
-                  <div className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-[#2b2d31] transition-colors cursor-pointer text-gray-300 hover:text-white">
-                    <div className="flex items-center gap-3"><div className="w-2.5 h-2.5 rounded-full bg-green-500 ml-0.5"></div> <span className="text-sm font-medium">Online</span></div>
-                  </div>
                   <div className="h-[1px] bg-[#2b2d31] my-2"></div>
                   <button onClick={() => { navigator.clipboard.writeText(myTag); toast.success('ID Copied!'); setShowProfilePopout(false); }} className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-[#2b2d31] transition-colors cursor-pointer text-gray-300 hover:text-white">
                     <div className="flex items-center gap-3"><Copy size={16} /> <span className="text-sm font-medium">Copy User ID</span></div>
@@ -725,10 +761,7 @@ export default function Dashboard({ session }) {
 
           <div className="p-3 bg-[#0a0a0c] border-t border-[#23252a] flex items-center justify-between shrink-0">
             <button onClick={() => setShowProfilePopout(!showProfilePopout)} className="flex items-center gap-3 min-w-0 p-1.5 hover:bg-white/5 rounded-xl transition-colors text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2">
-              <div className="h-9 w-9 rounded-full bg-[#23252a] flex items-center justify-center shrink-0 overflow-hidden relative">
-                {myAvatar ? <img src={myAvatar} className="h-full w-full object-cover" alt=""/> : <span className="font-bold text-white text-xs" aria-hidden="true">{myUsername[0]}</span>}
-                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-[#0a0a0c] rounded-full"></div>
-              </div>
+              <StatusAvatar url={myAvatar} username={myUsername} isOnline={true} className="w-9 h-9" />
               <div className="flex flex-col truncate">
                 <span className="text-[13px] font-bold text-white truncate group-hover:text-[var(--color-primary)] transition-colors">{myUsername}</span>
                 <span className="text-[10px] text-gray-500 truncate">Online</span>
@@ -799,7 +832,6 @@ export default function Dashboard({ session }) {
             {view === 'home' && !activeDm ? (
               <div className="flex-1 flex overflow-hidden bg-[#0d0f12]">
                 
-                {/* Center Panel wrapper */}
                 <div className="flex-1 flex flex-col overflow-hidden">
                   {homeTab === 'add_friend' ? (
                     <AddFriendView session={session} />
@@ -823,7 +855,7 @@ export default function Dashboard({ session }) {
                         {homeTab === 'pending' && friendRequests.map(req => (
                           <div key={req.id} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-xl group border-t border-transparent hover:border-white/5 transition-all">
                             <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-full bg-[#23252a] overflow-hidden border border-white/5">{req.profiles?.avatar_url ? <img src={req.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full font-bold uppercase">{req.profiles?.username?.[0]}</span>}</div>
+                              <StatusAvatar url={req.profiles?.avatar_url} username={req.profiles?.username} showStatus={false} className="w-10 h-10" />
                               <div><div className="font-bold text-white flex items-center gap-2">{req.profiles?.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{req.profiles?.unique_tag}</span></div><div className="text-xs text-gray-400">Incoming Friend Request</div></div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -839,10 +871,7 @@ export default function Dashboard({ session }) {
                         {(homeTab === 'online' || homeTab === 'all') && dms.filter(d => (homeTab === 'all' || onlineUsers.includes(d.profiles.id)) && !restrictedUsers.includes(d.profiles.id)).map(dm => (
                           <div key={dm.dm_room_id} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-xl group border-t border-transparent hover:border-white/5 cursor-pointer transition-all" onClick={() => selectDm(dm)}>
                             <div className="flex items-center gap-4">
-                              <div className="relative">
-                                <div className="w-10 h-10 rounded-full bg-[#23252a] overflow-hidden border border-white/5">{dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full font-bold uppercase">{dm.profiles.username[0]}</span>}</div>
-                                <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-[3px] border-[#0d0f12] rounded-full ${onlineUsers.includes(dm.profiles.id) ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                              </div>
+                              <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsers.includes(dm.profiles.id)} className="w-10 h-10" />
                               <div><div className="font-bold text-white flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles.unique_tag}</span></div><div className="text-xs text-gray-400">{onlineUsers.includes(dm.profiles.id) ? 'Online' : 'Offline'}</div></div>
                             </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -855,7 +884,6 @@ export default function Dashboard({ session }) {
                   )}
                 </div>
 
-                {/* Right Side Active Now Panel - Independent Structural Pillar */}
                 <div className="w-80 border-l border-[#23252a] hidden xl:flex flex-col bg-[#0d0f12] shrink-0" key="active-now-panel">
                   <div className="p-6 pb-4 shrink-0">
                     <h2 className="text-lg font-bold text-white font-display">Active Now</h2>
@@ -868,10 +896,7 @@ export default function Dashboard({ session }) {
                       dms.filter(dm => onlineUsers.includes(dm.profiles.id) && !restrictedUsers.includes(dm.profiles.id)).map(dm => (
                         <div key={dm.dm_room_id} className="p-4 bg-[#15171a] rounded-xl ghost-border shadow-md cursor-pointer hover:border-indigo-500 transition-all" onClick={() => selectDm(dm)}>
                           <div className="flex items-center gap-3 mb-3">
-                            <div className="relative">
-                              <div className="w-8 h-8 rounded-full bg-[#23252a] overflow-hidden border border-white/5">{dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full font-bold text-xs uppercase">{dm.profiles.username[0]}</span>}</div>
-                              <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 border-2 border-[#15171a] rounded-full bg-green-500 animate-pulse`}></div>
-                            </div>
+                            <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={true} className="w-8 h-8" />
                             <span className="font-bold text-sm text-white">{dm.profiles.username}</span>
                           </div>
                           <div className="text-xs text-gray-400 flex items-center gap-2 bg-[#0d0f12] p-2 rounded-lg shadow-inner"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> Online & Active</div>
@@ -956,24 +981,36 @@ export default function Dashboard({ session }) {
 
               {rightTab === 'info' && view === 'home' && activeDm && (
                 <div className="flex flex-col h-full overflow-hidden relative">
-                  <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-gray-500 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer z-10 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
+                  <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-gray-500 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer z-20 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
                     <X size={20} aria-hidden="true" />
                   </button>
 
-                  <div className="flex flex-col items-center pt-10 pb-6 px-6 text-center border-b border-[#23252a] shrink-0">
-                    <div className="relative mb-3">
-                      <div className="w-24 h-24 rounded-full bg-[#23252a] border-2 border-[var(--theme-base)] overflow-hidden flex items-center justify-center shadow-[0_0_15px_var(--theme-20)]">
-                        {activeDm.profiles.avatar_url ? <img src={activeDm.profiles.avatar_url} className="w-full h-full object-cover"/> : <span className="text-3xl font-bold uppercase text-white">{activeDm.profiles.username[0]}</span>}
-                      </div>
-                      {onlineUsers.includes(activeDm.profiles.id) && <div className="absolute bottom-1 right-1 w-5 h-5 bg-green-500 border-[3px] border-[#15171a] rounded-full animate-pulse"></div>}
+                  <div className="flex flex-col items-center pt-0 pb-6 text-center border-b border-[#23252a] shrink-0 relative">
+                    <div className="h-28 w-full bg-[#1c1e22] absolute top-0 left-0 z-0 border-b border-[#23252a]" style={{ background: activeDm.profiles.banner_url || 'linear-gradient(to right, #4f46e5, #9333ea)' }}>
                     </div>
-                    <h2 className="text-xl font-bold text-white">{activeDm.profiles.username}</h2>
-                    <p className="text-xs text-[var(--theme-base)] font-mono mt-1">{activeDm.profiles.unique_tag}</p>
+                    
+                    <div className="relative mt-16 mb-3 z-10">
+                      <StatusAvatar url={activeDm.profiles.avatar_url} username={activeDm.profiles.username} isOnline={onlineUsers.includes(activeDm.profiles.id)} className="w-24 h-24 bg-[#15171a] rounded-full" />
+                    </div>
+                    
+                    <div className="relative z-10 px-6 w-full flex flex-col items-center">
+                      <div className="flex items-center justify-center gap-2 mb-0.5">
+                        <h2 className="text-xl font-bold text-white">{activeDm.profiles.username}</h2>
+                        {activeDm.profiles.pronouns && <span className="text-[10px] text-gray-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 shrink-0">{activeDm.profiles.pronouns}</span>}
+                      </div>
+                      <p className="text-xs text-[var(--theme-base)] font-mono">{activeDm.profiles.unique_tag}</p>
+                      
+                      {activeDm.profiles.bio && (
+                        <div className="mt-4 bg-[#1c1e22] ghost-border p-3.5 rounded-xl w-full text-left shadow-inner">
+                          <p className="text-[13px] text-gray-300 leading-relaxed whitespace-pre-wrap">{activeDm.profiles.bio}</p>
+                        </div>
+                      )}
 
-                    <div className="flex gap-4 mt-6">
-                      <button className="flex flex-col items-center gap-1.5 group cursor-pointer"><div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><User size={18}/></div><span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Profile</span></button>
-                      <button className="flex flex-col items-center gap-1.5 group cursor-pointer"><div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><Bell size={18}/></div><span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Mute</span></button>
-                      <button onClick={() => toggleRightSidebar('search')} className="flex flex-col items-center gap-1.5 group cursor-pointer"><div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><Search size={18}/></div><span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Search</span></button>
+                      <div className="flex justify-center gap-4 w-full mt-6">
+                        <button className="flex flex-col items-center gap-1.5 group cursor-pointer"><div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><User size={18}/></div><span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Profile</span></button>
+                        <button className="flex flex-col items-center gap-1.5 group cursor-pointer"><div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><Bell size={18}/></div><span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Mute</span></button>
+                        <button onClick={() => toggleRightSidebar('search')} className="flex flex-col items-center gap-1.5 group cursor-pointer"><div className="w-10 h-10 rounded-full bg-[#23252a] flex items-center justify-center text-gray-400 group-hover:text-white group-hover:bg-[var(--theme-20)] transition-all"><Search size={18}/></div><span className="text-[10px] text-gray-400 font-medium group-hover:text-white">Search</span></button>
+                      </div>
                     </div>
                   </div>
 
@@ -1083,12 +1120,7 @@ export default function Dashboard({ session }) {
                       className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent ${idx === 0 ? 'bg-indigo-500/10 border-indigo-500/20' : 'hover:bg-white/5 hover:border-white/10'}`}
                     >
                       <div className="flex items-center gap-4">
-                        <div className="relative shrink-0">
-                          <div className="w-10 h-10 rounded-full bg-[#0d0f12] overflow-hidden flex items-center justify-center border border-[#23252a]">
-                            {dm.profiles.avatar_url ? <img src={dm.profiles.avatar_url} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-sm uppercase">{dm.profiles.username[0]}</span>}
-                          </div>
-                          {onlineUsers.includes(dm.profiles.id) && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-[#15171a] rounded-full"></div>}
-                        </div>
+                        <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsers.includes(dm.profiles.id)} className="w-10 h-10" />
                         <div className="flex flex-col">
                           <span className={`font-bold text-[15px] transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-white group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
                           <span className="text-[11px] text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
