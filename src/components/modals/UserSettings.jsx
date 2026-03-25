@@ -602,7 +602,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                   <p className="text-base md:text-sm text-gray-400 mb-6">Connect your accounts to unlock special integrations and display them on your profile.</p>
                   
                   <div className="flex flex-col md:grid md:grid-cols-2 gap-4">
-                    <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                    <button onClick={() => toast('Coming Soon.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                       <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
                         <span className="font-bold text-xl md:text-lg">S</span>
                       </div>
@@ -612,7 +612,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                       </div>
                     </button>
 
-                    <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                    <button onClick={() => toast('Coming Soon.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                       <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
                         <span className="font-bold text-xl md:text-lg">G</span>
                       </div>
@@ -622,7 +622,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                       </div>
                     </button>
                     
-                    <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                    <button onClick={() => toast('Coming Soon.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                       <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-[#1DB954] opacity-70 group-hover:opacity-100 transition-colors">
                         <span className="font-bold text-xl md:text-lg">Sp</span>
                       </div>
