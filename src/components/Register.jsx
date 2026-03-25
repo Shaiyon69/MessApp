@@ -56,13 +56,13 @@ export default function Register({ switchToLogin }) {
   }
 
   return (
-    // PRESERVED: glass-panel, max-w-5xl, min-h-[600px] for desktop.
-    <div className="glass-panel rounded-none md:rounded-[32px] w-full h-[100dvh] md:h-auto md:min-h-[600px] max-w-5xl flex flex-col md:flex-row relative overflow-hidden text-white animate-slide-up">
+    // FIX: min-h-[100dvh] allows natural scrolling on mobile. Removed fixed height restrictions.
+    <div className="glass-panel rounded-none md:rounded-[32px] w-full min-h-[100dvh] md:min-h-0 md:h-[600px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-white animate-slide-up">
       
       {/* Left Column: Branding and Hero */}
       <div className="w-full md:w-1/2 p-8 pt-safe md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[#23252a] relative shrink-0">
         <div>
-          <div className="flex items-center gap-3 mb-6 md:mb-16">
+          <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-300 flex items-center justify-center">
               <span className="material-symbols-outlined text-white text-sm" aria-hidden="true">apps</span>
             </div>
@@ -87,13 +87,13 @@ export default function Register({ switchToLogin }) {
       </div>
 
       {/* Right Column: Register Form */}
-      <div className="w-full md:w-1/2 p-6 md:p-10 lg:p-14 flex flex-col justify-center bg-[#0d0f12] flex-1 overflow-y-auto custom-scrollbar pb-safe">
-        <div className="max-w-md w-full mx-auto my-auto md:my-0 pt-4 md:pt-0">
+      {/* FIX: Removed mobile overflow-y-auto so the whole document scrolls natively */}
+      <div className="w-full md:w-1/2 p-6 md:p-10 lg:p-14 flex flex-col justify-center bg-[#0d0f12] flex-1 md:overflow-y-auto custom-scrollbar pb-safe">
+        <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-10 md:pb-0 pt-4 md:pt-0">
           <h2 className="text-2xl md:text-3xl font-bold tracking-tight mb-2 font-display">Join MessApp</h2>
           <p className="text-gray-400 text-sm mb-6 md:mb-8">Create your user profile.</p>
 
           <form onSubmit={handleRegister} className="flex flex-col gap-4">
-            {/* Username Input */}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 block">Username</label>
               <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-14 md:h-auto">
@@ -104,12 +104,11 @@ export default function Register({ switchToLogin }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
-                  className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
+                  className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-[16px] md:text-sm"
                 />
               </div>
             </div>
 
-            {/* Email Input */}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 block">Email Address</label>
               <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-14 md:h-auto">
@@ -120,12 +119,11 @@ export default function Register({ switchToLogin }) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
+                  className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-[16px] md:text-sm"
                 />
               </div>
             </div>
 
-            {/* Password Input */}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 block">Password</label>
               <div className="flex flex-col gap-3">
@@ -137,7 +135,7 @@ export default function Register({ switchToLogin }) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
+                    className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-[16px] md:text-sm"
                   />
                 </div>
 
@@ -149,13 +147,12 @@ export default function Register({ switchToLogin }) {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-base md:text-sm"
+                    className="bg-transparent border-none outline-none w-full h-full md:py-3.5 text-white placeholder-gray-600 font-sans text-[16px] md:text-sm"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
@@ -172,21 +169,18 @@ export default function Register({ switchToLogin }) {
             </button>
           </form>
 
-          {/* Error/Success Message Display */}
           {message && (
             <div className={`mt-6 p-4 border rounded-xl text-center ${message.includes('Success') ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
               <p className="text-sm m-0 font-medium">{message}</p>
             </div>
           )}
 
-          {/* Divider */}
           <div className="flex items-center gap-4 my-6 md:my-8">
             <div className="flex-1 h-[1px] bg-gray-800"></div>
             <span className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest">Already have an account?</span>
             <div className="flex-1 h-[1px] bg-gray-800"></div>
           </div>
 
-          {/* Switch to Login Link */}
           {switchToLogin && (
             <button
               onClick={switchToLogin}
