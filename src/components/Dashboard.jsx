@@ -723,13 +723,12 @@ export default function Dashboard({ session }) {
           </div>
 
           {showProfilePopout && (
-            <div ref={popoutRef} className="absolute bottom-20 left-3 w-[280px] bg-[#111214] rounded-2xl border border-[#23252a] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden z-50 animate-fade-in flex flex-col">
+            <div ref={popoutRef} className="absolute bottom-16 left-3 right-3 bg-[#111214] rounded-2xl border border-[#23252a] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden z-50 animate-fade-in flex flex-col">
               <div className="h-20 bg-[#1c1e22] shrink-0 relative" style={{ background: myBanner || 'linear-gradient(to right, #4f46e5, #9333ea)' }}>
               </div>
               <div className="px-4 pb-4">
                 <div className="flex justify-between items-start">
                   <div className="relative -mt-10 mb-2">
-                     {/* Popout Avatar (Large) */}
                      <StatusAvatar url={myAvatar} username={myUsername} isOnline={true} className="w-[72px] h-[72px] bg-[#111214] rounded-full" />
                   </div>
                 </div>
@@ -776,26 +775,36 @@ export default function Dashboard({ session }) {
       </div>
 
       <main className="flex-1 flex flex-col min-w-0 relative bg-[#0d0f12]" style={scopedChatStyle}>
-        <header className="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 bg-[#0d0f12]/80 backdrop-blur-xl border-b border-[#23252a] shrink-0 z-30 shadow-md">
-          <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-1">
-            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-gray-400 hover:text-white p-2 -ml-2 rounded-xl focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
-              <Menu size={24} />
+        <header className="h-16 flex items-center justify-between px-4 md:px-6 bg-[#0d0f12]/80 backdrop-blur-xl border-b border-[#23252a] shrink-0 z-30 shadow-md">
+          <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-gray-400 hover:text-white p-2 -ml-2 rounded-xl focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer">
+              {/* FIX: Increased hamburger icon size */}
+              <Menu size={32} />
             </button>
             {view === 'home' && !activeDm ? (
-              <div className="flex items-center gap-4 md:gap-6 animate-fade-in w-full">
-                <div className="flex items-center gap-2 md:gap-3 text-white font-bold"><Users size={20} className="text-gray-400 hidden sm:block" /><span className="hidden sm:inline">Friends</span></div>
-                <div className="w-[1px] h-6 bg-[#23252a] hidden sm:block"></div>
-                <div className="flex items-center gap-1 md:gap-2">
-                  <button onClick={() => setHomeTab('online')} className={`px-2 md:px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${homeTab === 'online' ? 'bg-[#1c1e22] text-white ghost-border' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Online</button>
-                  <button onClick={() => setHomeTab('all')} className={`px-2 md:px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${homeTab === 'all' ? 'bg-[#1c1e22] text-white ghost-border' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>All</button>
-                  <button onClick={() => setHomeTab('pending')} className={`px-2 md:px-3 py-1.5 rounded-md text-xs md:text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer flex items-center gap-2 ${homeTab === 'pending' ? 'bg-[#1c1e22] text-white ghost-border' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Pending {friendRequests.length > 0 && <span className="bg-red-500 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold">{friendRequests.length}</span>}</button>
+              <div className="flex items-center gap-3 md:gap-6 animate-fade-in w-full overflow-x-auto custom-scrollbar pb-1 -mb-1">
+                <div className="flex items-center gap-2 text-white font-bold shrink-0">
+                  <Users size={24} className="text-gray-400 hidden sm:block" />
+                  <span className="hidden sm:inline text-base">Friends</span>
                 </div>
+                <div className="w-[1px] h-6 bg-[#23252a] hidden sm:block shrink-0"></div>
+                
+                {/* FIX: Increased text size to text-sm and padded buttons out more */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => setHomeTab('online')} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${homeTab === 'online' ? 'bg-[#1c1e22] text-white ghost-border' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Online</button>
+                  <button onClick={() => setHomeTab('all')} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${homeTab === 'all' ? 'bg-[#1c1e22] text-white ghost-border' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>All</button>
+                  <button onClick={() => setHomeTab('pending')} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer flex items-center gap-2 ${homeTab === 'pending' ? 'bg-[#1c1e22] text-white ghost-border' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
+                    Pending {friendRequests.length > 0 && <span className="bg-red-500 text-white text-[11px] w-5 h-5 flex items-center justify-center rounded-full font-bold">{friendRequests.length}</span>}
+                  </button>
+                </div>
+                
+                {/* FIX: Increased icon size and button text for Add Friend */}
                 <button 
                   onClick={() => { setHomeTab('add_friend'); selectDm(null); }} 
-                  className={`ml-auto px-3 md:px-4 py-2 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer hover:brightness-110 ${homeTab === 'add_friend' ? 'text-white shadow-lg' : 'bg-[#1c1e22] text-indigo-400 hover:bg-white/10'}`} 
+                  className={`ml-auto px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 cursor-pointer hover:brightness-110 shrink-0 ${homeTab === 'add_friend' ? 'text-white shadow-lg' : 'bg-[#1c1e22] text-indigo-400 hover:bg-white/10'}`} 
                   style={homeTab === 'add_friend' ? { backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' } : {}}
                 >
-                  <UserPlus size={16} /> <span className="hidden sm:inline">Add Friend</span>
+                  <UserPlus size={20} /> <span className="hidden sm:inline">Add Friend</span>
                 </button>
               </div>
             ) : view === 'home' && activeDm ? (
@@ -815,8 +824,8 @@ export default function Dashboard({ session }) {
           <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
             {isChatActive && (
               <>
-                <button onClick={() => toggleRightSidebar('search')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${rightTab === 'search' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-white/10 hover:text-[var(--theme-base)]'}`}><Search size={18} aria-hidden="true" /></button>
-                <button onClick={() => toggleRightSidebar('info')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${rightTab === 'info' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-white/10 hover:text-[var(--theme-base)]'}`}><Info size={18} aria-hidden="true" /></button>
+                <button onClick={() => toggleRightSidebar('search')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${rightTab === 'search' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-white/10 hover:text-[var(--theme-base)]'}`}><Search size={20} aria-hidden="true" /></button>
+                <button onClick={() => toggleRightSidebar('info')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${rightTab === 'info' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-white/10 hover:text-[var(--theme-base)]'}`}><Info size={20} aria-hidden="true" /></button>
               </>
             )}
           </div>

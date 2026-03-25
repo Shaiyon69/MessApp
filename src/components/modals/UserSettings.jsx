@@ -248,8 +248,8 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
   ]
 
   return (
-    // Outer modal container: fills screen on mobile, centers window on desktop
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] md:p-4 overflow-hidden">
+    // FIX 1: Changed `items-center` to `items-start md:items-center` so mobile keyboard doesn't push the top header off screen.
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden">
       
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
@@ -271,8 +271,8 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
         </div>
       )}
 
-      {/* Main Settings Window: 100dvh on mobile, rounded-2xl & max-w on desktop */}
-      <div className="w-full h-[100dvh] md:max-w-5xl md:h-[85vh] md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-slide-up shadow-2xl bg-[#0d0f12] md:border border-[#23252a]">
+      {/* FIX 2: Changed `h-[100dvh]` to `h-full` so it strictly binds to the viewport boundaries */}
+      <div className="w-full h-full md:max-w-5xl md:h-[85vh] md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-slide-up shadow-2xl bg-[#0d0f12] md:border border-[#23252a]">
         
         {/* SIDEBAR (Mobile Drill-Down Menu) */}
         <aside className={`${showMobileMenu ? 'flex' : 'hidden'} md:flex w-full md:w-64 bg-[#111214] md:bg-[#15171a] border-r border-[#23252a] flex-col shrink-0 z-20 h-full`}>
@@ -280,7 +280,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
           <div className="flex md:hidden items-center justify-between w-full px-6 h-16 bg-[#0d0f12] border-b border-[#23252a] shrink-0 sticky top-0">
              <h3 className="text-xl font-bold text-white tracking-tight">Settings</h3>
              <button onClick={onClose} className="p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer">
-               <X size={20} />
+               <X size={24} />
              </button>
           </div>
 
@@ -317,12 +317,12 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
         </aside>
 
         {/* CONTENT AREA */}
-        <main className={`${!showMobileMenu ? 'flex' : 'hidden'} md:flex flex-1 flex-col overflow-hidden bg-[#0d0f12]`}>
+        <main className={`${!showMobileMenu ? 'flex' : 'hidden'} md:flex flex-1 flex-col overflow-hidden bg-[#0d0f12] relative`}>
           
           {/* Mobile Back Button Header (Sticky) */}
           <div className="md:hidden flex items-center justify-between px-4 h-16 border-b border-[#23252a] bg-[#15171a] shrink-0 sticky top-0 z-50 shadow-sm">
             <button onClick={() => setShowMobileMenu(true)} className="flex items-center text-indigo-400 font-medium p-2 -ml-2 cursor-pointer">
-              <ChevronLeft size={24} />
+              <ChevronLeft size={28} />
               <span className="ml-1 text-base">Settings</span>
             </button>
             <span className="font-bold text-white text-base absolute left-0 right-0 text-center pointer-events-none">{TABS.find(t => t.id === activeTab)?.label}</span>
@@ -490,6 +490,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                 </div>
               )}
 
+              {/* ... The rest of the tabs remain perfectly mapped here */}
               {activeTab === 'privacy' && (
                 <div className="animate-fade-in pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-white mb-6 md:mb-8 font-display">Privacy & Safety</h2>
@@ -601,7 +602,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                   <p className="text-base md:text-sm text-gray-400 mb-6">Connect your accounts to unlock special integrations and display them on your profile.</p>
                   
                   <div className="flex flex-col md:grid md:grid-cols-2 gap-4">
-                    <button onClick={() => toast('Work in Progress.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                    <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                       <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
                         <span className="font-bold text-xl md:text-lg">S</span>
                       </div>
@@ -611,7 +612,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                       </div>
                     </button>
 
-                    <button onClick={() => toast('Work in Progress.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                    <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                       <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
                         <span className="font-bold text-xl md:text-lg">G</span>
                       </div>
@@ -621,7 +622,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                       </div>
                     </button>
                     
-                    <button onClick={() => toast('Work in Progress.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
+                    <button onClick={() => toast('Configure OAuth via Supabase backend to enable.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
                       <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-[#1DB954] opacity-70 group-hover:opacity-100 transition-colors">
                         <span className="font-bold text-xl md:text-lg">Sp</span>
                       </div>
