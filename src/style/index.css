@@ -6,7 +6,7 @@
   font-weight: 400;
   color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #0d0f12;
+  background-color: var(--bg-base);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -32,6 +32,31 @@
   --color-gray-100: #f2f3f5;
 }
 
+/* THEME ENGINE: CSS Variables for instant DOM repainting */
+:root, [data-theme="dark"] {
+  --bg-base: #0d0f12;
+  --bg-surface: #15171a;
+  --bg-element: #1c1e22;
+  --border-subtle: #23252a;
+  --text-main: #ffffff;
+}
+
+[data-theme="midnight"] {
+  --bg-base: #000000;
+  --bg-surface: #0a0a0c;
+  --bg-element: #111111;
+  --border-subtle: #1e1e1e;
+  --text-main: #f8fafc;
+}
+
+[data-theme="light"] {
+  --bg-base: #f3f4f6;
+  --bg-surface: #ffffff;
+  --bg-element: #e5e7eb;
+  --border-subtle: #d1d5db;
+  --text-main: #111827;
+}
+
 @layer base {
   html {
     font-size: clamp(14px, 1vw + 10px, 16px);
@@ -40,7 +65,8 @@
   body {
     margin: 0;
     padding: 0;
-    background-color: #0d0f12;
+    background-color: var(--bg-base);
+    color: var(--text-main);
     overflow: hidden; /* Prevents random scrolling */
   }
 
@@ -60,13 +86,13 @@
 
 @layer components {
   .glass-panel {
-    background-color: #15171a;
-    border: 1px solid #23252a;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   }
 
   .ghost-border {
-    border: 1px solid #23252a;
+    border: 1px solid var(--border-subtle);
     transition: border-color 150ms ease-in-out;
   }
   
@@ -107,11 +133,11 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(128, 128, 128, 0.3); /* Made dynamic for light/dark */
     border-radius: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(128, 128, 128, 0.5);
   }
 
   /* Animations */
