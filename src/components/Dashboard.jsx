@@ -514,10 +514,16 @@ export default function Dashboard({ session }) {
             if (e.candidate) sendSignal(activeCallTargetRef.current, 'ice-candidate', { candidate: e.candidate })
           }
           pcRef.current.ontrack = (e) => {
-            if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream()
+          if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream()
+
+          if (!remoteStreamRef.current.getTracks().find(t => t.id === e.track.id)) {
             remoteStreamRef.current.addTrack(e.track)
-            if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStreamRef.current
           }
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStreamRef.current
+            remoteAudioRef.current.play().catch(()=>{})
+          }
+        }
         }
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.offer))
       }
@@ -1175,9 +1181,7 @@ export default function Dashboard({ session }) {
       <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
 
-      {callActive && (
-        <audio ref={remoteAudioRef} autoPlay className="hidden" />
-      )}
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
       {callActive && !callMinimized && (
         <div className="fixed inset-0 z-[100] bg-[var(--bg-base)]/90 backdrop-blur-2xl flex flex-col items-center justify-center p-4 animate-fade-in">
