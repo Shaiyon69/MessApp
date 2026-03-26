@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
-import { X, Upload, Loader2, User, AlertTriangle, ShieldAlert, Copy, Check, LogOut, Palette, Bell, Lock, Link as LinkIcon, Ban, EyeOff, Camera, Edit2, Mail, Phone, Key, Shield, ChevronRight, ChevronLeft } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const BANNER_OPTIONS = [
@@ -33,7 +33,10 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState(initialTab)
   const [showMobileMenu, setShowMobileMenu] = useState(true) 
+  
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const [avatarUrl, setAvatarUrl] = useState(null)
@@ -44,11 +47,8 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
   const [pronouns, setPronouns] = useState(session?.user?.user_metadata?.pronouns || '')
   
   const [userEmail, setUserEmail] = useState(session?.user?.email || '')
-  const [userPhone, setUserPhone] = useState(session?.user?.phone || '')
   const [isEditingEmail, setIsEditingEmail] = useState(false)
-  const [isEditingPhone, setIsEditingPhone] = useState(false)
   const [newEmail, setNewEmail] = useState(userEmail)
-  const [newPhone, setNewPhone] = useState(userPhone)
 
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('appTheme') || 'dark')
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('soundEnabled') !== 'false')
@@ -90,7 +90,18 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
     fetchPrivacyProfiles()
   }, [blockedUsers, restrictedUsers])
 
-  useEffect(() => { localStorage.setItem('appTheme', appTheme) }, [appTheme])
+  // PERFORMANCE: Mutate the DOM directly for themes to avoid heavy React re-renders
+  useEffect(() => { 
+    localStorage.setItem('appTheme', appTheme) 
+    document.documentElement.setAttribute('data-theme', appTheme)
+    
+    if (appTheme === 'light') {
+      document.documentElement.classList.remove('dark')
+    } else {
+      document.documentElement.classList.add('dark')
+    }
+  }, [appTheme])
+
   useEffect(() => { localStorage.setItem('soundEnabled', soundEnabled) }, [soundEnabled])
 
   const requestDesktopNotifs = async (enabled) => {
@@ -175,20 +186,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
     setLoading(false)
   }
 
-  const handleUpdatePhone = async () => {
-    if (!newPhone.trim() || newPhone === userPhone) return setIsEditingPhone(false)
-    setLoading(true)
-    const { error } = await supabase.auth.updateUser({ phone: newPhone.trim() })
-    if (error) {
-      toast.error(error.message)
-    } else {
-      toast.success('Verification code sent.')
-      setUserPhone(newPhone.trim())
-      setIsEditingPhone(false)
-    }
-    setLoading(false)
-  }
-
   const handlePasswordReset = async () => {
     setLoading(true)
     const { error } = await supabase.auth.resetPasswordForEmail(session.user.email, {
@@ -225,6 +222,23 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
     }
   }
 
+  // SECURITY: Securely deletes user by calling Postgres RPC
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true)
+    try {
+      const { error } = await supabase.rpc('delete_user_account')
+      if (error) throw error
+      
+      await supabase.auth.signOut()
+      localStorage.clear()
+      window.location.reload()
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete account.')
+      setIsDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
+
   const fullTag = uniqueTag.includes('#') ? uniqueTag : `${username || 'User'}#0000`
 
   const copyTag = () => {
@@ -244,11 +258,9 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
     { id: 'privacy', label: 'Privacy & Safety', icon: Lock },
     { id: 'appearance', label: 'Appearance', icon: Palette },
     { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'connections', label: 'Connections', icon: LinkIcon },
   ]
 
   return (
-    // FIX 1: Changed `items-center` to `items-start md:items-center` so mobile keyboard doesn't push the top header off screen.
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden">
       
       {showLogoutConfirm && (
@@ -271,12 +283,29 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
         </div>
       )}
 
-      {/* FIX 2: Changed `h-[100dvh]` to `h-full` so it strictly binds to the viewport boundaries */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-[#15171a] w-full max-w-sm rounded-3xl border border-red-500/50 shadow-2xl p-6 text-center animate-slide-up md:animate-fade-in">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+              <AlertTriangle size={32} className="text-red-500" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Delete Account?</h3>
+            <p className="text-gray-400 text-sm mb-6">This action is <span className="text-red-400 font-bold">permanent</span> and cannot be undone. All data will be wiped.</p>
+            <div className="flex flex-col gap-3">
+              <button onClick={handleDeleteAccount} disabled={isDeleting} className="w-full h-14 md:h-12 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-500/20 cursor-pointer text-base md:text-sm flex items-center justify-center disabled:opacity-50">
+                {isDeleting ? <Loader2 className="animate-spin" size={20} /> : 'Permanently Delete'}
+              </button>
+              <button onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting} className="w-full h-14 md:h-12 bg-white/5 hover:bg-white/10 text-gray-300 rounded-xl font-bold transition-all cursor-pointer border border-white/5 text-base md:text-sm disabled:opacity-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-full h-full md:max-w-5xl md:h-[85vh] md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-slide-up shadow-2xl bg-[#0d0f12] md:border border-[#23252a]">
         
-        {/* SIDEBAR (Mobile Drill-Down Menu) */}
         <aside className={`${showMobileMenu ? 'flex' : 'hidden'} md:flex w-full md:w-64 bg-[#111214] md:bg-[#15171a] border-r border-[#23252a] flex-col shrink-0 z-20 h-full`}>
-          {/* Mobile Only Sticky Header */}
           <div className="flex md:hidden items-center justify-between w-full px-6 h-16 bg-[#0d0f12] border-b border-[#23252a] shrink-0 sticky top-0">
              <h3 className="text-xl font-bold text-white tracking-tight">Settings</h3>
              <button onClick={onClose} className="p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer">
@@ -316,10 +345,8 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
           </div>
         </aside>
 
-        {/* CONTENT AREA */}
         <main className={`${!showMobileMenu ? 'flex' : 'hidden'} md:flex flex-1 flex-col overflow-hidden bg-[#0d0f12] relative`}>
           
-          {/* Mobile Back Button Header (Sticky) */}
           <div className="md:hidden flex items-center justify-between px-4 h-16 border-b border-[#23252a] bg-[#15171a] shrink-0 sticky top-0 z-50 shadow-sm">
             <button onClick={() => setShowMobileMenu(true)} className="flex items-center text-indigo-400 font-medium p-2 -ml-2 cursor-pointer">
               <ChevronLeft size={28} />
@@ -480,7 +507,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                           <h5 className="text-white font-bold mb-0.5 text-base md:text-sm">Delete Account</h5>
                           <p className="text-xs text-gray-400">Permanently erase your account and data.</p>
                         </div>
-                        <button type="button" onClick={() => toast.error('Account deletion requires custom RPC setup in Supabase.')} className="w-full sm:w-auto bg-red-500/10 border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 h-14 md:h-10 rounded-xl md:rounded-lg font-bold transition-all cursor-pointer text-base md:text-sm">
+                        <button type="button" onClick={() => setShowDeleteConfirm(true)} className="w-full sm:w-auto bg-red-500/10 border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 h-14 md:h-10 rounded-xl md:rounded-lg font-bold transition-all cursor-pointer text-base md:text-sm">
                           Delete
                         </button>
                       </div>
@@ -490,7 +517,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                 </div>
               )}
 
-              {/* ... The rest of the tabs remain perfectly mapped here */}
               {activeTab === 'privacy' && (
                 <div className="animate-fade-in pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-white mb-6 md:mb-8 font-display">Privacy & Safety</h2>
@@ -565,7 +591,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                       <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">App Theme</h4>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         {['dark', 'midnight', 'light'].map(theme => (
-                          <button key={theme} onClick={() => { setAppTheme(theme); toast("Global themes coming soon!", { icon: '🎨'}) }} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-indigo-500 bg-indigo-500/10 shadow-md' : 'border-[#23252a] hover:border-gray-500'}`}>
+                          <button key={theme} onClick={() => setAppTheme(theme)} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-indigo-500 bg-indigo-500/10 shadow-md' : 'border-[#23252a] hover:border-gray-500'}`}>
                             <div className={`w-full h-16 rounded-lg ghost-border ${theme === 'dark' ? 'bg-[#0d0f12]' : theme === 'midnight' ? 'bg-black' : 'bg-gray-200'}`}></div>
                             <span className="text-base md:text-sm font-bold capitalize text-white">{theme}</span>
                           </button>
@@ -592,45 +618,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', onC
                       checked={soundEnabled} 
                       onChange={setSoundEnabled} 
                     />
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'connections' && (
-                <div className="animate-fade-in pb-10">
-                  <h2 className="hidden md:block text-2xl font-bold tracking-tight text-white mb-6 md:mb-8 font-display">Connections</h2>
-                  <p className="text-base md:text-sm text-gray-400 mb-6">Connect your accounts to unlock special integrations and display them on your profile.</p>
-                  
-                  <div className="flex flex-col md:grid md:grid-cols-2 gap-4">
-                    <button onClick={() => toast('Coming Soon.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
-                      <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
-                        <span className="font-bold text-xl md:text-lg">S</span>
-                      </div>
-                      <div>
-                        <h5 className="font-bold text-white text-base md:text-sm">Steam</h5>
-                        <p className="text-sm md:text-xs text-gray-500">Not Connected</p>
-                      </div>
-                    </button>
-
-                    <button onClick={() => toast('Coming Soon.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
-                      <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-gray-400 group-hover:text-white transition-colors">
-                        <span className="font-bold text-xl md:text-lg">G</span>
-                      </div>
-                      <div>
-                        <h5 className="font-bold text-white text-base md:text-sm">GitHub</h5>
-                        <p className="text-sm md:text-xs text-gray-500">Not Connected</p>
-                      </div>
-                    </button>
-                    
-                    <button onClick={() => toast('Coming Soon.')} className="bg-[#1c1e22] hover:bg-white/5 transition-colors p-4 rounded-xl ghost-border flex items-center gap-4 group cursor-pointer text-left">
-                      <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[#0d0f12] flex items-center justify-center text-[#1DB954] opacity-70 group-hover:opacity-100 transition-colors">
-                        <span className="font-bold text-xl md:text-lg">Sp</span>
-                      </div>
-                      <div>
-                        <h5 className="font-bold text-white text-base md:text-sm">Spotify</h5>
-                        <p className="text-sm md:text-xs text-gray-500">Not Connected</p>
-                      </div>
-                    </button>
                   </div>
                 </div>
               )}
