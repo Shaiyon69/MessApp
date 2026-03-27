@@ -3,7 +3,7 @@ import remarkGfm from 'remark-gfm'
 import imageCompression from 'browser-image-compression'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
@@ -1257,10 +1257,21 @@ export default function Dashboard({ session }) {
   
   const searchResults = searchQuery ? validMessages.filter(m => !m.is_deleted && (m.content?.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
   
-  const isBlocked = activeDm && blockedUsers.includes(activeDm.profiles.id)
+  // ⚡ Bolt Optimization: Converted O(N) array .includes() lookups to O(1) Set .has() lookups inside loops.
+  // Reduces time complexity from O(N * M) to O(N) during heavy render cycles, saving massive computation overhead.
+  const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
+  const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
+  const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
+
+  // ⚡ Bolt Optimization: Memoized expensive array filtering computations.
+  // Prevents the app from recalculating large friends lists on every single React component re-render.
+  const allFriends = useMemo(() => dms.filter(dm => !restrictedUsersSet.has(dm.profiles.id)), [dms, restrictedUsersSet]);
+  const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
+
+  const isBlocked = activeDm && blockedUsersSet.has(activeDm.profiles.id)
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
 
-  const quickSwitcherResults = quickSwitcherQuery ? dms.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) && !restrictedUsers.includes(dm.profiles.id)) : dms.filter(dm => !restrictedUsers.includes(dm.profiles.id))
+  const quickSwitcherResults = quickSwitcherQuery ? allFriends.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : allFriends
   
   const currentThemeHex = (activeDm?.dm_rooms?.theme_color || '#6366f1')
   const currentWallpaper = activeDm?.dm_rooms?.wallpaper || 'default'
@@ -1388,7 +1399,7 @@ export default function Dashboard({ session }) {
                     {dms.map((dm, i) => {
                       const isActive = activeDm?.dm_room_id === dm.dm_room_id && view === 'home';
                       const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
-                      const isOnline = onlineUsers.includes(dm.profiles.id);
+                      const isOnline = onlineUsersSet.has(dm.profiles.id);
                       return (
                         <button key={`dm-list-${dm.dm_room_id || i}`} onClick={() => { setView('home'); selectDm(dm); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] border-[var(--border-subtle)] shadow-inner' : 'hover:bg-[var(--bg-base)] text-gray-400 hover:text-[var(--text-main)] border-transparent'}`}>
                           <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={isOnline} className="w-8 h-8" />
@@ -1538,8 +1549,8 @@ export default function Dashboard({ session }) {
                       </div>
                       
                       <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-                        {homeTab === 'online' && `Online — ${dms.filter(d => onlineUsers.includes(d.profiles.id) && !restrictedUsers.includes(d.profiles.id)).length}`}
-                        {homeTab === 'all' && `All Friends — ${dms.filter(d => !restrictedUsers.includes(d.profiles.id)).length}`}
+                        {homeTab === 'online' && `Online — ${onlineFriends.length}`}
+                        {homeTab === 'all' && `All Friends — ${allFriends.length}`}
                         {homeTab === 'pending' && `Pending — ${friendRequests.length}`}
                       </div>
 
@@ -1560,14 +1571,14 @@ export default function Dashboard({ session }) {
                           </div>
                         ))}
 
-                        {(homeTab === 'online' || homeTab === 'all') && dms.filter(d => (homeTab === 'all' || onlineUsers.includes(d.profiles.id)) && !restrictedUsers.includes(d.profiles.id)).length === 0 && (
+                        {(homeTab === 'online' || homeTab === 'all') && (homeTab === 'all' ? allFriends : onlineFriends).length === 0 && (
                           <div className="flex flex-col items-center justify-center py-12 opacity-50"><Users size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">It's quiet in here.</p></div>
                         )}
-                        {(homeTab === 'online' || homeTab === 'all') && dms.filter(d => (homeTab === 'all' || onlineUsers.includes(d.profiles.id)) && !restrictedUsers.includes(d.profiles.id)).map((dm, i) => (
+                        {(homeTab === 'online' || homeTab === 'all') && (homeTab === 'all' ? allFriends : onlineFriends).map((dm, i) => (
                           <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] cursor-pointer transition-all" onClick={() => selectDm(dm)}>
                             <div className="flex items-center gap-4">
-                              <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsers.includes(dm.profiles.id)} className="w-10 h-10" />
-                              <div><div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles.unique_tag}</span></div><div className="text-xs text-gray-400">{onlineUsers.includes(dm.profiles.id) ? 'Online' : 'Offline'}</div></div>
+                              <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsersSet.has(dm.profiles.id)} className="w-10 h-10" />
+                              <div><div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles.unique_tag}</span></div><div className="text-xs text-gray-400">{onlineUsersSet.has(dm.profiles.id) ? 'Online' : 'Offline'}</div></div>
                             </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button className="p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-[var(--bg-element)] text-gray-300 transition-colors" onClick={(e) => { e.stopPropagation(); selectDm(dm); }}><MessageSquare size={18} /></button>
@@ -1585,10 +1596,10 @@ export default function Dashboard({ session }) {
                   </div>
                   
                   <div className="flex-1 overflow-y-auto custom-scrollbar px-6 space-y-4 pb-6">
-                    {dms.filter(dm => onlineUsers.includes(dm.profiles.id) && !restrictedUsers.includes(dm.profiles.id)).length === 0 ? (
+                    {onlineFriends.length === 0 ? (
                       <div className="p-4 text-center text-sm text-gray-500 border border-dashed border-[var(--border-subtle)] rounded-2xl">It's quiet for now...</div>
                     ) : (
-                      dms.filter(dm => onlineUsers.includes(dm.profiles.id) && !restrictedUsers.includes(dm.profiles.id)).map((dm, i) => (
+                      onlineFriends.map((dm, i) => (
                         <div key={dm.dm_room_id ? `dm-act-${dm.dm_room_id}` : `fallback-dm-act-${i}`} className="p-4 bg-[var(--bg-surface)] rounded-xl ghost-border shadow-md cursor-pointer hover:border-indigo-500 transition-all" onClick={() => selectDm(dm)}>
                           <div className="flex items-center gap-3 mb-3">
                             <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={true} className="w-8 h-8" />
@@ -1624,7 +1635,7 @@ export default function Dashboard({ session }) {
 
                   {visibleMessages.map((m, index) => {
                     const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}-${crypto.randomUUID()}`;
-                    const isMessageBlocked = blockedUsers.includes(m.profile_id);
+                    const isMessageBlocked = blockedUsersSet.has(m.profile_id);
                     if (isMessageBlocked) return (
                       <div key={uniqueKey} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                     )
@@ -1771,7 +1782,7 @@ export default function Dashboard({ session }) {
                     </div>
                     
                     <div className="relative mt-16 mb-3 z-10">
-                      <StatusAvatar url={activeDm.profiles.avatar_url} username={activeDm.profiles.username} isOnline={onlineUsers.includes(activeDm.profiles.id)} className="w-24 h-24 bg-[var(--bg-surface)] rounded-full" />
+                      <StatusAvatar url={activeDm.profiles.avatar_url} username={activeDm.profiles.username} isOnline={onlineUsersSet.has(activeDm.profiles.id)} className="w-24 h-24 bg-[var(--bg-surface)] rounded-full" />
                     </div>
                     
                     <div className="relative z-10 px-6 w-full flex flex-col items-center">
@@ -1818,11 +1829,11 @@ export default function Dashboard({ session }) {
 
                     <div className="bg-[var(--bg-element)] rounded-xl overflow-hidden ghost-border mb-6">
                       <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[var(--border-subtle)]/50">Privacy & Support</div>
-                      <button onClick={() => setConfirmAction({ type: restrictedUsers.includes(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
-                        <EyeOff size={16} className="text-gray-400 group-hover:text-[var(--text-main)]"/><span className="text-sm font-medium text-gray-300 group-hover:text-[var(--text-main)] flex-1">{restrictedUsers.includes(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
+                      <button onClick={() => setConfirmAction({ type: restrictedUsersSet.has(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
+                        <EyeOff size={16} className="text-gray-400 group-hover:text-[var(--text-main)]"/><span className="text-sm font-medium text-gray-300 group-hover:text-[var(--text-main)] flex-1">{restrictedUsersSet.has(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
                       </button><div className="h-[1px] bg-[var(--border-subtle)]/50 mx-4"></div>
-                      <button onClick={() => setConfirmAction({ type: blockedUsers.includes(activeDm.profiles.id) ? 'unblock' : 'block', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
-                        <Ban size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">{blockedUsers.includes(activeDm.profiles.id) ? `Unblock ${activeDm.profiles.username}` : `Block ${activeDm.profiles.username}`}</span>
+                      <button onClick={() => setConfirmAction({ type: blockedUsersSet.has(activeDm.profiles.id) ? 'unblock' : 'block', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
+                        <Ban size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">{blockedUsersSet.has(activeDm.profiles.id) ? `Unblock ${activeDm.profiles.username}` : `Block ${activeDm.profiles.username}`}</span>
                       </button>
                     </div>
                   </div>
@@ -1895,7 +1906,7 @@ export default function Dashboard({ session }) {
                       className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent ${idx === 0 ? 'bg-indigo-500/10 border-indigo-500/20' : 'hover:bg-[var(--bg-base)] hover:border-[var(--border-subtle)]'}`}
                     >
                       <div className="flex items-center gap-4">
-                        <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsers.includes(dm.profiles.id)} className="w-10 h-10" />
+                        <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsersSet.has(dm.profiles.id)} className="w-10 h-10" />
                         <div className="flex flex-col">
                           <span className={`font-bold text-[15px] transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-[var(--text-main)] group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
                           <span className="text-[11px] text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
