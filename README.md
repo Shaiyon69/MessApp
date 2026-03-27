@@ -98,7 +98,7 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 ## 🗺️ Roadmap
 
-**Current Version:** `v0.1.0-beta`
+**Current Version:** `v0.1.3-beta`
 
 - [x] Cross-platform build architecture (Web, Android APK, Linux .deb/.AppImage)
 - [x] Deep-linked email authentication
