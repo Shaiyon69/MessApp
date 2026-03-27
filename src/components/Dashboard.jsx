@@ -58,7 +58,7 @@ class SoundEngine {
       gain.gain.linearRampToValueAtTime(0.05, t + 0.01); 
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
       osc.start(t); osc.stop(t + 0.1);
-    } catch(e) {}
+    } catch(_e) {}
   }
   startRing(isOutgoing) {
     try {
@@ -81,7 +81,7 @@ class SoundEngine {
       };
       ring();
       this.ringInterval = setInterval(ring, 2000);
-    } catch(e) {}
+    } catch(_e) {}
   }
   stopRing() {
     if (this.ringInterval) clearInterval(this.ringInterval);
@@ -322,14 +322,14 @@ export default function Dashboard({ session }) {
   
   const [servers, setServers] = useState([])
   const [activeServer, setActiveServer] = useState(null)
-  const [channels, setChannels] = useState([])
+  const [_channels, setChannels] = useState([])
   const [activeChannel, setActiveChannel] = useState(null)
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
 
   const [onlineUsers, setOnlineUsers] = useState([])
-  const [serverMembers, setServerMembers] = useState([])
-  const [channelReads, setChannelReads] = useState({})
+  const [_serverMembers, setServerMembers] = useState([])
+  const [_channelReads, setChannelReads] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
   
   const [blockedUsers, setBlockedUsers] = useState(() => JSON.parse(localStorage.getItem(`blocked_${session.user.id}`) || '[]')) 
@@ -537,7 +537,7 @@ export default function Dashboard({ session }) {
 
       if (payload.type === 'ice-candidate') {
         if (pcRef.current && pcRef.current.remoteDescription) {
-          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch (e) {}
+          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch (_e) {}
         }
       }
 
@@ -606,7 +606,7 @@ export default function Dashboard({ session }) {
         offer,
         caller: { id: session.user.id, username: myUsername, avatar_url: myAvatar }
       })
-    } catch (e) {
+    } catch (_e) {
       endCallLocal()
       toast.error("Microphone permission denied")
     }
@@ -627,7 +627,7 @@ export default function Dashboard({ session }) {
       
       sendSignal(activeCallTargetRef.current, 'answer', { answer })
       setCallDirection('connected')
-    } catch (e) {
+    } catch (_e) {
       endCallLocal()
       sendSignal(activeCallTargetRef.current, 'end', {})
       toast.error("Microphone permission denied")
@@ -682,7 +682,7 @@ export default function Dashboard({ session }) {
           await audioTrack.applyConstraints({ noiseSuppression: nextState, echoCancellation: nextState, autoGainControl: nextState })
           setNcEnabled(nextState)
           toast(nextState ? "Hardware Noise Cancellation On" : "Noise Cancellation Off", { icon: nextState ? '🎙️' : '⚠️' })
-        } catch (e) {
+        } catch (_e) {
           toast.error("Browser does not support dynamic constraints")
         }
       }
@@ -825,7 +825,7 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (e) { toast.error("Database block") }
+    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (_e) { toast.error("Database block") }
   }
 
   const handleWallpaperChange = async (wallpaperId) => {
@@ -833,7 +833,7 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), wallpaper: wallpaperId } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (e) { toast.error("Database block") }
+    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (_e) { toast.error("Database block") }
   }
 
   const executeConfirmAction = async () => {
@@ -899,33 +899,37 @@ export default function Dashboard({ session }) {
     return () => supabase.removeChannel(channelSub)
   }, [activeServer?.id, view])
 
-  // FIX: Fetch the NEWEST 50 messages and reverse for chronological display
   const fetchCurrentMessages = useCallback(async () => {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
     if (!targetId) return;
 
-    // PERFORMANCE: PWA Instant Cache Fetching before Network
     const cachedData = await getCachedMessages(targetId)
     if (cachedData && cachedData.length > 0) {
-      setMessages(cachedData)
+      const validCache = Array.from(new Map(cachedData.filter(m => m && m.id != null).map(item => [item.id, item])).values());
+      setMessages(validCache)
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
     }
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     
-    // FIX: Removed broken self-referencing join that causes 400 errors. 
-    // Ordering by ascending: false to get the newest messages.
     const { data, error } = await supabase.from('messages')
       .select('*, profiles(username, avatar_url), message_reactions(*)')
       .eq(field, targetId)
-      .order('created_at', { ascending: false }) // GET LATEST 50
+      .order('created_at', { ascending: false })
       .limit(50)
+
+    if (error) {
+      console.error("🔥 Supabase Fetch Error:", error);
+      toast.error("Database fetch failed.");
+      return;
+    }
     
     if (data) {
-      const chronoData = data.reverse() // REVERSE FOR UI
-      setMessages(chronoData)
-      messageCacheRef.current[targetId] = chronoData
-      cacheMessage(targetId, chronoData)
+      const chronoData = data.reverse()
+      const uniqueData = Array.from(new Map(chronoData.filter(m => m && m.id != null).map(item => [item.id, item])).values());
+      setMessages(uniqueData)
+      messageCacheRef.current[targetId] = uniqueData
+      cacheMessage(targetId, uniqueData)
     }
     setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 100)
   }, [activeChannel?.id, activeDm?.dm_room_id, view])
@@ -943,7 +947,8 @@ export default function Dashboard({ session }) {
     if (!targetId) { setMessages([]); setTypingUsers([]); return; }
     
     if (messageCacheRef.current[targetId]) {
-      setMessages(messageCacheRef.current[targetId])
+      const validCache = Array.from(new Map(messageCacheRef.current[targetId].filter(m => m && m.id != null).map(item => [item.id, item])).values());
+      setMessages(validCache)
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
     } else {
       setMessages([])
@@ -972,10 +977,11 @@ export default function Dashboard({ session }) {
         if (fullMsg) {
           setMessages(prev => {
             if (prev.some(msg => msg.id === fullMsg.id)) return prev; 
-            const updated = [...prev, fullMsg]
-            messageCacheRef.current[targetId] = updated
-            cacheMessage(targetId, updated)
-            return updated
+            const updated = [...prev, fullMsg];
+            updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            messageCacheRef.current[targetId] = updated;
+            cacheMessage(targetId, updated);
+            return updated;
           })
           
           if (fullMsg.profile_id !== session.user.id) {
@@ -1046,7 +1052,7 @@ export default function Dashboard({ session }) {
         if (targetId) cacheMessage(targetId, updated)
         return updated
       })
-    } catch (error) {
+    } catch (_error) {
       toast.error('Failed to update reaction')
     }
   }
@@ -1083,10 +1089,27 @@ export default function Dashboard({ session }) {
     }
 
     try {
-      const { data, error } = await supabase.from('messages').insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
-      if (error) throw error
+      const { data: newMsg, error } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .single()
+
+      if (error) {
+        console.error("🔥 Send Message Error:", error);
+        throw error;
+      }
+
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === newMsg.id)) return prev;
+        const updated = [...prev, newMsg];
+        messageCacheRef.current[targetId] = updated;
+        cacheMessage(targetId, updated);
+        return updated;
+      })
+
       setReplyingTo(null)
-    } catch {
+      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+    } catch (_err) {
       toast.error('Failed to send message.')
       setNewMessage(text)
     }
@@ -1114,11 +1137,26 @@ export default function Dashboard({ session }) {
       const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
       
       if (!targetId) return toast.error('Select a channel or DM before sending images.')
-      await supabase.from('messages').insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
+
+      const { data: newMsg, error: insertError } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
+        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .single()
+
+      if (insertError) throw insertError
+
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === newMsg.id)) return prev;
+        const updated = [...prev, newMsg];
+        messageCacheRef.current[targetId] = updated;
+        cacheMessage(targetId, updated);
+        return updated;
+      })
+
       cacheThumbnail(targetId || 'global', publicUrl)
       toast.success('Image optimized and uploaded')
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
-    } catch (error) { toast.error('Failed to upload image') } 
+    } catch (_error) { toast.error('Failed to upload image') }
     finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }
 
@@ -1150,10 +1188,12 @@ export default function Dashboard({ session }) {
   }, [])
 
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e) } }
-  const handleCreateServer = (e) => { e.preventDefault(); toast('Server features are currently in development!', { icon: '🚧' }) }
 
-  const visibleMessages = messages.filter(m => !localDeletedMessages.includes(m.id))
-  const searchResults = searchQuery ? visibleMessages.filter(m => !m.is_deleted && (m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
+  // FIX: Enforced strict validity
+  const validMessages = Array.from(new Map(messages.filter(m => m && m.id != null).map(item => [item.id, item])).values())
+  const visibleMessages = validMessages.filter(m => !localDeletedMessages.includes(m.id))
+
+  const searchResults = searchQuery ? validMessages.filter(m => !m.is_deleted && (m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
   
   const isBlocked = activeDm && blockedUsers.includes(activeDm.profiles.id)
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
@@ -1511,7 +1551,7 @@ export default function Dashboard({ session }) {
                   {visibleMessages.map((m, index) => {
                     const isMessageBlocked = blockedUsers.includes(m.profile_id);
                     if (isMessageBlocked) return (
-                      <div key={m.id} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
+                      <div key={m.id ? `msg-blk-${m.id}` : `fallback-blk-${index}`} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                     )
 
                     const showHeader = index === 0 || visibleMessages[index - 1].profile_id !== m.profile_id || new Date(m.created_at) - new Date(visibleMessages[index - 1].created_at) > 300000;
@@ -1521,11 +1561,11 @@ export default function Dashboard({ session }) {
                     const isEditing = editingMessageId === m.id;
                     const isHighlighted = highlightedMessageId === m.id;
                     
-                    const repliedMsg = m.reply_to_message_id ? messages.find(msg => msg.id === m.reply_to_message_id) : null;
+                    const repliedMsg = m.reply_to_message_id ? validMessages.find(msg => msg.id === m.reply_to_message_id) : null;
                     
                     return (
                       <MemoizedMessage 
-                        key={m.id}
+                        key={m.id ? `msg-${m.id}` : `fallback-${index}`}
                         m={m}
                         isMe={isMe}
                         showHeader={showHeader}
@@ -1815,9 +1855,9 @@ export default function Dashboard({ session }) {
       )}
 
       {settingsModalConfig.isOpen && <UserSettingsModal session={session} initialTab={settingsModalConfig.tab} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account' })} />}
-      {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={handleUpdateServer} handleDelete={handleDeleteServer} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
-      {showChannelModal && <ChannelCreationModal handleCreate={handleCreateChannel} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
-      {showChannelSettings && <ChannelSettingsModal handleUpdate={handleUpdateChannel} handleDelete={handleDeleteChannel} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
+      {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
+      {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
+      {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
     </div>
   )
 }
