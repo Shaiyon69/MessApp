@@ -815,7 +815,11 @@ export default function Dashboard({ session }) {
   }
 
   const safeCacheSave = (targetId, dataArray) => {
-    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (_err) { // Ignore err
+    try {
+      // Keep only the most recent 200 messages to prevent localStorage quota exceeded errors
+      const trimmedData = dataArray.length > 200 ? dataArray.slice(-200) : dataArray;
+      localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(trimmedData));
+    } catch (_err) { // Ignore err
     }
   }
 
