@@ -8,7 +8,7 @@ import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { cacheMessage, cacheThumbnail, getCachedMessages } from '../lib/cacheManager'
-import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2 } from 'lucide-react'
+import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
 import ServerActionPopout from './modals/ServerActionPopout'
@@ -146,7 +146,7 @@ const MemoizedMessage = React.memo(({
   m, isMe, showHeader, alignRight, isHighlighted, currentUserId,
   isEditing, editContent, setEditContent, handleUpdateMessage, setEditingMessageId,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
-  toggleReaction, setReplyingTo, repliedMsg, scrollToMessage
+  toggleReaction, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMobileActions, setShowMobileActions] = useState(false)
@@ -242,8 +242,27 @@ const MemoizedMessage = React.memo(({
                       </div>
                     </div>
                   )}
+
+                  {/* BUG FIX: Added width constraints and implemented pure Lightbox architecture */}
                   {m.image_url && (
-                    <a href={m.image_url} target="_blank" rel="noreferrer" className={`block ${m.content ? 'mt-1.5' : ''} w-full max-w-xs md:max-w-sm rounded-xl overflow-hidden ghost-border hover:opacity-90 transition-opacity shadow-lg focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:outline-none`}><img src={m.image_url} alt="User attachment" className="w-full h-auto object-cover" /></a>
+                    <div 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (showMobileActions) {
+                          setShowMobileActions(false);
+                        } else {
+                          setSelectedImage({ url: m.image_url, user: m.profiles?.username, time: exactTime }); 
+                        }
+                      }}
+                      className={`block ${m.content ? 'mt-1.5' : ''} w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden ghost-border hover:opacity-90 transition-opacity shadow-lg cursor-pointer bg-black/20`}
+                    >
+                      <img 
+                        src={m.image_url} 
+                        alt="User attachment" 
+                        className="w-full h-auto max-h-[300px] object-cover" 
+                        loading="lazy" 
+                      />
+                    </div>
                   )}
 
                   {showDetails && (
@@ -358,6 +377,8 @@ export default function Dashboard({ session }) {
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef(null)
   const messageInputRef = useRef(null)
+
+  const [selectedImage, setSelectedImage] = useState(null)
 
   const [serverAction, setServerAction] = useState(null)
   const [showProfilePopout, setShowProfilePopout] = useState(false)
@@ -1172,7 +1193,6 @@ export default function Dashboard({ session }) {
       const compressedFile = await imageCompression(file, options)
       toast.dismiss('compress-toast')
 
-      // FIX: Use the original file's name because the compressed Blob drops the name property
       const fileExt = file.name.split('.').pop()
       const fileName = `${Math.random()}.${fileExt}`
       const filePath = `${session.user.id}/${fileName}`
@@ -1189,7 +1209,6 @@ export default function Dashboard({ session }) {
       const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
       if (!targetId) return toast.error('Select a channel or DM before sending images.')
       
-      // FIX: Ensure content is '' (empty string) not null, to satisfy the NOT NULL constraint in Supabase
       const { data: newMsg, error: insertError } = await supabase.from('messages')
         .insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
         .select('*, profiles(username, avatar_url), message_reactions(*)')
@@ -1657,6 +1676,7 @@ export default function Dashboard({ session }) {
                         setReplyingTo={setReplyingTo}
                         repliedMsg={repliedMsg}
                         scrollToMessage={scrollToMessage}
+                        setSelectedImage={setSelectedImage}
                       />
                     )
                   })}
@@ -1930,6 +1950,60 @@ export default function Dashboard({ session }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* NEW: Lightbox Overlay Engine */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in"
+          onClick={() => setSelectedImage(null)}
+        >
+          {/* Header with Timestamp */}
+          <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10">
+            <div className="flex flex-col">
+              <span className="text-white font-bold">{selectedImage.user}</span>
+              <span className="text-gray-400 text-xs">{selectedImage.time}</span>
+            </div>
+            <button 
+              className="text-white/50 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
+            >
+              <X size={24} />
+            </button>
+          </div>
+          
+          <img 
+            src={selectedImage.url} 
+            alt="Expanded view" 
+            className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl cursor-default animate-slide-up"
+            onClick={e => e.stopPropagation()} 
+          />
+          
+          {/* Download Action (Forces local download, bypasses new tab) */}
+          <button 
+            className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg"
+            onClick={(e) => { 
+              e.stopPropagation();
+              toast('Saving image...', { icon: '⬇️', id: 'save-toast' })
+              fetch(selectedImage.url)
+                .then(response => response.blob())
+                .then(blob => {
+                  const blobUrl = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.style.display = 'none';
+                  a.href = blobUrl;
+                  a.download = `messapp_image_${Math.random().toString(36).substring(7)}.jpg`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(blobUrl);
+                  toast.success('Image saved!', { id: 'save-toast' })
+                })
+                .catch(() => toast.error('Failed to download image', { id: 'save-toast' }));
+            }}
+          >
+            <Download size={18} /> Save Image
+          </button>
         </div>
       )}
 
