@@ -959,7 +959,14 @@ export default function Dashboard({ session }) {
       if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id }) 
     })
     
-    const requestsSub = supabase.channel('friend-requests').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests).subscribe()
+    const requestsSub = supabase.channel('friend-requests')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'friendships', filter: `sender_id=eq.${session.user.id}` }, (payload) => {
+        if (payload.new.status === 'accepted') {
+          fetchDms();
+        }
+      })
+      .subscribe()
 
     return () => { supabase.removeChannel(presenceChannel); supabase.removeChannel(requestsSub) }
   }, [session]) 
@@ -979,9 +986,11 @@ export default function Dashboard({ session }) {
 
   const handleAcceptRequest = async (request) => {
     try {
-      await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
       const { data: newRoom } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
-      if (newRoom) await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }, { dm_room_id: newRoom.id, profile_id: request.sender_id }])
+      if (newRoom) {
+        await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }, { dm_room_id: newRoom.id, profile_id: request.sender_id }])
+      }
+      await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
       fetchFriendRequests()
       fetchDms()
       toast.success("Friend request accepted!")
