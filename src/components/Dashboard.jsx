@@ -9,7 +9,7 @@ import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { cacheThumbnail } from '../lib/cacheManager'
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm } from '../lib/crypto'
-import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download } from 'lucide-react'
+import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download, Paperclip, FileText } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
 import ServerActionPopout from './modals/ServerActionPopout'
@@ -17,6 +17,7 @@ import ServerSettingsModal from './modals/ServerSettings'
 import ChannelCreationModal from './modals/ChannelCreation'
 import ChannelSettingsModal from './modals/ChannelSettings'
 import UserSettingsModal from './modals/UserSettings'
+import GifPickerPopout from './modals/GifPickerPopout'
 
 const THEME_COLORS = [
   { name: 'Indigo', value: '#6366f1' },
@@ -98,7 +99,7 @@ class SoundEngine {
       };
       ring();
       this.ringInterval = setInterval(ring, 2000);
-    } catch(_err) { // Ignore err
+    } catch(_err) {
     }
   }
   stopRing() {
@@ -127,7 +128,7 @@ const StatusAvatar = ({ url, username, isOnline, showStatus = true, className = 
         </defs>
         <g mask={`url(#${maskId})`}>
           {url ? (
-            <image href={url} width="100" height="100" preserveAspectRatio="xMidYMid slice" />
+            <image href={url} width="100" height="100" preserveAspectRatio="xMidYMid slice" decoding="async" />
           ) : (
             <>
               <circle cx={center} cy={center} r={center} fill="var(--border-subtle)" />
@@ -142,6 +143,46 @@ const StatusAvatar = ({ url, username, isOnline, showStatus = true, className = 
         )}
       </svg>
     </div>
+  )
+}
+
+const LinkPreview = ({ url }) => {
+  const [preview, setPreview] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchPreview = async () => {
+      try {
+        const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`)
+        const { data } = await res.json()
+        if (data && data.title) setPreview(data)
+      } catch (e) {
+        console.error("Failed to fetch link preview", e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchPreview()
+  }, [url])
+
+  if (loading || !preview) return null
+
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden bg-[var(--bg-element)] border border-[var(--border-subtle)] hover:border-indigo-500 transition-colors shadow-sm group cursor-pointer no-underline">
+      {preview.image?.url && (
+        <div className="w-full h-32 bg-[#0d0f12] overflow-hidden border-b border-[var(--border-subtle)]">
+          <img src={preview.image.url} alt="Preview" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" fetchPriority="low" />
+        </div>
+      )}
+      <div className="p-3">
+        <h4 className="text-[13px] font-bold text-[var(--text-main)] truncate mb-1">{preview.title}</h4>
+        <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed">{preview.description}</p>
+        <div className="text-[10px] text-indigo-400 mt-2 uppercase tracking-widest font-bold flex items-center gap-1.5">
+          {preview.logo?.url && <img src={preview.logo.url} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
+          <span className="truncate">{preview.publisher || new URL(url).hostname}</span>
+        </div>
+      </div>
+    </a>
   )
 }
 
@@ -173,6 +214,12 @@ const MemoizedMessage = React.memo(({
   }, {}) || {}
 
   const exactTime = new Date(m.created_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  const extractedUrls = useMemo(() => {
+    if (!m.content || m.is_deleted || typeof m.content !== 'string') return null;
+    const urls = m.content.match(/https?:\/\/[^\s]+/g);
+    return urls ? Array.from(new Set(urls)).slice(0, 3) : null;
+  }, [m.content, m.is_deleted]);
 
   return (
     <div id={`message-${m.id}`} className={`flex gap-2.5 md:gap-3 transition-all duration-500 ${showHeader ? 'mt-4 md:mt-5' : 'mt-1'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse' : ''}`} onMouseLeave={() => { setShowReactionPicker(false); setShowMobileActions(false); }}>
@@ -225,7 +272,7 @@ const MemoizedMessage = React.memo(({
                 </div>
               ) : (
                 <>
-                  {m.content && m.content.trim() !== '' && (
+                  {typeof m.content === 'string' && m.content.trim() !== '' && (
                     <div className={`px-3 py-1.5 md:px-4 md:py-2 rounded-2xl border w-fit max-w-full ${alignRight ? 'rounded-tr-none bg-[var(--theme-10)] border-[var(--theme-20)] text-[var(--text-main)]' : 'rounded-tl-none bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-main)]'} shadow-sm backdrop-blur-md text-left transition-transform active:scale-[0.98] md:active:scale-100`}>
                       <div className="leading-relaxed markdown-body text-[13px] md:text-[14px] break-words">
                         <ReactMarkdown
@@ -246,6 +293,13 @@ const MemoizedMessage = React.memo(({
                     </div>
                   )}
 
+                  {/* 🚀 RENDER RICH LINK PREVIEWS */}
+                  {extractedUrls && extractedUrls.map((url, i) => (
+                    <div key={`link-prev-${m.id}-${i}`} className={`mt-1 ${alignRight ? 'flex justify-end' : 'flex justify-start'}`}>
+                      <LinkPreview url={url} />
+                    </div>
+                  ))}
+
                   {m.image_url && (
                     <div 
                       onClick={(e) => { 
@@ -263,7 +317,49 @@ const MemoizedMessage = React.memo(({
                         alt="User attachment" 
                         className="w-full h-auto max-h-[300px] object-cover" 
                         loading="lazy" 
+                        decoding="async" 
+                        fetchPriority="low"
                       />
+                    </div>
+                  )}
+
+                  {/* 🚀 THE NEW FILE CARD COMPONENT */}
+                  {m.file_url && (
+                    <div 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (showMobileActions) {
+                          setShowMobileActions(false);
+                        } else {
+                          toast('Downloading file...', { icon: '⬇️', id: 'dl-toast' })
+                          fetch(m.file_url)
+                            .then(response => response.blob())
+                            .then(blob => {
+                              const blobUrl = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.style.display = 'none';
+                              a.href = blobUrl;
+                              a.download = m.file_name || 'download';
+                              document.body.appendChild(a);
+                              a.click();
+                              window.URL.revokeObjectURL(blobUrl);
+                              toast.success('File saved!', { id: 'dl-toast' })
+                            })
+                            .catch(() => toast.error('Failed to download file', { id: 'dl-toast' }));
+                        }
+                      }}
+                      className={`flex items-center gap-3 p-3 mt-1.5 w-fit min-w-[200px] max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl border ${alignRight ? 'border-[var(--theme-20)] bg-[var(--theme-10)]' : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'} hover:opacity-90 transition-opacity shadow-sm cursor-pointer`}
+                    >
+                      <div className={`p-2 rounded-lg shrink-0 ${alignRight ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-main)]'}`}>
+                        <FileText size={20} />
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1 overflow-hidden">
+                        <span className={`font-bold text-sm truncate ${alignRight ? 'text-[var(--text-main)]' : 'text-[var(--text-main)]'}`}>{m.file_name || 'Attachment'}</span>
+                        <span className="text-[10px] text-gray-500">{m.file_size || 'Unknown Size'}</span>
+                      </div>
+                      <button className={`p-1.5 rounded-md shrink-0 transition-colors ${alignRight ? 'hover:bg-[var(--theme-20)] text-[var(--theme-base)]' : 'hover:bg-[var(--bg-element)] text-gray-400 hover:text-[var(--text-main)]'}`}>
+                        <Download size={16} />
+                      </button>
                     </div>
                   )}
 
@@ -351,6 +447,16 @@ const MemoizedMessage = React.memo(({
   )
 })
 
+// 🚀 Helper Function to Convert Bytes to KB/MB nicely
+const formatBytes = (bytes, decimals = 2) => {
+  if (!+bytes) return '0 Bytes'
+  const k = 1024
+  const dm = decimals < 0 ? 0 : decimals
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
+}
+
 export default function Dashboard({ session }) {
   const [view, setView] = useState('home')
   const [homeTab, setHomeTab] = useState('online') 
@@ -375,9 +481,11 @@ export default function Dashboard({ session }) {
 
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef(null)
+  const genericFileInputRef = useRef(null) // 🚀 NEW: Reference for Generic File Input
   const messageInputRef = useRef(null)
 
   const [selectedImage, setSelectedImage] = useState(null)
+  const [showGifPicker, setShowGifPicker] = useState(false)
 
   const [serverAction, setServerAction] = useState(null)
   const [showProfilePopout, setShowProfilePopout] = useState(false)
@@ -454,13 +562,14 @@ export default function Dashboard({ session }) {
     }
   }, [dms, session.user.id]);
 
-  // 🛡️ SKIBIDI E2EE ARCHITECTURE: Batch Message Decryption
   const decryptMessageList = useCallback(async (msgList, sharedKey) => {
     return await Promise.all(msgList.map(async (msg) => {
-      if (msg.content && msg.content.startsWith('{') && msg.content.includes('ciphertext')) {
+      const contentStr = typeof msg.content === 'object' && msg.content !== null ? JSON.stringify(msg.content) : msg.content;
+      
+      if (contentStr && typeof contentStr === 'string' && contentStr.startsWith('{') && contentStr.includes('ciphertext')) {
         if (!sharedKey) return { ...msg, content: '🔒 [Encrypted Message]' };
         try {
-          const encObj = JSON.parse(msg.content);
+          const encObj = JSON.parse(contentStr);
           if (encObj.iv && encObj.ciphertext) {
             const decrypted = await decryptWithAesGcm(sharedKey, encObj);
             return { ...msg, content: decrypted };
@@ -469,7 +578,7 @@ export default function Dashboard({ session }) {
           return { ...msg, content: '🔒 [Encrypted Message - Unreadable]' };
         }
       }
-      return msg;
+      return { ...msg, content: contentStr };
     }));
   }, []);
 
@@ -784,7 +893,6 @@ export default function Dashboard({ session }) {
       const decryptedData = await decryptMessageList(combinedMessages, sharedKey);
 
       setMessages(prev => {
-        // 🚨 FIX: Strong isolation for context loading
         const safePrev = prev.filter(m => m[field] === targetId);
         const merged = [...safePrev, ...decryptedData];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
@@ -849,7 +957,6 @@ export default function Dashboard({ session }) {
       const previousScrollHeight = container ? container.scrollHeight : 0;
 
       setMessages(prev => {
-        // 🚨 FIX: Strict isolation during pagination scrolling
         const safePrev = prev.filter(m => m[field] === targetId);
         const merged = [...decryptedData, ...safePrev];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
@@ -876,8 +983,6 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
-        
-        // 🛡️ SKIBIDI E2EE ARCHITECTURE: Identity Key Generation
         let pubKeyStr = null;
         let privKeyJwkStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
         let pubKeyJwkStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
@@ -1074,7 +1179,6 @@ export default function Dashboard({ session }) {
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     
-    // 🚨 FIX 1: Instantly clear memory of cross-chat contamination
     setMessages(prev => prev.filter(m => m[field] === targetId))
 
     const cachedData = safeCacheLoad(targetId)
@@ -1098,7 +1202,6 @@ export default function Dashboard({ session }) {
       const decryptedData = await decryptMessageList(chronoData, sharedKey);
 
       setMessages(prev => {
-        // 🚨 FIX 2: Strict filter before merging
         const safePrev = prev.filter(m => m[field] === targetId);
         const merged = [...safePrev, ...decryptedData];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
@@ -1148,7 +1251,6 @@ export default function Dashboard({ session }) {
           setMessages(prev => {
             if (prev.some(msg => msg.id === decryptedMsg.id)) return prev; 
             
-            // 🚨 FIX 3: Double-check the incoming WS message matches the active view
             const safePrev = prev.filter(m => m[field] === targetId);
             if (decryptedMsg[field] !== targetId) return safePrev;
 
@@ -1247,7 +1349,6 @@ export default function Dashboard({ session }) {
     }
 
     try {
-      // 🛡️ SKIBIDI E2EE ARCHITECTURE: Encrypt Output Payload
       const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
       let contentToSave = text;
       
@@ -1281,6 +1382,119 @@ export default function Dashboard({ session }) {
     }
   }
 
+  const handleSendGif = async (gifUrl) => {
+    setShowGifPicker(false)
+    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+
+    if (!targetId) return toast.error('Select a channel or DM before sending a GIF.')
+
+    try {
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      let contentToSave = '';
+      
+      if (sharedKey) {
+        const encrypted = await encryptWithAesGcm(sharedKey, '');
+        contentToSave = JSON.stringify(encrypted);
+      }
+
+      const { data: newMsg, error: insertError } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: contentToSave, image_url: gifUrl, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+        .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
+        .single()
+        
+      if (insertError) throw insertError
+
+      const [decryptedMsg] = await decryptMessageList([newMsg], sharedKey);
+
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
+        const updated = [...prev, decryptedMsg];
+        updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, updated);
+        return updated;
+      })
+
+      setReplyingTo(null)
+      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+    } catch (_err) {
+      toast.error('Failed to send GIF.')
+    }
+  }
+
+  // 🚀 Helper Function to Convert Bytes to KB/MB nicely
+  const formatBytes = (bytes, decimals = 2) => {
+    if (!+bytes) return '0 Bytes'
+    const k = 1024
+    const dm = decimals < 0 ? 0 : decimals
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
+  }
+
+  // 🚀 NEW THE UNIVERSAL FILE UPLOAD LOGIC
+  const handleGenericFileUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setIsUploading(true)
+    try {
+      const fileSizeFormatted = formatBytes(file.size)
+      toast('Uploading file...', { icon: '⬆️', id: 'upload-toast' })
+
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${crypto.randomUUID()}.${fileExt}`
+      const filePath = `${session.user.id}/${fileName}`
+      
+      const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, file)
+      if (uploadError) {
+        console.error("Storage Error:", uploadError)
+        throw uploadError
+      }
+      
+      const { data: { publicUrl } } = await supabase.storage.from('chat-attachments').getPublicUrl(filePath)
+      
+      const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+      const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+      if (!targetId) return toast.error('Select a channel or DM before sending files.')
+      
+      // 🛡️ Ensure empty text strings are properly wrapped in our AES-GCM format
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      let contentToSave = '';
+      if (sharedKey) {
+        const encrypted = await encryptWithAesGcm(sharedKey, '');
+        contentToSave = JSON.stringify(encrypted);
+      }
+
+      const { data: newMsg, error: insertError } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: contentToSave, file_url: publicUrl, file_name: file.name, file_size: fileSizeFormatted, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+        .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
+        .single()
+        
+      if (insertError) {
+        console.error("Database Insert Error:", insertError)
+        throw insertError
+      }
+
+      const [decryptedMsg] = await decryptMessageList([newMsg], sharedKey);
+
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
+        const updated = [...prev, decryptedMsg];
+        updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, updated);
+        return updated;
+      })
+
+      toast.success('File uploaded!', { id: 'upload-toast' })
+      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+    } catch (_err) {
+      toast.error('Failed to upload file', { id: 'upload-toast' }) 
+    } finally { 
+      setIsUploading(false)
+      if (genericFileInputRef.current) genericFileInputRef.current.value = '' 
+    }
+  }
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -1307,8 +1521,15 @@ export default function Dashboard({ session }) {
       const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
       if (!targetId) return toast.error('Select a channel or DM before sending images.')
       
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      let contentToSave = '';
+      if (sharedKey) {
+        const encrypted = await encryptWithAesGcm(sharedKey, '');
+        contentToSave = JSON.stringify(encrypted);
+      }
+
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, image_url: publicUrl, [field]: targetId }])
         .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
         .single()
         
@@ -1317,9 +1538,11 @@ export default function Dashboard({ session }) {
         throw insertError
       }
 
+      const [decryptedMsg] = await decryptMessageList([newMsg], sharedKey);
+
       setMessages(prev => {
-        if (prev.some(msg => msg.id === newMsg.id)) return prev;
-        const updated = [...prev, newMsg];
+        if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
+        const updated = [...prev, decryptedMsg];
         updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, updated);
         return updated;
@@ -1358,7 +1581,7 @@ export default function Dashboard({ session }) {
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
       if (mode === 'everyone') {
-        const { error: deleteError } = await supabase.from('messages').update({ is_deleted: true, content: '', image_url: null }).eq('id', message.id)
+        const { error: deleteError } = await supabase.from('messages').update({ is_deleted: true, content: '', image_url: null, file_url: null }).eq('id', message.id)
         if (deleteError) throw deleteError
         toast.success("Message unsent")
       } else {
@@ -1377,14 +1600,10 @@ export default function Dashboard({ session }) {
   
   const searchResults = searchQuery ? validMessages.filter(m => !m.is_deleted && (m.content?.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
   
-  // ⚡ Bolt Optimization: Converted O(N) array .includes() lookups to O(1) Set .has() lookups inside loops.
-  // Reduces time complexity from O(N * M) to O(N) during heavy render cycles, saving massive computation overhead.
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
 
-  // ⚡ Bolt Optimization: Memoized expensive array filtering computations.
-  // Prevents the app from recalculating large friends lists on every single React component re-render.
   const allFriends = useMemo(() => dms.filter(dm => !restrictedUsersSet.has(dm.profiles.id)), [dms, restrictedUsersSet]);
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
 
@@ -1410,7 +1629,7 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
+    <div className="flex h-[100dvh] w-screen bg-[var(--bg-base)] text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
 
@@ -1858,10 +2077,35 @@ export default function Dashboard({ session }) {
 
                     <form onSubmit={handleSendMessage} className="bg-[var(--bg-surface)] rounded-2xl ghost-border flex items-end gap-1 md:gap-2 p-1.5 md:p-2 focus-within:border-[var(--theme-50)] shadow-inner transition-colors relative">
                       
+                      {/* 🚀 THE NEW TENOR GIF ENGINE POPOUT */}
+                      {showGifPicker && (
+                        <GifPickerPopout 
+                          onSelectGif={handleSendGif} 
+                          onClose={() => setShowGifPicker(false)} 
+                        />
+                      )}
+
                       <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                      <input type="file" ref={genericFileInputRef} onChange={handleGenericFileUpload} className="hidden" />
                       
                       <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Upload Image">
                         {isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <ImagePlus size={20} aria-hidden="true" />}
+                      </button>
+
+                      {/* 🚀 THE NEW GENERIC FILE UPLOAD BUTTON */}
+                      <button type="button" onClick={() => genericFileInputRef.current?.click()} disabled={isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Upload File">
+                        {isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <Paperclip size={20} aria-hidden="true" />}
+                      </button>
+
+                      {/* 🚀 THE NEW TENOR GIF BUTTON */}
+                      <button 
+                        type="button" 
+                        onClick={() => setShowGifPicker(!showGifPicker)} 
+                        disabled={isUploading} 
+                        className={`p-2.5 md:p-3 font-bold text-sm rounded-xl transition-colors shrink-0 disabled:opacity-50 cursor-pointer ${showGifPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-base)]'}`} 
+                        title="Send GIF"
+                      >
+                        GIF
                       </button>
 
                       <textarea 
@@ -2089,12 +2333,14 @@ export default function Dashboard({ session }) {
             </button>
           </div>
           
-          <img 
-            src={selectedImage.url} 
-            alt="Expanded view" 
-            className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl cursor-default animate-slide-up"
-            onClick={e => e.stopPropagation()} 
-          />
+            <img 
+              src={selectedImage.url} 
+              alt="Expanded view" 
+              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl cursor-default animate-slide-up"
+              onClick={e => e.stopPropagation()} 
+              decoding="async"
+              fetchPriority="high"
+            />
           
           {/* Download Action (Forces local download, bypasses new tab) */}
           <button 
