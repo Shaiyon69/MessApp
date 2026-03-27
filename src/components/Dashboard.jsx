@@ -1763,9 +1763,9 @@ export default function Dashboard({ session }) {
                       <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 shrink-0">{searchResults.length} Matches Found</div>
                       
                       <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 pb-4">
-                        {searchResults.map(m => (
+                        {searchResults.map((m, i) => (
                           <button 
-                            key={`search-res-${m.id}`}
+                            key={m.id ? `search-res-${m.id}` : `search-fallback-${i}`}
                             onClick={() => scrollToMessage(m)}
                             className="w-full text-left p-3 bg-[var(--bg-element)] rounded-xl cursor-pointer hover:bg-[var(--bg-surface)] border border-transparent hover:border-[var(--theme-50)] transition-all group focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none"
                           >
