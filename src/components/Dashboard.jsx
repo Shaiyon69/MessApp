@@ -8,7 +8,6 @@ import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { cacheThumbnail } from '../lib/cacheManager'
-import { encryptWithAesGcm, decryptWithAesGcm } from '../lib/crypto'
 import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
@@ -246,7 +245,6 @@ const MemoizedMessage = React.memo(({
                     </div>
                   )}
 
-                  {/* BUG FIX: Added width constraints and implemented pure Lightbox architecture */}
                   {m.image_url && (
                     <div 
                       onClick={(e) => { 
@@ -416,14 +414,11 @@ export default function Dashboard({ session }) {
   const [remoteCaller, setRemoteCaller] = useState(null)
   const [ncEnabled, setNcEnabled] = useState(true)
   const [micEnabled, setMicEnabled] = useState(true)
-  const [videoEnabled, setVideoEnabled] = useState(false)
   
   const pcRef = useRef(null)
   const localStreamRef = useRef(null)
   const remoteStreamRef = useRef(null)
   const remoteAudioRef = useRef(null)
-  const localVideoRef = useRef(null)
-  const remoteVideoRef = useRef(null)
   
   const callChannelRef = useRef(null)
   const activeCallTargetRef = useRef(null)
@@ -443,10 +438,6 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
-
-    if (typeof Notification !== 'undefined' && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-      Notification.requestPermission();
     }
   }, []);
 
@@ -557,10 +548,6 @@ export default function Dashboard({ session }) {
               remoteAudioRef.current.srcObject = remoteStreamRef.current
               remoteAudioRef.current.play().catch(()=>{})
             }
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = remoteStreamRef.current
-              remoteVideoRef.current.play().catch(()=>{})
-            }
           }
         }
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.offer))
@@ -608,26 +595,20 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const startCall = async (withVideo = false) => {
+  const startCall = async () => {
     if (!activeDm) return
     setRemoteCaller(activeDm.profiles)
     activeCallTargetRef.current = activeDm.profiles.id
     setCallDirection('outgoing')
     setCallActive(true)
     setCallMinimized(false)
-    setVideoEnabled(withVideo)
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: withVideo,
+        video: false, 
         audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled } 
       })
       localStreamRef.current = stream
-
-      if (localVideoRef.current && withVideo) {
-        localVideoRef.current.srcObject = stream
-        localVideoRef.current.play().catch(()=>{})
-      }
 
       pcRef.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
       stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream))
@@ -644,10 +625,6 @@ export default function Dashboard({ session }) {
         if (remoteAudioRef.current) {
           remoteAudioRef.current.srcObject = remoteStreamRef.current
           remoteAudioRef.current.play().catch(()=>{})
-        }
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStreamRef.current
-          remoteVideoRef.current.play().catch(()=>{})
         }
       }
 
@@ -667,22 +644,11 @@ export default function Dashboard({ session }) {
   const acceptCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true,
+        video: false, 
         audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled } 
       })
       localStreamRef.current = stream
       
-      const videoTrack = stream.getVideoTracks()[0]
-      if (videoTrack) {
-        videoTrack.enabled = false
-        setVideoEnabled(false)
-      }
-
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
-        localVideoRef.current.play().catch(()=>{})
-      }
-
       stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream))
       
       const answer = await pcRef.current.createAnswer()
@@ -734,40 +700,6 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const toggleVideo = async () => {
-    if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0]
-      if (videoTrack) {
-        videoTrack.enabled = !videoEnabled
-        setVideoEnabled(!videoEnabled)
-      } else {
-        try {
-          const videoStream = await navigator.mediaDevices.getUserMedia({ video: true })
-          const newVideoTrack = videoStream.getVideoTracks()[0]
-          localStreamRef.current.addTrack(newVideoTrack)
-
-          if (pcRef.current) {
-            const senders = pcRef.current.getSenders()
-            const videoSender = senders.find(s => s.track && s.track.kind === 'video')
-            if (videoSender) {
-              videoSender.replaceTrack(newVideoTrack)
-            } else {
-              pcRef.current.addTrack(newVideoTrack, localStreamRef.current)
-            }
-          }
-
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = localStreamRef.current
-            localVideoRef.current.play().catch(()=>{})
-          }
-          setVideoEnabled(true)
-        } catch (_err) {
-          toast.error("Video permission denied or no camera found")
-        }
-      }
-    }
-  }
-
   const toggleNoiseCancellation = async () => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0]
@@ -784,42 +716,8 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const getE2EEKey = async (targetId) => {
-    try {
-      const encoder = new TextEncoder();
-      const rawId = encoder.encode(targetId + 'MESSAPP_E2EE_SALT_2026');
-      const hash = await crypto.subtle.digest('SHA-256', rawId);
-      return await crypto.subtle.importKey(
-        'raw',
-        hash,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt', 'decrypt']
-      );
-    } catch (_err) {
-      return null;
-    }
-  }
-
-  const decryptMessageContent = async (msg, key) => {
-    if (!key || !msg.content || !msg.content.startsWith('{')) return msg;
-    try {
-      const payload = JSON.parse(msg.content);
-      if (payload.enc && payload.iv && payload.ciphertext) {
-        const decryptedContent = await decryptWithAesGcm(key, { iv: payload.iv, ciphertext: payload.ciphertext });
-        return { ...msg, content: decryptedContent };
-      }
-    } catch (_err) { // Ignore err
-    }
-    return msg;
-  }
-
   const safeCacheSave = (targetId, dataArray) => {
-    try {
-      // Keep only the most recent 200 messages to prevent localStorage quota exceeded errors
-      const trimmedData = dataArray.length > 200 ? dataArray.slice(-200) : dataArray;
-      localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(trimmedData));
-    } catch (_err) { // Ignore err
+    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (_err) { // Ignore err
     }
   }
 
@@ -844,7 +742,9 @@ export default function Dashboard({ session }) {
     if (olderMessages || newerMessages) {
       const combinedMessages = [...(olderMessages || []).reverse(), ...(newerMessages || [])]
       setMessages(prev => {
-        const merged = [...prev, ...combinedMessages];
+        // 🚨 FIX: Strong isolation for context loading
+        const safePrev = prev.filter(m => m[field] === targetId);
+        const merged = [...safePrev, ...combinedMessages];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, uniqueData);
@@ -898,15 +798,14 @@ export default function Dashboard({ session }) {
     if (data.length < 50) setHasMoreMessages(false);
 
     if (data.length > 0) {
-      const e2eKey = await getE2EEKey(targetId);
-      const decryptedData = await Promise.all(data.map(m => decryptMessageContent(m, e2eKey)));
-
-      const chronoData = decryptedData.reverse();
+      const chronoData = data.reverse();
       const container = scrollContainerRef.current;
       const previousScrollHeight = container ? container.scrollHeight : 0;
 
       setMessages(prev => {
-        const merged = [...chronoData, ...prev];
+        // 🚨 FIX: Strict isolation during pagination scrolling
+        const safePrev = prev.filter(m => m[field] === targetId);
+        const merged = [...chronoData, ...safePrev];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, uniqueData);
@@ -914,12 +813,10 @@ export default function Dashboard({ session }) {
       });
 
       setTimeout(() => {
-        requestAnimationFrame(() => {
-          if (container) {
-            container.scrollTop = container.scrollHeight - previousScrollHeight;
-          }
-        });
-      }, 10);
+        if (container) {
+          container.scrollTop = container.scrollHeight - previousScrollHeight;
+        }
+      }, 0);
     }
     setIsLoadingMore(false);
   }, [activeChannel?.id, activeDm?.dm_room_id, view, isLoadingMore, hasMoreMessages, messages]);
@@ -959,14 +856,7 @@ export default function Dashboard({ session }) {
       if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id }) 
     })
     
-    const requestsSub = supabase.channel('friend-requests')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'friendships', filter: `sender_id=eq.${session.user.id}` }, (payload) => {
-        if (payload.new.status === 'accepted') {
-          fetchDms();
-        }
-      })
-      .subscribe()
+    const requestsSub = supabase.channel('friend-requests').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests).subscribe()
 
     return () => { supabase.removeChannel(presenceChannel); supabase.removeChannel(requestsSub) }
   }, [session]) 
@@ -986,11 +876,9 @@ export default function Dashboard({ session }) {
 
   const handleAcceptRequest = async (request) => {
     try {
-      const { data: newRoom } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
-      if (newRoom) {
-        await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }, { dm_room_id: newRoom.id, profile_id: request.sender_id }])
-      }
       await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
+      const { data: newRoom } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
+      if (newRoom) await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }, { dm_room_id: newRoom.id, profile_id: request.sender_id }])
       fetchFriendRequests()
       fetchDms()
       toast.success("Friend request accepted!")
@@ -1108,6 +996,11 @@ export default function Dashboard({ session }) {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
     if (!targetId) return;
 
+    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    
+    // 🚨 FIX 1: Instantly clear memory of cross-chat contamination
+    setMessages(prev => prev.filter(m => m[field] === targetId))
+
     const cachedData = safeCacheLoad(targetId)
     if (cachedData.length > 0) {
       const validCache = Array.from(new Map(cachedData.filter(m => m && m.id).map(item => [item.id, item])).values());
@@ -1115,7 +1008,6 @@ export default function Dashboard({ session }) {
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
     }
 
-    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     const { data } = await supabase.from('messages')
       .select('*, profiles(username, avatar_url), message_reactions(*)')
       .eq(field, targetId)
@@ -1123,13 +1015,12 @@ export default function Dashboard({ session }) {
       .limit(100)
       
     if (data) {
-      const e2eKey = await getE2EEKey(targetId);
-      const decryptedData = await Promise.all(data.map(m => decryptMessageContent(m, e2eKey)));
-
-      if (decryptedData.length < 100) setHasMoreMessages(false);
-      const chronoData = decryptedData.reverse()
+      if (data.length < 100) setHasMoreMessages(false);
+      const chronoData = data.reverse() 
       setMessages(prev => {
-        const merged = [...prev, ...chronoData];
+        // 🚨 FIX 2: Strict filter before merging
+        const safePrev = prev.filter(m => m[field] === targetId);
+        const merged = [...safePrev, ...chronoData];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, uniqueData) 
@@ -1150,11 +1041,7 @@ export default function Dashboard({ session }) {
     if (!targetId) { setMessages([]); setTypingUsers([]); return; }
     
     setHasMoreMessages(true);
-    setMessages([]);
-    const cachedData = safeCacheLoad(targetId);
-    if (cachedData && cachedData.length > 0) {
-      setMessages(cachedData);
-    }
+    setMessages(safeCacheLoad(targetId))
     setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
@@ -1167,59 +1054,49 @@ export default function Dashboard({ session }) {
       setTypingUsers(typers)
     })
 
-    roomChannel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
-      const { data: fullMsg } = await supabase.from('messages')
-        .select('*, profiles(username, avatar_url), message_reactions(*)')
-        .eq('id', payload.new.id)
-        .single()
+    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
+      if (payload.eventType === 'INSERT') {
+        const { data: fullMsg } = await supabase.from('messages')
+          .select('*, profiles(username, avatar_url), message_reactions(*)')
+          .eq('id', payload.new.id)
+          .single()
 
-      if (fullMsg) {
-        const e2eKey = await getE2EEKey(targetId);
-        const decryptedMsg = await decryptMessageContent(fullMsg, e2eKey);
+        if (fullMsg) {
+          setMessages(prev => {
+            if (prev.some(msg => msg.id === fullMsg.id)) return prev; 
+            
+            // 🚨 FIX 3: Double-check the incoming WS message matches the active view
+            const safePrev = prev.filter(m => m[field] === targetId);
+            if (fullMsg[field] !== targetId) return safePrev;
 
-        setMessages(prev => {
-          if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
-          const updated = [...prev, decryptedMsg];
-          updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-          safeCacheSave(targetId, updated);
-          return updated;
-        })
-
-        if (fullMsg.profile_id !== session.user.id) {
-          if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
-
-          if (document.visibilityState === 'hidden' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            try {
-              const notification = new Notification(`New message from ${fullMsg.profiles?.username || 'someone'}`, {
-                body: fullMsg.content || 'Sent an attachment',
-                icon: fullMsg.profiles?.avatar_url || '/favicon.ico',
-                tag: 'messapp-msg'
-              });
-              notification.onclick = () => {
-                window.focus();
-                notification.close();
-              };
-            } catch (_err) { // Ignore err
-            }
+            const updated = [...safePrev, fullMsg];
+            updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            safeCacheSave(targetId, updated);
+            return updated;
+          })
+          
+          if (fullMsg.profile_id !== session.user.id) {
+            if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
           }
+          setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
         }
-        setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
       }
-    })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, (payload) => {
-      setMessages(current => {
-        const updated = current.map(msg => msg.id === payload.new.id ? { ...msg, ...payload.new } : msg)
-        safeCacheSave(targetId, updated)
-        return updated
-      })
-    })
-    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
-      setMessages(current => {
-        if (!current.some(msg => msg.id === payload.old.id)) return current;
-        const updated = current.filter(msg => msg.id !== payload.old.id)
-        safeCacheSave(targetId, updated)
-        return updated
-      })
+      
+      if (payload.eventType === 'UPDATE') {
+        setMessages(current => {
+          const updated = current.map(msg => msg.id === payload.new.id ? { ...msg, ...payload.new } : msg)
+          safeCacheSave(targetId, updated)
+          return updated
+        })
+      }
+      
+      if (payload.eventType === 'DELETE') {
+        setMessages(current => {
+          const updated = current.filter(msg => msg.id !== payload.old.id)
+          safeCacheSave(targetId, updated)
+          return updated
+        })
+      }
     })
 
     roomChannel.subscribe()
@@ -1284,25 +1161,12 @@ export default function Dashboard({ session }) {
     }
 
     try {
-      let finalContent = text;
-      try {
-        const e2eKey = await getE2EEKey(targetId);
-        if (e2eKey) {
-          const encrypted = await encryptWithAesGcm(e2eKey, text);
-          finalContent = JSON.stringify({ enc: true, iv: encrypted.iv, ciphertext: encrypted.ciphertext });
-        }
-      } catch (_e) { // Ignore err
-      }
-
-      const { data: newMsgRaw, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: finalContent, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+      const { data: newMsg, error: insertError } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
         .select('*, profiles(username, avatar_url), message_reactions(*)')
         .single()
         
       if (insertError) throw insertError
-
-      // Make sure our local state has the decrypted form immediately to avoid flash
-      const newMsg = { ...newMsgRaw, content: text };
 
       setMessages(prev => {
         if (prev.some(msg => msg.id === newMsg.id)) return prev;
@@ -1379,26 +1243,11 @@ export default function Dashboard({ session }) {
     e.preventDefault()
     if (!editContent.trim()) return
     try {
-      const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id;
-      let finalContent = editContent.trim();
-      const e2eKey = await getE2EEKey(targetId);
-      if (e2eKey) {
-        const encrypted = await encryptWithAesGcm(e2eKey, finalContent);
-        finalContent = JSON.stringify({ enc: true, iv: encrypted.iv, ciphertext: encrypted.ciphertext });
-      }
-
-      await supabase.from('messages').update({ content: finalContent }).eq('id', id)
+      await supabase.from('messages').update({ content: editContent.trim() }).eq('id', id)
       setEditingMessageId(null)
       toast.success("Message updated")
-
-      // Update local state instantly with decrypted string
-      setMessages(current => {
-        const updated = current.map(msg => msg.id === id ? { ...msg, content: editContent.trim() } : msg)
-        safeCacheSave(targetId, updated)
-        return updated
-      })
     } catch (_err) { toast.error("Failed to update message") }
-  }, [editContent, view, activeChannel?.id, activeDm?.dm_room_id])
+  }, [editContent])
 
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
@@ -1470,40 +1319,24 @@ export default function Dashboard({ session }) {
             <button onClick={() => setCallMinimized(true)} className="text-gray-400 hover:text-[var(--text-main)] bg-white/5 p-3 rounded-full border border-white/10 transition-colors cursor-pointer shadow-lg hover:bg-white/10"><Minimize2 size={20}/></button>
           </div>
 
-          <div className="relative w-full max-w-4xl flex flex-col items-center justify-center mb-8 flex-1">
-            {callDirection === 'connected' && videoEnabled ? (
-              <div className="relative w-full h-full flex flex-col md:flex-row items-center justify-center gap-4">
-                 <div className="relative w-full md:w-1/2 aspect-video bg-black/50 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-                   <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                   <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-lg text-sm font-bold text-white border border-white/10">{remoteCaller?.username}</div>
-                 </div>
-                 <div className="relative w-1/3 md:w-1/4 aspect-video bg-black/80 rounded-xl overflow-hidden border border-white/10 shadow-2xl md:absolute md:bottom-8 md:right-8 z-20 hover:scale-105 transition-transform cursor-pointer">
-                   <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                   <div className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded-md text-[10px] font-bold text-white border border-white/10">You</div>
-                 </div>
-              </div>
-            ) : (
-              <>
-                <div className="relative w-40 h-40 rounded-full shadow-[0_0_100px_var(--theme-20)] flex items-center justify-center">
-                  {callDirection === 'connected' && <div className="absolute inset-0 rounded-full border-4 border-[var(--theme-base)] animate-ping opacity-30"></div>}
-                  <StatusAvatar url={remoteCaller?.avatar_url} username={remoteCaller?.username} showStatus={false} className="w-32 h-32 rounded-full bg-[var(--bg-surface)] border-2 border-white/10 relative z-10" />
-                </div>
-                <h2 className="text-4xl font-bold text-[var(--text-main)] mt-8 mb-2 tracking-tight">{remoteCaller?.username}</h2>
-                <p className="text-[var(--theme-base)] font-bold text-base tracking-widest uppercase">
-                  {callDirection === 'incoming' ? 'Incoming Call...' : callDirection === 'outgoing' ? 'Ringing...' : 'Connected'}
-                </p>
-                <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
-              </>
-            )}
+          <div className="relative w-full max-w-sm flex flex-col items-center justify-center mb-8">
+            <div className="relative w-40 h-40 rounded-full shadow-[0_0_100px_var(--theme-20)] flex items-center justify-center">
+              {callDirection === 'connected' && <div className="absolute inset-0 rounded-full border-4 border-[var(--theme-base)] animate-ping opacity-30"></div>}
+              <StatusAvatar url={remoteCaller?.avatar_url} username={remoteCaller?.username} showStatus={false} className="w-32 h-32 rounded-full bg-[var(--bg-surface)] border-2 border-white/10 relative z-10" />
+            </div>
+            <h2 className="text-4xl font-bold text-[var(--text-main)] mt-8 mb-2 tracking-tight">{remoteCaller?.username}</h2>
+            <p className="text-[var(--theme-base)] font-bold text-base tracking-widest uppercase">
+              {callDirection === 'incoming' ? 'Incoming Call...' : callDirection === 'outgoing' ? 'Ringing...' : 'Connected'}
+            </p>
           </div>
 
-          <div className="flex gap-4 p-3 bg-white/5 border border-white/10 rounded-full backdrop-blur-3xl shadow-2xl mt-auto md:mt-12 shrink-0">
+          <div className="flex gap-4 p-3 bg-white/5 border border-white/10 rounded-full backdrop-blur-3xl shadow-2xl mt-12">
             <button onClick={toggleMic} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${micEnabled ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`}>
               {micEnabled ? <Mic size={24} /> : <MicOff size={24} />}
             </button>
             
-            <button onClick={toggleVideo} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${videoEnabled ? 'bg-[var(--theme-base)] text-white shadow-lg shadow-[var(--theme-50)]' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'}`}>
-              {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
+            <button onClick={() => toast('Video calls are currently in development!', { icon: '🚧' })} className="w-14 h-14 rounded-full flex items-center justify-center transition-all cursor-pointer bg-white/5 text-gray-500 opacity-50">
+              <VideoOff size={24} />
             </button>
 
             <button onClick={toggleNoiseCancellation} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'bg-[var(--theme-base)] text-white shadow-lg shadow-[var(--theme-50)]' : 'bg-white/5 text-gray-400'}`} title="Hardware Noise Cancellation">
@@ -1699,8 +1532,8 @@ export default function Dashboard({ session }) {
           <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
             {isChatActive && (
               <>
-                <button onClick={() => startCall(false)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Phone size={20} aria-hidden="true" /></button>
-                <button onClick={() => startCall(true)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Video size={20} aria-hidden="true" /></button>
+                <button onClick={() => startCall()} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Phone size={20} aria-hidden="true" /></button>
+                <button onClick={() => toast('Video calls are currently in development!', { icon: '🚧' })} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Video size={20} aria-hidden="true" /></button>
                 <div className="w-[1px] h-6 bg-[var(--border-subtle)] mx-1"></div>
                 <button onClick={() => toggleRightSidebar('search')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${rightTab === 'search' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`}><Search size={20} aria-hidden="true" /></button>
                 <button onClick={() => toggleRightSidebar('info')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${rightTab === 'info' && showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`}><Info size={20} aria-hidden="true" /></button>
