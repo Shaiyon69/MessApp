@@ -39,14 +39,28 @@ class SoundEngine {
   constructor() {
     this.ctx = null;
     this.ringInterval = null;
+    this.hasInteracted = false; 
+    this.unlockHandler = () => this.unlock();
+    document.addEventListener('click', this.unlockHandler, { once: true });
+    document.addEventListener('touchstart', this.unlockHandler, { once: true });
+  }
+  unlock() {
+    this.hasInteracted = true;
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    document.removeEventListener('click', this.unlockHandler);
+    document.removeEventListener('touchstart', this.unlockHandler);
   }
   init() {
+    if (!this.hasInteracted) return false; 
     if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); 
+    return true;
   }
   playPop() {
     try {
-      this.init();
+      if (!this.init()) return; 
+      if (this.ctx.state !== 'running') return; 
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
@@ -62,10 +76,11 @@ class SoundEngine {
   }
   startRing(isOutgoing) {
     try {
-      this.init();
+      if (!this.init()) return; 
       this.stopRing();
       const vol = isOutgoing ? 0.01 : 0.05; 
       const ring = () => {
+        if (this.ctx && this.ctx.state !== 'running') return; 
         const t = this.ctx.currentTime;
         [523.25, 659.25, 880.00].forEach((freq, i) => { 
           const osc = this.ctx.createOscillator();
@@ -245,10 +260,10 @@ const MemoizedMessage = React.memo(({
 
                   {Object.keys(groupedReactions).length > 0 && (
                     <div className={`flex flex-wrap gap-1 mt-1.5 ${alignRight ? 'justify-end' : 'justify-start'}`}>
-                      {Object.entries(groupedReactions).map(([emoji, reactions]) => {
+                      {Object.entries(groupedReactions).map(([emoji, reactions], idx) => {
                         const hasReacted = reactions.some(r => r.profile_id === currentUserId)
                         return (
-                          <button key={emoji} onClick={(e) => { e.stopPropagation(); toggleReaction(m.id, emoji, hasReacted); setShowReactionPicker(false); }} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-1 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
+                          <button key={`react-${m.id}-${idx}`} onClick={(e) => { e.stopPropagation(); toggleReaction(m.id, emoji, hasReacted); setShowReactionPicker(false); }} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-1 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
                             <span>{emoji}</span> <span className={`font-bold ${hasReacted ? 'text-[var(--text-main)]' : 'text-gray-400'}`}>{reactions.length}</span>
                           </button>
                         )
@@ -263,9 +278,9 @@ const MemoizedMessage = React.memo(({
               <div className={`flex items-center gap-1 transition-opacity duration-200 shrink-0 relative ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100' : 'opacity-0 md:group-hover/bubble:opacity-100'}`}>
                 {showReactionPicker && (
                   <div className={`absolute ${alignRight ? 'right-full mr-2' : 'left-full ml-2'} top-0 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-xl flex gap-1 p-1 z-50 animate-fade-in`}>
-                    {QUICK_EMOJIS.map(emoji => {
+                    {QUICK_EMOJIS.map((emoji, idx) => {
                        const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
-                       return <button key={emoji} onClick={() => { toggleReaction(m.id, emoji, hasReacted); setShowReactionPicker(false); setShowMobileActions(false); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-element)] hover:scale-110 transition-all cursor-pointer text-lg">{emoji}</button>
+                       return <button key={`quick-${m.id}-${idx}`} onClick={() => { toggleReaction(m.id, emoji, hasReacted); setShowReactionPicker(false); setShowMobileActions(false); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-element)] hover:scale-110 transition-all cursor-pointer text-lg">{emoji}</button>
                     })}
                   </div>
                 )}
@@ -332,7 +347,7 @@ export default function Dashboard({ session }) {
   const [channelReads, setChannelReads] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
   
-  const [blockedUsers, setBlockedUsers] = useState(() => JSON.parse(localStorage.getItem(`blocked_${session.user.id}`) || '[]')) 
+  const [blockedUsers, setBlockedUsers] = useState([]) 
   const [restrictedUsers, setRestrictedUsers] = useState(() => JSON.parse(localStorage.getItem(`restricted_${session.user.id}`) || '[]'))
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
 
@@ -342,6 +357,7 @@ export default function Dashboard({ session }) {
 
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef(null)
+  const messageInputRef = useRef(null)
 
   const [serverAction, setServerAction] = useState(null)
   const [showProfilePopout, setShowProfilePopout] = useState(false)
@@ -361,7 +377,6 @@ export default function Dashboard({ session }) {
   const [channelSettingsName, setChannelSettingsName] = useState('')
   
   const [messages, setMessages] = useState([])
-  const [newMessage, setNewMessage] = useState('')
   const [replyingTo, setReplyingTo] = useState(null)
   
   const [inlineDeleteMessageId, setInlineDeleteMessageId] = useState(null)
@@ -370,6 +385,9 @@ export default function Dashboard({ session }) {
   const [editContent, setEditContent] = useState('')
   const [highlightedMessageId, setHighlightedMessageId] = useState(null)
   const [typingUsers, setTypingUsers] = useState([])
+
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [hasMoreMessages, setHasMoreMessages] = useState(true)
 
   const [callActive, setCallActive] = useState(false)
   const [callMinimized, setCallMinimized] = useState(false)
@@ -388,7 +406,6 @@ export default function Dashboard({ session }) {
 
   const messagesEndRef = useRef(null)
   const scrollContainerRef = useRef(null)
-  const messageCacheRef = useRef({})
   const typingChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
 
@@ -399,7 +416,6 @@ export default function Dashboard({ session }) {
   const myUsername = session.user.user_metadata?.username || session.user.email.split('@')[0]
   const myTag = session.user.user_metadata?.unique_tag || `${myUsername}#0000`
 
-  // PWA Service Worker Installation
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -429,13 +445,11 @@ export default function Dashboard({ session }) {
 
     const handlePopState = () => {
       const state = uiStateRef.current
-      
       if (state.callActive && !state.callMinimized) {
         setCallMinimized(true)
         window.history.pushState({ page: 'app' }, '', window.location.href)
         return
       }
-
       if (state.mobileMenuOpen || state.showRightSidebar || state.showProfilePopout || state.settingsIsOpen || state.hasModals) {
         setMobileMenuOpen(false)
         setShowRightSidebar(false)
@@ -450,7 +464,6 @@ export default function Dashboard({ session }) {
         window.history.pushState({ page: 'app' }, '', window.location.href)
         return
       }
-
       if ((state.activeDm || state.activeChannel || state.view !== 'home') && window.innerWidth < 768) {
         setActiveDm(null)
         setActiveChannel(null)
@@ -458,7 +471,6 @@ export default function Dashboard({ session }) {
         window.history.pushState({ page: 'app' }, '', window.location.href)
         return
       }
-
       backPressCount++
       if (backPressCount === 1) {
         toast('Press back again to exit', { icon: '🚪', id: 'exit-toast', duration: 2000 })
@@ -476,18 +488,13 @@ export default function Dashboard({ session }) {
     }
   }, [])
 
-  useEffect(() => { localStorage.setItem(`blocked_${session.user.id}`, JSON.stringify(blockedUsers)) }, [blockedUsers, session.user.id])
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
   useEffect(() => { localStorage.setItem(`deleted_msgs_${session.user.id}`, JSON.stringify(localDeletedMessages)) }, [localDeletedMessages, session.user.id])
 
   useEffect(() => {
-    if (callActive && callDirection === 'incoming') {
-      audioSys.startRing(false);
-    } else if (callActive && callDirection === 'outgoing') {
-      audioSys.startRing(true);
-    } else {
-      audioSys.stopRing();
-    }
+    if (callActive && callDirection === 'incoming') audioSys.startRing(false);
+    else if (callActive && callDirection === 'outgoing') audioSys.startRing(true);
+    else audioSys.stopRing();
     return () => audioSys.stopRing();
   }, [callActive, callDirection])
 
@@ -514,16 +521,15 @@ export default function Dashboard({ session }) {
             if (e.candidate) sendSignal(activeCallTargetRef.current, 'ice-candidate', { candidate: e.candidate })
           }
           pcRef.current.ontrack = (e) => {
-          if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream()
-
-          if (!remoteStreamRef.current.getTracks().find(t => t.id === e.track.id)) {
-            remoteStreamRef.current.addTrack(e.track)
+            if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream()
+            if (!remoteStreamRef.current.getTracks().find(t => t.id === e.track.id)) {
+              remoteStreamRef.current.addTrack(e.track)
+            }
+            if (remoteAudioRef.current) {
+              remoteAudioRef.current.srcObject = remoteStreamRef.current
+              remoteAudioRef.current.play().catch(()=>{})
+            }
           }
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStreamRef.current
-            remoteAudioRef.current.play().catch(()=>{})
-          }
-        }
         }
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.offer))
       }
@@ -553,9 +559,7 @@ export default function Dashboard({ session }) {
     })
 
     sigChannel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        callChannelRef.current = sigChannel
-      }
+      if (status === 'SUBSCRIBED') callChannelRef.current = sigChannel
     })
 
     return () => { supabase.removeChannel(sigChannel) }
@@ -595,8 +599,13 @@ export default function Dashboard({ session }) {
       
       pcRef.current.ontrack = (e) => {
         if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream()
-        remoteStreamRef.current.addTrack(e.track)
-        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStreamRef.current
+        if (!remoteStreamRef.current.getTracks().find(t => t.id === e.track.id)) {
+          remoteStreamRef.current.addTrack(e.track)
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStreamRef.current
+          remoteAudioRef.current.play().catch(()=>{})
+        }
       }
 
       const offer = await pcRef.current.createOffer()
@@ -635,9 +644,7 @@ export default function Dashboard({ session }) {
   }
 
   const endCallNetwork = () => {
-    if (activeCallTargetRef.current) {
-      sendSignal(activeCallTargetRef.current, 'end', {})
-    }
+    if (activeCallTargetRef.current) sendSignal(activeCallTargetRef.current, 'end', {})
     endCallLocal()
   }
 
@@ -689,6 +696,14 @@ export default function Dashboard({ session }) {
     }
   }
 
+  const safeCacheSave = (targetId, dataArray) => {
+    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (e) {}
+  }
+
+  const safeCacheLoad = (targetId) => {
+    try { return JSON.parse(localStorage.getItem(`local_chat_${targetId}`)) || [] } catch (e) { return [] }
+  }
+
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
     setMobileMenuOpen(false)
@@ -700,13 +715,18 @@ export default function Dashboard({ session }) {
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
 
-    const { data: olderMessages, error: olderError } = await supabase.from('messages').select('*, profiles(username, avatar_url), message_reactions(*)').eq(field, targetId).lt('created_at', targetMessage.created_at).order('created_at', { ascending: false }).limit(20)
-    const { data: newerMessages, error: newerError } = await supabase.from('messages').select('*, profiles(username, avatar_url), message_reactions(*)').eq(field, targetId).gte('created_at', targetMessage.created_at).order('created_at', { ascending: true }).limit(20)
+    const { data: olderMessages } = await supabase.from('messages').select('*, profiles(username, avatar_url), message_reactions(*)').eq(field, targetId).lt('created_at', targetMessage.created_at).order('created_at', { ascending: false }).limit(20)
+    const { data: newerMessages } = await supabase.from('messages').select('*, profiles(username, avatar_url), message_reactions(*)').eq(field, targetId).gte('created_at', targetMessage.created_at).order('created_at', { ascending: true }).limit(20)
 
-    if (!olderError && !newerError) {
+    if (olderMessages || newerMessages) {
       const combinedMessages = [...(olderMessages || []).reverse(), ...(newerMessages || [])]
-      setMessages(combinedMessages)
-      messageCacheRef.current[targetId] = combinedMessages
+      setMessages(prev => {
+        const merged = [...prev, ...combinedMessages];
+        const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
+        uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, uniqueData);
+        return uniqueData;
+      })
       
       setTimeout(() => {
         const messageElement = document.getElementById(`message-${targetMessage.id}`)
@@ -730,6 +750,58 @@ export default function Dashboard({ session }) {
     }
   }
 
+  const fetchOlderMessages = useCallback(async () => {
+    if (isLoadingMore || !hasMoreMessages || messages.length === 0) return;
+    
+    const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id;
+    if (!targetId) return;
+
+    setIsLoadingMore(true);
+    const oldestMessage = messages[0];
+    const field = view === 'server' ? 'channel_id' : 'dm_room_id';
+
+    const { data, error } = await supabase.from('messages')
+      .select('*, profiles(username, avatar_url), message_reactions(*)')
+      .eq(field, targetId)
+      .lt('created_at', oldestMessage.created_at)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      setIsLoadingMore(false);
+      return;
+    }
+
+    if (data.length < 50) setHasMoreMessages(false);
+
+    if (data.length > 0) {
+      const chronoData = data.reverse();
+      const container = scrollContainerRef.current;
+      const previousScrollHeight = container ? container.scrollHeight : 0;
+
+      setMessages(prev => {
+        const merged = [...chronoData, ...prev];
+        const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
+        uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, uniqueData);
+        return uniqueData;
+      });
+
+      setTimeout(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight - previousScrollHeight;
+        }
+      }, 0);
+    }
+    setIsLoadingMore(false);
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, isLoadingMore, hasMoreMessages, messages]);
+
+  const handleScroll = (e) => {
+    if (e.target.scrollTop === 0) {
+      fetchOlderMessages();
+    }
+  };
+
   useEffect(() => {
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
@@ -737,7 +809,14 @@ export default function Dashboard({ session }) {
         await supabase.from('profiles').upsert({ id: session.user.id, username: username || session.user.email.split('@')[0], unique_tag: unique_tag, avatar_url: avatar_url || null, banner_url: banner_url || null, bio: bio || null, pronouns: pronouns || null }, { onConflict: 'id' }) 
       }
     }
+    
+    const fetchBlockedUsers = async () => {
+      const { data } = await supabase.from('user_relationships').select('blocked_id').eq('blocker_id', session.user.id)
+      if (data) setBlockedUsers(data.map(r => r.blocked_id))
+    }
+
     syncProfile()
+    fetchBlockedUsers()
     fetchServers()
     fetchDms()
     fetchFriendRequests()
@@ -764,24 +843,6 @@ export default function Dashboard({ session }) {
       }).subscribe()
     return () => supabase.removeChannel(roomSub)
   }, [activeDm])
-
-  useEffect(() => {
-    const handleGlobalKeyDown = (e) => {
-      if (e.ctrlKey && e.key === 'k') { e.preventDefault(); setShowQuickSwitcher(true) }
-    }
-    window.addEventListener('keydown', handleGlobalKeyDown)
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [])
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (popoutRef.current && !popoutRef.current.contains(event.target)) {
-        setShowProfilePopout(false)
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
 
   const fetchFriendRequests = async () => {
     const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns)').eq('receiver_id', session.user.id).eq('status', 'pending')
@@ -825,7 +886,7 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (e) { toast.error("Database block") }
+    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (e) {}
   }
 
   const handleWallpaperChange = async (wallpaperId) => {
@@ -833,16 +894,37 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), wallpaper: wallpaperId } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (e) { toast.error("Database block") }
+    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (e) {}
   }
 
   const executeConfirmAction = async () => {
     if (!confirmAction) return;
     const { type, profile } = confirmAction;
-    if (type === 'block') { setBlockedUsers(prev => [...prev, profile.id]); toast.error(`Blocked ${profile.username}`, { icon: '🚫' }); } 
-    else if (type === 'unblock') { setBlockedUsers(prev => prev.filter(id => id !== profile.id)); toast.success(`Unblocked ${profile.username}`); } 
-    else if (type === 'restrict') { setRestrictedUsers(prev => [...prev, profile.id]); toast.success(`Restricted ${profile.username}`, { icon: '🤫' }); } 
-    else if (type === 'unrestrict') { setRestrictedUsers(prev => prev.filter(id => id !== profile.id)); toast.success(`Unrestricted ${profile.username}`); }
+    
+    try {
+      if (type === 'block') { 
+        const { error } = await supabase.from('user_relationships').insert([{ blocker_id: session.user.id, blocked_id: profile.id }])
+        if (error) throw error
+        setBlockedUsers(prev => [...prev, profile.id]); 
+        toast.error(`Blocked ${profile.username}`, { icon: '🚫' }); 
+      } 
+      else if (type === 'unblock') { 
+        const { error } = await supabase.from('user_relationships').delete().match({ blocker_id: session.user.id, blocked_id: profile.id })
+        if (error) throw error
+        setBlockedUsers(prev => prev.filter(id => id !== profile.id)); 
+        toast.success(`Unblocked ${profile.username}`); 
+      } 
+      else if (type === 'restrict') { 
+        setRestrictedUsers(prev => [...prev, profile.id]); 
+        toast.success(`Restricted ${profile.username}`, { icon: '🤫' }); 
+      } 
+      else if (type === 'unrestrict') { 
+        setRestrictedUsers(prev => prev.filter(id => id !== profile.id)); 
+        toast.success(`Unrestricted ${profile.username}`); 
+      }
+    } catch (e) {
+      toast.error("Failed to update user status")
+    }
     setConfirmAction(null);
   }
 
@@ -899,41 +981,40 @@ export default function Dashboard({ session }) {
     return () => supabase.removeChannel(channelSub)
   }, [activeServer?.id, view])
 
-  // FIX: Fetch the NEWEST 50 messages and reverse for chronological display
   const fetchCurrentMessages = useCallback(async () => {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
     if (!targetId) return;
 
-    // PERFORMANCE: PWA Instant Cache Fetching before Network
-    const cachedData = await getCachedMessages(targetId)
-    if (cachedData && cachedData.length > 0) {
-      setMessages(cachedData)
+    const cachedData = safeCacheLoad(targetId)
+    if (cachedData.length > 0) {
+      const validCache = Array.from(new Map(cachedData.filter(m => m && m.id).map(item => [item.id, item])).values());
+      setMessages(validCache)
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
     }
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
-    
-    // FIX: Removed broken self-referencing join that causes 400 errors. 
-    // Ordering by ascending: false to get the newest messages.
     const { data, error } = await supabase.from('messages')
       .select('*, profiles(username, avatar_url), message_reactions(*)')
       .eq(field, targetId)
-      .order('created_at', { ascending: false }) // GET LATEST 50
-      .limit(50)
-    
+      .order('created_at', { ascending: false }) 
+      .limit(100)
+      
     if (data) {
-      const chronoData = data.reverse() // REVERSE FOR UI
-      setMessages(chronoData)
-      messageCacheRef.current[targetId] = chronoData
-      cacheMessage(targetId, chronoData)
+      if (data.length < 100) setHasMoreMessages(false);
+      const chronoData = data.reverse() 
+      setMessages(prev => {
+        const merged = [...prev, ...chronoData];
+        const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
+        uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, uniqueData) 
+        return uniqueData;
+      })
     }
     setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 100)
   }, [activeChannel?.id, activeDm?.dm_room_id, view])
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') fetchCurrentMessages()
-    }
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchCurrentMessages() }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [fetchCurrentMessages])
@@ -942,28 +1023,22 @@ export default function Dashboard({ session }) {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
     if (!targetId) { setMessages([]); setTypingUsers([]); return; }
     
-    if (messageCacheRef.current[targetId]) {
-      setMessages(messageCacheRef.current[targetId])
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
-    } else {
-      setMessages([])
-    }
+    setHasMoreMessages(true);
+    setMessages(safeCacheLoad(targetId))
+    setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     fetchCurrentMessages() 
 
-    const tChannel = supabase.channel(`typing:${targetId}`)
-    tChannel.on('presence', { event: 'sync' }, () => {
-      const state = tChannel.presenceState()
+    const roomChannel = supabase.channel(`room:${targetId}`)
+    roomChannel.on('presence', { event: 'sync' }, () => {
+      const state = roomChannel.presenceState()
       const typers = Object.values(state).flatMap(p => p).filter(p => p.user_id !== session.user.id)
       setTypingUsers(typers)
-    }).subscribe()
-    typingChannelRef.current = tChannel
+    })
 
-    const sub = supabase.channel('chat-room').on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, async (payload) => {
-      if (payload.eventType === 'INSERT' && payload.new[field] === targetId) {
-        
-        // FIX: Removed broken self-referencing join
+    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
+      if (payload.eventType === 'INSERT') {
         const { data: fullMsg } = await supabase.from('messages')
           .select('*, profiles(username, avatar_url), message_reactions(*)')
           .eq('id', payload.new.id)
@@ -972,36 +1047,23 @@ export default function Dashboard({ session }) {
         if (fullMsg) {
           setMessages(prev => {
             if (prev.some(msg => msg.id === fullMsg.id)) return prev; 
-            const updated = [...prev, fullMsg]
-            messageCacheRef.current[targetId] = updated
-            cacheMessage(targetId, updated)
-            return updated
+            const updated = [...prev, fullMsg];
+            updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            safeCacheSave(targetId, updated);
+            return updated;
           })
           
           if (fullMsg.profile_id !== session.user.id) {
-            if (localStorage.getItem('soundEnabled') !== 'false') {
-              audioSys.playPop();
-            }
-            
-            if (document.hidden && window.Notification && Notification.permission === 'granted') {
-              const n = new Notification(`New message from ${fullMsg.profiles?.username || 'MessApp'}`, {
-                body: fullMsg.content || 'Sent an attachment',
-                icon: fullMsg.profiles?.avatar_url || '/default-avatar.png',
-                tag: 'messapp-message'
-              })
-              n.onclick = () => { window.focus(); n.close(); }
-            }
+            if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
           }
-          
           setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
         }
       }
       
-      if (payload.eventType === 'UPDATE' && payload.new[field] === targetId) {
+      if (payload.eventType === 'UPDATE') {
         setMessages(current => {
           const updated = current.map(msg => msg.id === payload.new.id ? { ...msg, ...payload.new } : msg)
-          messageCacheRef.current[targetId] = updated
-          cacheMessage(targetId, updated)
+          safeCacheSave(targetId, updated)
           return updated
         })
       }
@@ -1009,16 +1071,17 @@ export default function Dashboard({ session }) {
       if (payload.eventType === 'DELETE') {
         setMessages(current => {
           const updated = current.filter(msg => msg.id !== payload.old.id)
-          messageCacheRef.current[targetId] = updated
-          cacheMessage(targetId, updated)
+          safeCacheSave(targetId, updated)
           return updated
         })
       }
-    }).subscribe()
+    })
+
+    roomChannel.subscribe()
+    typingChannelRef.current = roomChannel
 
     return () => {
-      supabase.removeChannel(sub)
-      supabase.removeChannel(tChannel)
+      supabase.removeChannel(roomChannel)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
   }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, session.user.user_metadata, fetchCurrentMessages])
@@ -1043,22 +1106,16 @@ export default function Dashboard({ session }) {
           return msg
         })
         const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
-        if (targetId) cacheMessage(targetId, updated)
+        if (targetId) safeCacheSave(targetId, updated)
         return updated
       })
-    } catch (error) {
-      toast.error('Failed to update reaction')
-    }
+    } catch (error) { toast.error('Failed to update reaction') }
   }
 
   const handleTyping = async () => {
     if (!typingChannelRef.current) return
-    
-    if (!typingTimeoutRef.current) {
-      typingChannelRef.current.track({ user_id: session.user.id, username: myUsername }).catch(()=>{})
-    } else {
-      clearTimeout(typingTimeoutRef.current)
-    }
+    if (!typingTimeoutRef.current) typingChannelRef.current.track({ user_id: session.user.id, username: myUsername }).catch(()=>{})
+    else clearTimeout(typingTimeoutRef.current)
     
     typingTimeoutRef.current = setTimeout(() => {
       typingChannelRef.current?.untrack().catch(()=>{})
@@ -1066,13 +1123,12 @@ export default function Dashboard({ session }) {
     }, 3000)
   }
 
-  // FIX: Removed cacheMessage payload hack from here to prevent unique key error
   const handleSendMessage = async (e) => {
-    e.preventDefault()
-    if (!newMessage.trim()) return
+    if (e) e.preventDefault()
+    const text = messageInputRef.current?.value.trim()
+    if (!text) return
 
-    const text = newMessage.trim()
-    setNewMessage('')
+    messageInputRef.current.value = ''
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
 
@@ -1083,12 +1139,26 @@ export default function Dashboard({ session }) {
     }
 
     try {
-      const { data, error } = await supabase.from('messages').insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+      const { data: newMsg, error } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .single()
+        
       if (error) throw error
+
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === newMsg.id)) return prev;
+        const updated = [...prev, newMsg];
+        updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, updated);
+        return updated;
+      })
+
       setReplyingTo(null)
-    } catch {
+      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+    } catch (err) {
       toast.error('Failed to send message.')
-      setNewMessage(text)
+      if (messageInputRef.current) messageInputRef.current.value = text
     }
   }
 
@@ -1102,24 +1172,51 @@ export default function Dashboard({ session }) {
       const compressedFile = await imageCompression(file, options)
       toast.dismiss('compress-toast')
 
-      const fileExt = compressedFile.name.split('.').pop()
+      // FIX: Use the original file's name because the compressed Blob drops the name property
+      const fileExt = file.name.split('.').pop()
       const fileName = `${Math.random()}.${fileExt}`
       const filePath = `${session.user.id}/${fileName}`
       
       const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, compressedFile)
-      if (uploadError) throw uploadError
+      if (uploadError) {
+        console.error("Storage Error:", uploadError)
+        throw uploadError
+      }
+      
       const { data: { publicUrl } } = await supabase.storage.from('chat-attachments').getPublicUrl(filePath)
       
       const field = view === 'server' ? 'channel_id' : 'dm_room_id'
       const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
-      
       if (!targetId) return toast.error('Select a channel or DM before sending images.')
-      await supabase.from('messages').insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
+      
+      // FIX: Ensure content is '' (empty string) not null, to satisfy the NOT NULL constraint in Supabase
+      const { data: newMsg, error: insertError } = await supabase.from('messages')
+        .insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
+        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .single()
+        
+      if (insertError) {
+        console.error("Database Insert Error:", insertError)
+        throw insertError
+      }
+
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === newMsg.id)) return prev;
+        const updated = [...prev, newMsg];
+        updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(targetId, updated);
+        return updated;
+      })
+
       cacheThumbnail(targetId || 'global', publicUrl)
       toast.success('Image optimized and uploaded')
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
-    } catch (error) { toast.error('Failed to upload image') } 
-    finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
+    } catch (error) { 
+      toast.error('Failed to upload image') 
+    } finally { 
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = '' 
+    }
   }
 
   const handleUpdateMessage = useCallback(async (e, id) => {
@@ -1150,10 +1247,11 @@ export default function Dashboard({ session }) {
   }, [])
 
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e) } }
-  const handleCreateServer = (e) => { e.preventDefault(); toast('Server features are currently in development!', { icon: '🚧' }) }
 
-  const visibleMessages = messages.filter(m => !localDeletedMessages.includes(m.id))
-  const searchResults = searchQuery ? visibleMessages.filter(m => !m.is_deleted && (m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
+  const validMessages = Array.from(new Map(messages.filter(m => m && m.id != null).map(item => [item.id, item])).values())
+  const visibleMessages = validMessages.filter(m => !localDeletedMessages.includes(m.id))
+  
+  const searchResults = searchQuery ? validMessages.filter(m => !m.is_deleted && (m.content?.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
   
   const isBlocked = activeDm && blockedUsers.includes(activeDm.profiles.id)
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
@@ -1181,7 +1279,9 @@ export default function Dashboard({ session }) {
       <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
 
+      {callActive && (
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      )}
 
       {callActive && !callMinimized && (
         <div className="fixed inset-0 z-[100] bg-[var(--bg-base)]/90 backdrop-blur-2xl flex flex-col items-center justify-center p-4 animate-fade-in">
@@ -1245,8 +1345,8 @@ export default function Dashboard({ session }) {
           </div>
           <div className="w-8 h-[2px] bg-[var(--border-subtle)] my-2 rounded-full shrink-0"></div>
           <div className="flex flex-col gap-4 items-center flex-1 overflow-y-auto custom-scrollbar w-full pt-2 pb-4 opacity-50 cursor-not-allowed">
-            {servers.map(s => (
-              <button key={s.id} className={`sidebar-icon group focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none relative`}>
+            {servers.map((s, i) => (
+              <button key={`server-${s.id || i}`} className={`sidebar-icon group focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none relative`}>
                 <span className="font-headline font-bold text-lg">{s.name[0].toUpperCase()}</span>
               </button>
             ))}
@@ -1281,12 +1381,12 @@ export default function Dashboard({ session }) {
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3 block px-2">Direct Messages</span>
                   <div className="space-y-1">
-                    {dms.map(dm => {
+                    {dms.map((dm, i) => {
                       const isActive = activeDm?.dm_room_id === dm.dm_room_id && view === 'home';
                       const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
                       const isOnline = onlineUsers.includes(dm.profiles.id);
                       return (
-                        <button key={dm.dm_room_id} onClick={() => { setView('home'); selectDm(dm); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] border-[var(--border-subtle)] shadow-inner' : 'hover:bg-[var(--bg-base)] text-gray-400 hover:text-[var(--text-main)] border-transparent'}`}>
+                        <button key={`dm-list-${dm.dm_room_id || i}`} onClick={() => { setView('home'); selectDm(dm); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] border-[var(--border-subtle)] shadow-inner' : 'hover:bg-[var(--bg-base)] text-gray-400 hover:text-[var(--text-main)] border-transparent'}`}>
                           <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={isOnline} className="w-8 h-8" />
                           <div className="flex-1 min-w-0 text-left">
                             <p className="text-sm font-medium truncate transition-colors" style={{ color: isActive ? dmColor : '' }}>{dm.profiles.username}</p>
@@ -1443,8 +1543,8 @@ export default function Dashboard({ session }) {
                         {homeTab === 'pending' && friendRequests.length === 0 && (
                           <div className="flex flex-col items-center justify-center py-12 opacity-50"><Bell size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">No pending friend requests.</p></div>
                         )}
-                        {homeTab === 'pending' && friendRequests.map(req => (
-                          <div key={req.id} className="flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
+                        {homeTab === 'pending' && friendRequests.map((req, i) => (
+                          <div key={req.id ? `req-${req.id}` : `fallback-req-${i}`} className="flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
                             <div className="flex items-center gap-4">
                               <StatusAvatar url={req.profiles?.avatar_url} username={req.profiles?.username} showStatus={false} className="w-10 h-10" />
                               <div><div className="font-bold text-[var(--text-main)] flex items-center gap-2">{req.profiles?.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{req.profiles?.unique_tag}</span></div><div className="text-xs text-gray-400">Incoming Friend Request</div></div>
@@ -1459,8 +1559,8 @@ export default function Dashboard({ session }) {
                         {(homeTab === 'online' || homeTab === 'all') && dms.filter(d => (homeTab === 'all' || onlineUsers.includes(d.profiles.id)) && !restrictedUsers.includes(d.profiles.id)).length === 0 && (
                           <div className="flex flex-col items-center justify-center py-12 opacity-50"><Users size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">It's quiet in here.</p></div>
                         )}
-                        {(homeTab === 'online' || homeTab === 'all') && dms.filter(d => (homeTab === 'all' || onlineUsers.includes(d.profiles.id)) && !restrictedUsers.includes(d.profiles.id)).map(dm => (
-                          <div key={dm.dm_room_id} className="flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] cursor-pointer transition-all" onClick={() => selectDm(dm)}>
+                        {(homeTab === 'online' || homeTab === 'all') && dms.filter(d => (homeTab === 'all' || onlineUsers.includes(d.profiles.id)) && !restrictedUsers.includes(d.profiles.id)).map((dm, i) => (
+                          <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] cursor-pointer transition-all" onClick={() => selectDm(dm)}>
                             <div className="flex items-center gap-4">
                               <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsers.includes(dm.profiles.id)} className="w-10 h-10" />
                               <div><div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles.unique_tag}</span></div><div className="text-xs text-gray-400">{onlineUsers.includes(dm.profiles.id) ? 'Online' : 'Offline'}</div></div>
@@ -1484,8 +1584,8 @@ export default function Dashboard({ session }) {
                     {dms.filter(dm => onlineUsers.includes(dm.profiles.id) && !restrictedUsers.includes(dm.profiles.id)).length === 0 ? (
                       <div className="p-4 text-center text-sm text-gray-500 border border-dashed border-[var(--border-subtle)] rounded-2xl">It's quiet for now...</div>
                     ) : (
-                      dms.filter(dm => onlineUsers.includes(dm.profiles.id) && !restrictedUsers.includes(dm.profiles.id)).map(dm => (
-                        <div key={dm.dm_room_id} className="p-4 bg-[var(--bg-surface)] rounded-xl ghost-border shadow-md cursor-pointer hover:border-indigo-500 transition-all" onClick={() => selectDm(dm)}>
+                      dms.filter(dm => onlineUsers.includes(dm.profiles.id) && !restrictedUsers.includes(dm.profiles.id)).map((dm, i) => (
+                        <div key={dm.dm_room_id ? `dm-act-${dm.dm_room_id}` : `fallback-dm-act-${i}`} className="p-4 bg-[var(--bg-surface)] rounded-xl ghost-border shadow-md cursor-pointer hover:border-indigo-500 transition-all" onClick={() => selectDm(dm)}>
                           <div className="flex items-center gap-3 mb-3">
                             <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={true} className="w-8 h-8" />
                             <span className="font-bold text-sm text-[var(--text-main)]">{dm.profiles.username}</span>
@@ -1500,8 +1600,18 @@ export default function Dashboard({ session }) {
               </div>
             ) : (
               <>
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 animate-fade-in relative z-10" ref={scrollContainerRef}>
-                  {visibleMessages.length === 0 && (activeChannel || activeDm) && (
+                <div 
+                  className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 animate-fade-in relative z-10" 
+                  ref={scrollContainerRef} 
+                  onScroll={handleScroll}
+                >
+                  {isLoadingMore && (
+                    <div className="flex justify-center py-4 absolute top-0 left-0 right-0 z-50">
+                      <Loader2 className="animate-spin text-[var(--theme-base)]" size={24} />
+                    </div>
+                  )}
+
+                  {visibleMessages.length === 0 && (activeChannel || activeDm) && !isLoadingMore && (
                     <div className="flex flex-col justify-end h-full min-h-[300px] max-w-2xl pb-10">
                       <h3 className="font-headline text-3xl font-bold tracking-tight mb-2 text-[var(--text-main)]">Welcome to {view === 'home' ? 'the beginning' : `#${activeChannel?.name}`}</h3>
                       <p className="text-gray-400 text-sm leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
@@ -1509,9 +1619,10 @@ export default function Dashboard({ session }) {
                   )}
 
                   {visibleMessages.map((m, index) => {
+                    const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}-${Math.random()}`;
                     const isMessageBlocked = blockedUsers.includes(m.profile_id);
                     if (isMessageBlocked) return (
-                      <div key={m.id} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
+                      <div key={uniqueKey} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                     )
 
                     const showHeader = index === 0 || visibleMessages[index - 1].profile_id !== m.profile_id || new Date(m.created_at) - new Date(visibleMessages[index - 1].created_at) > 300000;
@@ -1521,11 +1632,11 @@ export default function Dashboard({ session }) {
                     const isEditing = editingMessageId === m.id;
                     const isHighlighted = highlightedMessageId === m.id;
                     
-                    const repliedMsg = m.reply_to_message_id ? messages.find(msg => msg.id === m.reply_to_message_id) : null;
+                    const repliedMsg = m.reply_to_message_id ? validMessages.find(msg => msg.id === m.reply_to_message_id) : null;
                     
                     return (
                       <MemoizedMessage 
-                        key={m.id}
+                        key={uniqueKey}
                         m={m}
                         isMe={isMe}
                         showHeader={showHeader}
@@ -1609,21 +1720,29 @@ export default function Dashboard({ session }) {
                       </div>
                     )}
 
-                    <form onSubmit={handleSendMessage} className="bg-[var(--bg-surface)] rounded-2xl ghost-border flex items-end gap-1 md:gap-2 p-1.5 md:p-2 focus-within:border-[var(--theme-50)] shadow-inner transition-colors">
+                    <form onSubmit={handleSendMessage} className="bg-[var(--bg-surface)] rounded-2xl ghost-border flex items-end gap-1 md:gap-2 p-1.5 md:p-2 focus-within:border-[var(--theme-50)] shadow-inner transition-colors relative">
+                      
                       <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer">
+                      
+                      <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Upload Image">
                         {isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <ImagePlus size={20} aria-hidden="true" />}
                       </button>
+
                       <textarea 
+                        ref={messageInputRef}
                         className="flex-1 bg-transparent border-none outline-none text-[var(--text-main)] resize-none py-2.5 md:py-3 custom-scrollbar text-[14px] md:text-[15px] font-body min-w-0 placeholder:text-gray-600" 
                         placeholder={`Message ${view === 'home' ? '@' + activeDm?.profiles?.username : '#' + activeChannel?.name}`} 
-                        value={newMessage} 
-                        onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }} 
-                        onKeyDown={handleKeyDown} 
+                        onChange={handleTyping} 
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) { 
+                            e.preventDefault(); 
+                            handleSendMessage(e); 
+                          }
+                        }} 
                         rows={1} 
                         style={{ minHeight: '44px', maxHeight: '200px' }} 
                       />
-                      <button type="submit" disabled={!newMessage.trim() || isUploading} className="p-2.5 md:p-3 text-[var(--theme-base)] hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--theme-10)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer">
+                      <button type="submit" disabled={isUploading} className="p-2.5 md:p-3 text-[var(--theme-base)] hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--theme-10)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer">
                         <Send size={20} aria-hidden="true" />
                       </button>
                     </form>
@@ -1672,7 +1791,7 @@ export default function Dashboard({ session }) {
                         <span className="text-xs font-bold text-gray-400 block mb-3">Message Color</span>
                         <div className="flex flex-wrap gap-2">
                           {THEME_COLORS.map(c => (
-                            <button key={c.name} onClick={() => handleThemeChange(c.value)} title={c.name} className={`w-6 h-6 rounded-full border-2 transition-all cursor-pointer ${currentThemeHex === c.value ? 'border-[var(--text-main)] scale-110 shadow-[0_0_10px_rgba(255,255,255,0.3)]' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'}`} style={{ backgroundColor: c.value }} />
+                            <button key={`theme-${c.name}`} onClick={() => handleThemeChange(c.value)} title={c.name} className={`w-6 h-6 rounded-full border-2 transition-all cursor-pointer ${currentThemeHex === c.value ? 'border-[var(--text-main)] scale-110 shadow-[0_0_10px_rgba(255,255,255,0.3)]' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'}`} style={{ backgroundColor: c.value }} />
                           ))}
                         </div>
                       </div>
@@ -1680,7 +1799,7 @@ export default function Dashboard({ session }) {
                         <span className="text-xs font-bold text-gray-400 block mb-3">Chat Wallpaper</span>
                         <div className="grid grid-cols-2 gap-2">
                           {WALLPAPERS.map(w => (
-                            <button key={w.id} onClick={() => handleWallpaperChange(w.id)} className={`text-[10px] font-bold uppercase tracking-wide py-2 rounded-lg transition-all cursor-pointer ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border border-[var(--theme-50)] shadow-inner' : 'bg-black/20 text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>{w.name}</button>
+                            <button key={`wall-${w.id}`} onClick={() => handleWallpaperChange(w.id)} className={`text-[10px] font-bold uppercase tracking-wide py-2 rounded-lg transition-all cursor-pointer ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border border-[var(--theme-50)] shadow-inner' : 'bg-black/20 text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>{w.name}</button>
                           ))}
                         </div>
                       </div>
@@ -1723,9 +1842,9 @@ export default function Dashboard({ session }) {
                       <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 shrink-0">{searchResults.length} Matches Found</div>
                       
                       <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 pb-4">
-                        {searchResults.map(m => (
+                        {searchResults.map((m, i) => (
                           <button 
-                            key={`search-res-${m.id}`}
+                            key={m.id ? `search-res-${m.id}` : `search-fallback-${i}-${Math.random()}`}
                             onClick={() => scrollToMessage(m)}
                             className="w-full text-left p-3 bg-[var(--bg-element)] rounded-xl cursor-pointer hover:bg-[var(--bg-surface)] border border-transparent hover:border-[var(--theme-50)] transition-all group focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none"
                           >
@@ -1766,7 +1885,7 @@ export default function Dashboard({ session }) {
                   <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Previous Conversations</div>
                   {quickSwitcherResults.map((dm, idx) => (
                     <button 
-                      key={dm.dm_room_id} 
+                      key={dm.dm_room_id ? `qs-${dm.dm_room_id}` : `qs-fallback-${idx}`} 
                       onClick={() => { setView('home'); selectDm(dm); setShowQuickSwitcher(false); setQuickSwitcherQuery('') }} 
                       className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent ${idx === 0 ? 'bg-indigo-500/10 border-indigo-500/20' : 'hover:bg-[var(--bg-base)] hover:border-[var(--border-subtle)]'}`}
                     >
@@ -1815,9 +1934,9 @@ export default function Dashboard({ session }) {
       )}
 
       {settingsModalConfig.isOpen && <UserSettingsModal session={session} initialTab={settingsModalConfig.tab} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account' })} />}
-      {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={handleUpdateServer} handleDelete={handleDeleteServer} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
-      {showChannelModal && <ChannelCreationModal handleCreate={handleCreateChannel} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
-      {showChannelSettings && <ChannelSettingsModal handleUpdate={handleUpdateChannel} handleDelete={handleDeleteChannel} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
+      {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
+      {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
+      {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
     </div>
   )
 }
