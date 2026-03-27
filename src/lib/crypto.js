@@ -13,6 +13,20 @@ export async function exportPublicKey(key) {
   return await crypto.subtle.exportKey('jwk', key)
 }
 
+export async function exportPrivateKey(key) {
+  return await crypto.subtle.exportKey('jwk', key)
+}
+
+export async function importPrivateKey(jwk) {
+  return await crypto.subtle.importKey(
+    'jwk',
+    jwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveKey']
+  )
+}
+
 export async function importPublicKey(jwk) {
   return await crypto.subtle.importKey(
     'jwk',

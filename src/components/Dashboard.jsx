@@ -8,6 +8,7 @@ import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { cacheThumbnail } from '../lib/cacheManager'
+import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm } from '../lib/crypto'
 import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
@@ -435,6 +436,43 @@ export default function Dashboard({ session }) {
   const myUsername = session.user.user_metadata?.username || session.user.email.split('@')[0]
   const myTag = session.user.user_metadata?.unique_tag || `${myUsername}#0000`
 
+  // 🛡️ SKIBIDI E2EE ARCHITECTURE: Dynamic Shared Key Derivation
+  const getSharedKeyForTarget = useCallback(async (targetId, isDm) => {
+    if (!isDm) return null;
+    const dm = dms.find(d => d.dm_room_id === targetId);
+    if (!dm || !dm.profiles?.public_key) return null;
+    try {
+      const privKeyStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
+      if (!privKeyStr) return null;
+      const privJwk = JSON.parse(privKeyStr);
+      const importedPriv = await importPrivateKey(privJwk);
+      const pubJwk = JSON.parse(dm.profiles.public_key);
+      return await deriveSharedAesKey(importedPriv, pubJwk);
+    } catch (e) {
+      console.warn('E2EE Derivation Error:', e);
+      return null;
+    }
+  }, [dms, session.user.id]);
+
+  // 🛡️ SKIBIDI E2EE ARCHITECTURE: Batch Message Decryption
+  const decryptMessageList = useCallback(async (msgList, sharedKey) => {
+    return await Promise.all(msgList.map(async (msg) => {
+      if (msg.content && msg.content.startsWith('{') && msg.content.includes('ciphertext')) {
+        if (!sharedKey) return { ...msg, content: '🔒 [Encrypted Message]' };
+        try {
+          const encObj = JSON.parse(msg.content);
+          if (encObj.iv && encObj.ciphertext) {
+            const decrypted = await decryptWithAesGcm(sharedKey, encObj);
+            return { ...msg, content: decrypted };
+          }
+        } catch (e) {
+          return { ...msg, content: '🔒 [Encrypted Message - Unreadable]' };
+        }
+      }
+      return msg;
+    }));
+  }, []);
+
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -736,15 +774,19 @@ export default function Dashboard({ session }) {
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
 
-    const { data: olderMessages } = await supabase.from('messages').select('*, profiles(username, avatar_url), message_reactions(*)').eq(field, targetId).lt('created_at', targetMessage.created_at).order('created_at', { ascending: false }).limit(20)
-    const { data: newerMessages } = await supabase.from('messages').select('*, profiles(username, avatar_url), message_reactions(*)').eq(field, targetId).gte('created_at', targetMessage.created_at).order('created_at', { ascending: true }).limit(20)
+    const { data: olderMessages } = await supabase.from('messages').select('*, profiles(username, avatar_url, public_key), message_reactions(*)').eq(field, targetId).lt('created_at', targetMessage.created_at).order('created_at', { ascending: false }).limit(20)
+    const { data: newerMessages } = await supabase.from('messages').select('*, profiles(username, avatar_url, public_key), message_reactions(*)').eq(field, targetId).gte('created_at', targetMessage.created_at).order('created_at', { ascending: true }).limit(20)
 
     if (olderMessages || newerMessages) {
       const combinedMessages = [...(olderMessages || []).reverse(), ...(newerMessages || [])]
+      
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      const decryptedData = await decryptMessageList(combinedMessages, sharedKey);
+
       setMessages(prev => {
         // 🚨 FIX: Strong isolation for context loading
         const safePrev = prev.filter(m => m[field] === targetId);
-        const merged = [...safePrev, ...combinedMessages];
+        const merged = [...safePrev, ...decryptedData];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, uniqueData);
@@ -784,7 +826,7 @@ export default function Dashboard({ session }) {
     const field = view === 'server' ? 'channel_id' : 'dm_room_id';
 
     const { data, error } = await supabase.from('messages')
-      .select('*, profiles(username, avatar_url), message_reactions(*)')
+      .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
       .eq(field, targetId)
       .lt('created_at', oldestMessage.created_at)
       .order('created_at', { ascending: false })
@@ -799,13 +841,17 @@ export default function Dashboard({ session }) {
 
     if (data.length > 0) {
       const chronoData = data.reverse();
+      
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      const decryptedData = await decryptMessageList(chronoData, sharedKey);
+
       const container = scrollContainerRef.current;
       const previousScrollHeight = container ? container.scrollHeight : 0;
 
       setMessages(prev => {
         // 🚨 FIX: Strict isolation during pagination scrolling
         const safePrev = prev.filter(m => m[field] === targetId);
-        const merged = [...chronoData, ...safePrev];
+        const merged = [...decryptedData, ...safePrev];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, uniqueData);
@@ -819,7 +865,7 @@ export default function Dashboard({ session }) {
       }, 0);
     }
     setIsLoadingMore(false);
-  }, [activeChannel?.id, activeDm?.dm_room_id, view, isLoadingMore, hasMoreMessages, messages]);
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, isLoadingMore, hasMoreMessages, messages, getSharedKeyForTarget, decryptMessageList]);
 
   const handleScroll = (e) => {
     if (e.target.scrollTop === 0) {
@@ -830,8 +876,38 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
+        
+        // 🛡️ SKIBIDI E2EE ARCHITECTURE: Identity Key Generation
+        let pubKeyStr = null;
+        let privKeyJwkStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
+        let pubKeyJwkStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+
+        if (!privKeyJwkStr || !pubKeyJwkStr) {
+          try {
+            const keyPair = await generateEcdhKeyPair();
+            const privJwk = await exportPrivateKey(keyPair.privateKey);
+            const pubJwk = await exportPublicKey(keyPair.publicKey);
+            privKeyJwkStr = JSON.stringify(privJwk);
+            pubKeyJwkStr = JSON.stringify(pubJwk);
+            localStorage.setItem(`e2ee_private_key_${session.user.id}`, privKeyJwkStr);
+            localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
+          } catch(err) {
+            console.error('Failed to generate keys', err);
+          }
+        }
+        pubKeyStr = pubKeyJwkStr;
+
         const { username, unique_tag, avatar_url, banner_url, bio, pronouns } = session.user.user_metadata
-        await supabase.from('profiles').upsert({ id: session.user.id, username: username || session.user.email.split('@')[0], unique_tag: unique_tag, avatar_url: avatar_url || null, banner_url: banner_url || null, bio: bio || null, pronouns: pronouns || null }, { onConflict: 'id' }) 
+        await supabase.from('profiles').upsert({ 
+          id: session.user.id, 
+          username: username || session.user.email.split('@')[0], 
+          unique_tag: unique_tag, 
+          avatar_url: avatar_url || null, 
+          banner_url: banner_url || null, 
+          bio: bio || null, 
+          pronouns: pronouns || null,
+          public_key: pubKeyStr
+        }, { onConflict: 'id' }) 
       }
     }
     
@@ -870,7 +946,7 @@ export default function Dashboard({ session }) {
   }, [activeDm])
 
   const fetchFriendRequests = async () => {
-    const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns)').eq('receiver_id', session.user.id).eq('status', 'pending')
+    const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
     if (data) setFriendRequests(data)
   }
 
@@ -964,7 +1040,7 @@ export default function Dashboard({ session }) {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
     if (!myRooms || myRooms.length === 0) { setDms([]); return }
     const roomIds = myRooms.map(r => r.dm_room_id)
-    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
+    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
       
     if (otherMembers) {
       const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
@@ -1009,7 +1085,7 @@ export default function Dashboard({ session }) {
     }
 
     const { data } = await supabase.from('messages')
-      .select('*, profiles(username, avatar_url), message_reactions(*)')
+      .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
       .eq(field, targetId)
       .order('created_at', { ascending: false }) 
       .limit(100)
@@ -1017,10 +1093,14 @@ export default function Dashboard({ session }) {
     if (data) {
       if (data.length < 100) setHasMoreMessages(false);
       const chronoData = data.reverse() 
+
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      const decryptedData = await decryptMessageList(chronoData, sharedKey);
+
       setMessages(prev => {
         // 🚨 FIX 2: Strict filter before merging
         const safePrev = prev.filter(m => m[field] === targetId);
-        const merged = [...safePrev, ...chronoData];
+        const merged = [...safePrev, ...decryptedData];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, uniqueData) 
@@ -1028,7 +1108,7 @@ export default function Dashboard({ session }) {
       })
     }
     setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 100)
-  }, [activeChannel?.id, activeDm?.dm_room_id, view])
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeyForTarget, decryptMessageList])
 
   useEffect(() => {
     const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchCurrentMessages() }
@@ -1057,25 +1137,28 @@ export default function Dashboard({ session }) {
     roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
       if (payload.eventType === 'INSERT') {
         const { data: fullMsg } = await supabase.from('messages')
-          .select('*, profiles(username, avatar_url), message_reactions(*)')
+          .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
           .eq('id', payload.new.id)
           .single()
 
         if (fullMsg) {
+          const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+          const [decryptedMsg] = await decryptMessageList([fullMsg], sharedKey);
+
           setMessages(prev => {
-            if (prev.some(msg => msg.id === fullMsg.id)) return prev; 
+            if (prev.some(msg => msg.id === decryptedMsg.id)) return prev; 
             
             // 🚨 FIX 3: Double-check the incoming WS message matches the active view
             const safePrev = prev.filter(m => m[field] === targetId);
-            if (fullMsg[field] !== targetId) return safePrev;
+            if (decryptedMsg[field] !== targetId) return safePrev;
 
-            const updated = [...safePrev, fullMsg];
+            const updated = [...safePrev, decryptedMsg];
             updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
             safeCacheSave(targetId, updated);
             return updated;
           })
           
-          if (fullMsg.profile_id !== session.user.id) {
+          if (decryptedMsg.profile_id !== session.user.id) {
             if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
           }
           setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
@@ -1083,8 +1166,11 @@ export default function Dashboard({ session }) {
       }
       
       if (payload.eventType === 'UPDATE') {
+        const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+        const [decryptedMsg] = await decryptMessageList([payload.new], sharedKey);
+
         setMessages(current => {
-          const updated = current.map(msg => msg.id === payload.new.id ? { ...msg, ...payload.new } : msg)
+          const updated = current.map(msg => msg.id === decryptedMsg.id ? { ...msg, ...decryptedMsg } : msg)
           safeCacheSave(targetId, updated)
           return updated
         })
@@ -1106,7 +1192,7 @@ export default function Dashboard({ session }) {
       supabase.removeChannel(roomChannel)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
-  }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, session.user.user_metadata, fetchCurrentMessages])
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, session.user.user_metadata, fetchCurrentMessages, getSharedKeyForTarget, decryptMessageList])
 
   const toggleReaction = async (messageId, emoji, hasReacted) => {
     try {
@@ -1161,16 +1247,27 @@ export default function Dashboard({ session }) {
     }
 
     try {
+      // 🛡️ SKIBIDI E2EE ARCHITECTURE: Encrypt Output Payload
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      let contentToSave = text;
+      
+      if (sharedKey) {
+        const encrypted = await encryptWithAesGcm(sharedKey, text);
+        contentToSave = JSON.stringify(encrypted);
+      }
+
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
-        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .insert([{ profile_id: session.user.id, content: contentToSave, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
+        .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
         .single()
         
       if (insertError) throw insertError
 
+      const [decryptedMsg] = await decryptMessageList([newMsg], sharedKey);
+
       setMessages(prev => {
-        if (prev.some(msg => msg.id === newMsg.id)) return prev;
-        const updated = [...prev, newMsg];
+        if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
+        const updated = [...prev, decryptedMsg];
         updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         safeCacheSave(targetId, updated);
         return updated;
@@ -1212,7 +1309,7 @@ export default function Dashboard({ session }) {
       
       const { data: newMsg, error: insertError } = await supabase.from('messages')
         .insert([{ profile_id: session.user.id, content: '', image_url: publicUrl, [field]: targetId }])
-        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .select('*, profiles(username, avatar_url, public_key), message_reactions(*)')
         .single()
         
       if (insertError) {
@@ -1243,11 +1340,20 @@ export default function Dashboard({ session }) {
     e.preventDefault()
     if (!editContent.trim()) return
     try {
-      await supabase.from('messages').update({ content: editContent.trim() }).eq('id', id)
+      const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id;
+      const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
+      let contentToSave = editContent.trim();
+      
+      if (sharedKey) {
+        const encrypted = await encryptWithAesGcm(sharedKey, contentToSave);
+        contentToSave = JSON.stringify(encrypted);
+      }
+
+      await supabase.from('messages').update({ content: contentToSave }).eq('id', id)
       setEditingMessageId(null)
       toast.success("Message updated")
     } catch (_err) { toast.error("Failed to update message") }
-  }, [editContent])
+  }, [editContent, activeChannel, activeDm, view, getSharedKeyForTarget])
 
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
