@@ -18,9 +18,26 @@
 
 ## 📸 Screenshots
 
+### Core Features
+
 | Login / Onboarding | Dashboard / Chat Interface |
 |:---:|:---:|
 | <img src="./public/screenshots/login.png" alt="Login Screenshot" width="400"/> | <img src="./public/screenshots/dashboard.png" alt="Dashboard Screenshot" width="400"/> |
+
+| User Profile & Settings | Media & Lightbox |
+|:---:|:---:|
+| <img src="./public/screenshots/profile.png" alt="Profile Settings" width="400"/> | <img src="./public/screenshots/lightbox.png" alt="Media Lightbox" width="400"/> |
+
+### Ongoing Features & Development
+
+| P2P Voice Calling (WIP) | Server Architecture (WIP) |
+|:---:|:---:|
+| <img src="./public/screenshots/calling.png" alt="Voice Calling" width="400"/> | <img src="./public/screenshots/servers.png" alt="Servers" width="400"/> |
+
+### App Settings
+<p align="center">
+  <img src="./public/screenshots/settings.png" alt="Settings Menu" width="800"/>
+</p>
 
 ---
 
@@ -100,12 +117,26 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 **Current Version:** `v0.1.3-beta`
 
+### Phase 1: Foundation (Completed)
 - [x] Cross-platform build architecture (Web, Android APK, Linux .deb/.AppImage)
 - [x] Deep-linked email authentication
-- [x] Servers, Channels, and DMs
+- [x] Direct Messaging Architecture
+- [x] Secure local storage management and cache pruning
+- [x] Supabase Auth, Realtime, and Storage Integration
+
+### Phase 2: Rich Features & Optimization (Current)
+- [x] Media upload and optimization pipeline (`browser-image-compression`)
+- [x] In-app media lightbox viewer
+- [x] P2P signaling via Supabase Channels (WebRTC Foundation)
 - [ ] Push notifications
-- [ ] Media and file sharing optimizations
-- [ ] Full E2EE Implementation using `crypto.subtle`
+- [ ] Hardware-accelerated voice and video calls
+- [ ] Server Architecture implementation (Channels, Moderation)
+- [ ] Desktop notifications & Native mobile overlays
+
+### Phase 3: Privacy & Security (Upcoming)
+- [ ] End-to-End Encryption (E2EE) using `crypto.subtle`
+- [ ] Double Ratchet algorithm for perfect forward secrecy
+- [ ] Local encrypted message vaults
 
 ---
 
