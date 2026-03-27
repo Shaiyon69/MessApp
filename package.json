@@ -16,13 +16,15 @@
     "mobile:build": "npm run build && npx cap copy && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
-    "@capacitor/android": "^7.6.0",
+    "@capacitor/android": "^7.6.1",
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.0",
     "@capacitor/ios": "^7.6.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.100.1",
     "@tailwindcss/vite": "^4.0.9",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "browser-image-compression": "^2.0.2",
     "expo": "^55.0.8",
     "expo-image-picker": "~55.0.13",
@@ -42,7 +44,7 @@
   "devDependencies": {
     "@capacitor/cli": "^7.6.0",
     "@eslint/js": "^9.21.0",
-    "@tauri-apps/cli": "^2.3.1",
+    "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
