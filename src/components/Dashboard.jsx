@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
-import { cacheMessage, cacheThumbnail, getCachedMessages } from '../lib/cacheManager'
+import { cacheThumbnail } from '../lib/cacheManager'
 import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
@@ -72,7 +72,8 @@ class SoundEngine {
       gain.gain.linearRampToValueAtTime(0.05, t + 0.01); 
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
       osc.start(t); osc.stop(t + 0.1);
-    } catch(e) {}
+    } catch(_err) { // Ignore err
+    }
   }
   startRing(isOutgoing) {
     try {
@@ -96,7 +97,8 @@ class SoundEngine {
       };
       ring();
       this.ringInterval = setInterval(ring, 2000);
-    } catch(e) {}
+    } catch(_err) { // Ignore err
+    }
   }
   stopRing() {
     if (this.ringInterval) clearInterval(this.ringInterval);
@@ -105,7 +107,7 @@ class SoundEngine {
 const audioSys = new SoundEngine();
 
 const StatusAvatar = ({ url, username, isOnline, showStatus = true, className = "" }) => {
-  const maskId = `mask-${Math.random().toString(36).substr(2, 9)}`;
+  const maskId = `mask-${crypto.randomUUID()}`;
   const center = 50;
   const statusOffset = 85; 
   const statusRadius = 14; 
@@ -356,14 +358,11 @@ export default function Dashboard({ session }) {
   
   const [servers, setServers] = useState([])
   const [activeServer, setActiveServer] = useState(null)
-  const [channels, setChannels] = useState([])
   const [activeChannel, setActiveChannel] = useState(null)
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
 
   const [onlineUsers, setOnlineUsers] = useState([])
-  const [serverMembers, setServerMembers] = useState([])
-  const [channelReads, setChannelReads] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
   
   const [blockedUsers, setBlockedUsers] = useState([]) 
@@ -564,7 +563,8 @@ export default function Dashboard({ session }) {
 
       if (payload.type === 'ice-candidate') {
         if (pcRef.current && pcRef.current.remoteDescription) {
-          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch (e) {}
+          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch (_err) { // Ignore err
+          }
         }
       }
 
@@ -636,7 +636,7 @@ export default function Dashboard({ session }) {
         offer,
         caller: { id: session.user.id, username: myUsername, avatar_url: myAvatar }
       })
-    } catch (e) {
+    } catch (_err) {
       endCallLocal()
       toast.error("Microphone permission denied")
     }
@@ -657,7 +657,7 @@ export default function Dashboard({ session }) {
       
       sendSignal(activeCallTargetRef.current, 'answer', { answer })
       setCallDirection('connected')
-    } catch (e) {
+    } catch (_err) {
       endCallLocal()
       sendSignal(activeCallTargetRef.current, 'end', {})
       toast.error("Microphone permission denied")
@@ -710,7 +710,7 @@ export default function Dashboard({ session }) {
           await audioTrack.applyConstraints({ noiseSuppression: nextState, echoCancellation: nextState, autoGainControl: nextState })
           setNcEnabled(nextState)
           toast(nextState ? "Hardware Noise Cancellation On" : "Noise Cancellation Off", { icon: nextState ? '🎙️' : '⚠️' })
-        } catch (e) {
+        } catch (_err) {
           toast.error("Browser does not support dynamic constraints")
         }
       }
@@ -718,11 +718,12 @@ export default function Dashboard({ session }) {
   }
 
   const safeCacheSave = (targetId, dataArray) => {
-    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (e) {}
+    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (_err) { // Ignore err
+    }
   }
 
   const safeCacheLoad = (targetId) => {
-    try { return JSON.parse(localStorage.getItem(`local_chat_${targetId}`)) || [] } catch (e) { return [] }
+    try { return JSON.parse(localStorage.getItem(`local_chat_${targetId}`)) || [] } catch (_err) { return [] }
   }
 
   const selectDm = useCallback((dm) => {
@@ -907,7 +908,8 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (e) {}
+    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (_err) { // Ignore err
+    }
   }
 
   const handleWallpaperChange = async (wallpaperId) => {
@@ -915,7 +917,8 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), wallpaper: wallpaperId } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (e) {}
+    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (_err) { // Ignore err
+    }
   }
 
   const executeConfirmAction = async () => {
@@ -943,7 +946,7 @@ export default function Dashboard({ session }) {
         setRestrictedUsers(prev => prev.filter(id => id !== profile.id)); 
         toast.success(`Unrestricted ${profile.username}`); 
       }
-    } catch (e) {
+    } catch (_err) {
       toast.error("Failed to update user status")
     }
     setConfirmAction(null);
@@ -976,31 +979,15 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     if (view === 'server' && activeServer) {
       const getServerData = async () => {
-        const [channelsRes, membersRes, readsRes] = await Promise.all([
+        const [channelsRes] = await Promise.all([
           supabase.from('channels').select('*').eq('server_id', activeServer.id).order('created_at', { ascending: true }),
-          supabase.from('server_members').select('role, profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns)').eq('server_id', activeServer.id),
           supabase.from('channel_reads').select('channel_id, last_read_at').eq('profile_id', session.user.id)
         ])
-        setChannels(channelsRes.data || [])
         if (channelsRes.data?.length > 0) setActiveChannel(channelsRes.data[0])
-        if (membersRes.data) setServerMembers(membersRes.data)
-        if (readsRes.data) {
-          const readsMap = {}
-          readsRes.data.forEach(r => readsMap[r.channel_id] = r.last_read_at)
-          setChannelReads(readsMap)
-        }
       }
       getServerData()
     }
   }, [activeServer?.id, view, session.user.id])
-
-  useEffect(() => {
-    if (view !== 'server' || !activeServer) return
-    const channelSub = supabase.channel('server-channels-updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels', filter: `server_id=eq.${activeServer.id}` }, (payload) => {
-         setChannels(current => current.map(c => c.id === payload.new.id ? { ...c, last_message_at: payload.new.last_message_at } : c))
-      }).subscribe()
-    return () => supabase.removeChannel(channelSub)
-  }, [activeServer?.id, view])
 
   const fetchCurrentMessages = useCallback(async () => {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
@@ -1014,7 +1001,7 @@ export default function Dashboard({ session }) {
     }
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
-    const { data, error } = await supabase.from('messages')
+    const { data } = await supabase.from('messages')
       .select('*, profiles(username, avatar_url), message_reactions(*)')
       .eq(field, targetId)
       .order('created_at', { ascending: false }) 
@@ -1130,7 +1117,7 @@ export default function Dashboard({ session }) {
         if (targetId) safeCacheSave(targetId, updated)
         return updated
       })
-    } catch (error) { toast.error('Failed to update reaction') }
+    } catch (_err) { toast.error('Failed to update reaction') }
   }
 
   const handleTyping = async () => {
@@ -1160,12 +1147,12 @@ export default function Dashboard({ session }) {
     }
 
     try {
-      const { data: newMsg, error } = await supabase.from('messages')
+      const { data: newMsg, error: insertError } = await supabase.from('messages')
         .insert([{ profile_id: session.user.id, content: text, [field]: targetId, reply_to_message_id: replyingTo?.id || null }])
         .select('*, profiles(username, avatar_url), message_reactions(*)')
         .single()
         
-      if (error) throw error
+      if (insertError) throw insertError
 
       setMessages(prev => {
         if (prev.some(msg => msg.id === newMsg.id)) return prev;
@@ -1177,7 +1164,7 @@ export default function Dashboard({ session }) {
 
       setReplyingTo(null)
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
-    } catch (err) {
+    } catch (_err) {
       toast.error('Failed to send message.')
       if (messageInputRef.current) messageInputRef.current.value = text
     }
@@ -1194,7 +1181,7 @@ export default function Dashboard({ session }) {
       toast.dismiss('compress-toast')
 
       const fileExt = file.name.split('.').pop()
-      const fileName = `${Math.random()}.${fileExt}`
+      const fileName = `${crypto.randomUUID()}.${fileExt}`
       const filePath = `${session.user.id}/${fileName}`
       
       const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(filePath, compressedFile)
@@ -1230,7 +1217,7 @@ export default function Dashboard({ session }) {
       cacheThumbnail(targetId || 'global', publicUrl)
       toast.success('Image optimized and uploaded')
       setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
-    } catch (error) { 
+    } catch (_err) {
       toast.error('Failed to upload image') 
     } finally { 
       setIsUploading(false)
@@ -1245,27 +1232,25 @@ export default function Dashboard({ session }) {
       await supabase.from('messages').update({ content: editContent.trim() }).eq('id', id)
       setEditingMessageId(null)
       toast.success("Message updated")
-    } catch { toast.error("Failed to update message") }
+    } catch (_err) { toast.error("Failed to update message") }
   }, [editContent])
 
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
       if (mode === 'everyone') {
-        const { error } = await supabase.from('messages').update({ is_deleted: true, content: '', image_url: null }).eq('id', message.id)
-        if (error) throw error
+        const { error: deleteError } = await supabase.from('messages').update({ is_deleted: true, content: '', image_url: null }).eq('id', message.id)
+        if (deleteError) throw deleteError
         toast.success("Message unsent")
       } else {
         setLocalDeletedMessages(prev => [...prev, message.id])
         toast.success("Message hidden for you")
       }
-    } catch { toast.error("Failed to delete message") }
+    } catch (_err) { toast.error("Failed to delete message") }
     finally { 
       setInlineDeleteMessageId(null)
       setInlineDeleteStep('options')
     }
   }, [])
-
-  const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e) } }
 
   const validMessages = Array.from(new Map(messages.filter(m => m && m.id != null).map(item => [item.id, item])).values())
   const visibleMessages = validMessages.filter(m => !localDeletedMessages.includes(m.id))
@@ -1638,7 +1623,7 @@ export default function Dashboard({ session }) {
                   )}
 
                   {visibleMessages.map((m, index) => {
-                    const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}-${Math.random()}`;
+                    const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}-${crypto.randomUUID()}`;
                     const isMessageBlocked = blockedUsers.includes(m.profile_id);
                     if (isMessageBlocked) return (
                       <div key={uniqueKey} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
@@ -1864,7 +1849,7 @@ export default function Dashboard({ session }) {
                       <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 pb-4">
                         {searchResults.map((m, i) => (
                           <button 
-                            key={m.id ? `search-res-${m.id}` : `search-fallback-${i}-${Math.random()}`}
+                            key={m.id ? `search-res-${m.id}` : `search-fallback-${i}-${crypto.randomUUID()}`}
                             onClick={() => scrollToMessage(m)}
                             className="w-full text-left p-3 bg-[var(--bg-element)] rounded-xl cursor-pointer hover:bg-[var(--bg-surface)] border border-transparent hover:border-[var(--theme-50)] transition-all group focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none"
                           >
@@ -1993,7 +1978,7 @@ export default function Dashboard({ session }) {
                   const a = document.createElement('a');
                   a.style.display = 'none';
                   a.href = blobUrl;
-                  a.download = `messapp_image_${Math.random().toString(36).substring(7)}.jpg`;
+                  a.download = `messapp_image_${crypto.randomUUID().substring(0, 8)}.jpg`;
                   document.body.appendChild(a);
                   a.click();
                   window.URL.revokeObjectURL(blobUrl);
