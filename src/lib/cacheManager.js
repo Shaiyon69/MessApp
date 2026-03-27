@@ -39,8 +39,8 @@ export const cacheMessage = async (roomId, payload) => {
 
     const tx = db.transaction('messages', 'readwrite')
     tx.objectStore('messages').put({ id: roomId, data: dataToSave, timestamp: Date.now() })
-  } catch (e) {
-    console.warn('IDB Save Error', e)
+  } catch (_err) {
+    console.warn('IDB Save Error', _err)
   }
 }
 
@@ -55,7 +55,7 @@ export const getCachedMessages = async (roomId) => {
       req.onsuccess = () => resolve(req.result ? req.result.data : [])
       req.onerror = () => resolve([])
     })
-  } catch (e) {
+  } catch (_err) {
     return []
   }
 }
@@ -69,8 +69,8 @@ export const cacheThumbnail = async (roomId, url) => {
     
     const tx = db.transaction('thumbnails', 'readwrite')
     tx.objectStore('thumbnails').put({ id: roomId, data: updated })
-  } catch (e) {
-    console.warn('IDB Save Error', e)
+  } catch (_err) {
+    console.warn('IDB Save Error', _err)
   }
 }
 
@@ -85,7 +85,7 @@ export const getThumbnails = async (roomId) => {
       req.onsuccess = () => resolve(req.result ? req.result.data : [])
       req.onerror = () => resolve([])
     })
-  } catch (e) {
+  } catch (_err) {
     return []
   }
 }
