@@ -1150,7 +1150,11 @@ export default function Dashboard({ session }) {
     if (!targetId) { setMessages([]); setTypingUsers([]); return; }
     
     setHasMoreMessages(true);
-    setMessages(safeCacheLoad(targetId))
+    setMessages([]);
+    const cachedData = safeCacheLoad(targetId);
+    if (cachedData && cachedData.length > 0) {
+      setMessages(cachedData);
+    }
     setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
@@ -1163,62 +1167,59 @@ export default function Dashboard({ session }) {
       setTypingUsers(typers)
     })
 
-    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
-      if (payload.eventType === 'INSERT') {
-        const { data: fullMsg } = await supabase.from('messages')
-          .select('*, profiles(username, avatar_url), message_reactions(*)')
-          .eq('id', payload.new.id)
-          .single()
+    roomChannel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
+      const { data: fullMsg } = await supabase.from('messages')
+        .select('*, profiles(username, avatar_url), message_reactions(*)')
+        .eq('id', payload.new.id)
+        .single()
 
-        if (fullMsg) {
-          const e2eKey = await getE2EEKey(targetId);
-          const decryptedMsg = await decryptMessageContent(fullMsg, e2eKey);
+      if (fullMsg) {
+        const e2eKey = await getE2EEKey(targetId);
+        const decryptedMsg = await decryptMessageContent(fullMsg, e2eKey);
 
-          setMessages(prev => {
-            if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
-            const updated = [...prev, decryptedMsg];
-            updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-            safeCacheSave(targetId, updated);
-            return updated;
-          })
-          
-          if (fullMsg.profile_id !== session.user.id) {
-            if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
+        setMessages(prev => {
+          if (prev.some(msg => msg.id === decryptedMsg.id)) return prev;
+          const updated = [...prev, decryptedMsg];
+          updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          safeCacheSave(targetId, updated);
+          return updated;
+        })
 
-            if (document.visibilityState === 'hidden' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              try {
-                const notification = new Notification(`New message from ${fullMsg.profiles?.username || 'someone'}`, {
-                  body: fullMsg.content || 'Sent an attachment',
-                  icon: fullMsg.profiles?.avatar_url || '/favicon.ico',
-                  tag: 'messapp-msg'
-                });
-                notification.onclick = () => {
-                  window.focus();
-                  notification.close();
-                };
-              } catch (_err) { // Ignore err
-              }
+        if (fullMsg.profile_id !== session.user.id) {
+          if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
+
+          if (document.visibilityState === 'hidden' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            try {
+              const notification = new Notification(`New message from ${fullMsg.profiles?.username || 'someone'}`, {
+                body: fullMsg.content || 'Sent an attachment',
+                icon: fullMsg.profiles?.avatar_url || '/favicon.ico',
+                tag: 'messapp-msg'
+              });
+              notification.onclick = () => {
+                window.focus();
+                notification.close();
+              };
+            } catch (_err) { // Ignore err
             }
           }
-          setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
         }
+        setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
       }
-      
-      if (payload.eventType === 'UPDATE') {
-        setMessages(current => {
-          const updated = current.map(msg => msg.id === payload.new.id ? { ...msg, ...payload.new } : msg)
-          safeCacheSave(targetId, updated)
-          return updated
-        })
-      }
-      
-      if (payload.eventType === 'DELETE') {
-        setMessages(current => {
-          const updated = current.filter(msg => msg.id !== payload.old.id)
-          safeCacheSave(targetId, updated)
-          return updated
-        })
-      }
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, (payload) => {
+      setMessages(current => {
+        const updated = current.map(msg => msg.id === payload.new.id ? { ...msg, ...payload.new } : msg)
+        safeCacheSave(targetId, updated)
+        return updated
+      })
+    })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+      setMessages(current => {
+        if (!current.some(msg => msg.id === payload.old.id)) return current;
+        const updated = current.filter(msg => msg.id !== payload.old.id)
+        safeCacheSave(targetId, updated)
+        return updated
+      })
     })
 
     roomChannel.subscribe()
