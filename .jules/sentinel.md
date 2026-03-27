@@ -1,4 +1,0 @@
-## 2023-10-27 - Replace insecure Math.random() with cryptographically secure alternatives
-**Vulnerability:** Weak pseudo-random number generation was used for sensitive identifiers (invite codes, filenames, unique keys) via `Math.random()`. `Math.random()` is predictable and vulnerable to guessing or collision attacks.
-**Learning:** In a security-focused application like a chat platform, all randomness required for generating security-sensitive values or identifiers must use cryptographically secure random number generators (CSPRNG) like `crypto.randomUUID()` or `crypto.getRandomValues()` instead of `Math.random()`.
-**Prevention:** I have replaced all uses of `Math.random()` with `crypto.randomUUID()` or the pre-existing secure utility `generateSecureRandomString` across the codebase. I must prioritize using built-in web crypto APIs for generating unpredictable keys.
