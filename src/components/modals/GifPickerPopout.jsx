@@ -9,7 +9,6 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
   const fetchGifs = async (searchTerm) => {
      setLoading(true)
      try {
-        // Uses your env variable if set, otherwise falls back to a public test key
         const apiKey = import.meta.env.VITE_GIPHY_API_KEY || 'GlVGYHqc3SyCEG0vjcZaEM2fudUaWl6s'
         const endpoint = searchTerm 
            ? `https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(searchTerm)}&limit=20`
@@ -24,11 +23,8 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
      }
   }
 
-  // Debounce the search so we don't hit the API 100 times while typing
   useEffect(() => {
-     const delayDebounceFn = setTimeout(() => {
-        fetchGifs(query)
-     }, 500)
+     const delayDebounceFn = setTimeout(() => { fetchGifs(query) }, 500)
      return () => clearTimeout(delayDebounceFn)
   }, [query])
 
@@ -39,10 +35,7 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
          <button onClick={onClose} type="button" className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-md hover:bg-[var(--bg-element)] transition-colors cursor-pointer"><X size={14}/></button>
        </div>
        <input 
-         type="text" 
-         placeholder="Search for a GIF..." 
-         value={query} 
-         onChange={e => setQuery(e.target.value)}
+         type="text" placeholder="Search for a GIF..." value={query} onChange={e => setQuery(e.target.value)}
          className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 text-sm text-[var(--text-main)] mb-3 outline-none focus:border-[var(--theme-base)] focus:ring-1 focus:ring-[var(--theme-base)] transition-all placeholder:text-gray-600"
          autoFocus
        />
@@ -53,12 +46,7 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
             <div className="col-span-2 text-center text-sm text-gray-500 py-8">No GIFs found.</div>
          ) : (
             gifs.map(gif => (
-              <button 
-                key={gif.id} 
-                type="button"
-                onClick={() => onSelectGif(gif.images.downsized.url)}
-                className="rounded-xl overflow-hidden border-2 border-transparent hover:border-[var(--theme-base)] transition-all cursor-pointer aspect-video relative group bg-[var(--bg-base)]"
-              >
+              <button key={gif.id} type="button" onClick={() => onSelectGif(gif.images.downsized.url)} className="rounded-xl overflow-hidden border-2 border-transparent hover:border-[var(--theme-base)] transition-all cursor-pointer aspect-video relative group bg-[var(--bg-base)]">
                 <img src={gif.images.fixed_height_small.url} alt={gif.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
               </button>
             ))

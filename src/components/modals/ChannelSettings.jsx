@@ -1,6 +1,6 @@
 export default function ChannelSettingsModal({ handleUpdate, handleDelete, onClose, name, setName }) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex flex-col justify-end md:justify-center items-center z-[100] p-0 md:p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex flex-col justify-end md:justify-center items-center z-[100] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <div className="bg-[#15171a] border border-[#23252a] text-white p-6 md:p-8 rounded-t-3xl md:rounded-3xl w-full max-w-md shadow-2xl animate-slide-up md:animate-fade-in pb-10 md:pb-8">
         <h3 className="text-2xl font-bold mb-6 tracking-tight">Channel Settings</h3>
         
