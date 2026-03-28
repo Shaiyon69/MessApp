@@ -6,11 +6,20 @@
 
 *A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, and Linux environments.*
 
-[![Version](https://img.shields.io/badge/version-v0.1.0--beta-blue.svg)](https://github.com/messapp/messapp)
+[![Version](https://img.shields.io/badge/version-v0.1.3--beta-blue.svg)](https://github.com/messapp/messapp)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/messapp/messapp/blob/main/LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Supabase](https://img.shields.io/badge/Supabase-Backend-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
+
+<br>
+
+### 💖 Support the Project
+*Building native apps and keeping real-time servers running takes time (and lots of coffee). If MessApp helps you or your community, consider dropping a tip to support ongoing development!*
+
+[![Support on Ko-fi](https://img.shields.io/badge/Support_on_Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/shaiyon)
+
+*(**GCash:** `0933-546-3911`)*
 
 </div>
 
@@ -147,15 +156,6 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 ---
 
-## 💖 Support / Donate
-
-If you enjoy using MessApp and want to support its ongoing development, please consider donating:
-
-- [Support on Ko-fi](https://ko-fi.com/messapp)
-- [Sponsor on GitHub](https://github.com/sponsors/messapp)
-
----
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
@@ -171,5 +171,7 @@ Ensure you run tests and linters before submitting a Pull Request:
 npm run test
 npm run lint
 ```
-
+---
+<div align=center>
 *MessApp is proudly built for communities, one mess at a time.*
+</div>
