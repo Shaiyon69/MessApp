@@ -34,6 +34,11 @@
 |:---:|:---:|
 | <img src="./public/screenshots/calling.png" alt="Voice Calling" width="400"/> | <img src="./public/screenshots/servers.png" alt="Servers" width="400"/> |
 
+### New Features: E2EE Secure Storage & Data Control
+| Privacy & Safety | App Settings |
+|:---:|:---:|
+| <img src="./public/screenshots/settings.png" alt="Privacy & Safety" width="400"/> | <img src="./public/screenshots/settings.png" alt="Settings Menu" width="400"/> |
+
 ### App Settings
 <p align="center">
   <img src="./public/screenshots/settings.png" alt="Settings Menu" width="800"/>
@@ -50,6 +55,8 @@
 * **Rich Messaging:** Markdown rendering with syntax highlighting for code blocks.
 * **User Customization:** Comprehensive profile management and UI theme color persistence.
 * **Robust Security:** Secure email-link authentication, session persistence, and strict Postgres Row Level Security (RLS) policies to protect user data.
+* **End-to-End Encryption (E2EE):** Secure encrypted message vaults ensuring absolute privacy.
+* **Data Control:** Hard deletes giving users full autonomy over their data.
 
 ---
 
@@ -134,9 +141,24 @@ For a deeper dive into the data flow, database schema blueprint, and development
 - [ ] Desktop notifications & Native mobile overlays
 
 ### Phase 3: Privacy & Security (Upcoming)
-- [ ] End-to-End Encryption (E2EE) using `crypto.subtle`
+- [x] End-to-End Encryption (E2EE) using `crypto.subtle`
 - [ ] Double Ratchet algorithm for perfect forward secrecy
-- [ ] Local encrypted message vaults
+- [x] Local encrypted message vaults
+
+---
+
+## 💖 Support / Donate
+
+If you enjoy using MessApp and want to support its ongoing development, please consider donating:
+
+- [Support on Ko-fi](https://ko-fi.com/messapp)
+- [Sponsor on GitHub](https://github.com/sponsors/messapp)
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
 ---
 
