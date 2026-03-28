@@ -124,4 +124,4 @@ Recommended core tables:
 - Add tests once stability is confirmed (UI interactions, message flows)
 
 ---
-_Last updated: March 2026_
+_Last updated: February 2025_

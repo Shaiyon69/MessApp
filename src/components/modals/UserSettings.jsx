@@ -518,7 +518,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
                             toast.success(hasSecureStorage ? 'PIN updated successfully!' : 'Secure Storage Enabled! Keys backed up.', { id: toastId });
                             setHasSecureStorage(true);
                             document.getElementById('pin-setup-input').value = '';
-                          } catch (e) {
+                          } catch (_e) { // Ignore err
                             toast.error('Failed to backup key.', { id: toastId });
                           }
                         }} 

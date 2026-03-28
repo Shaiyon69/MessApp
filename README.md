@@ -7,7 +7,7 @@
 
 *A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, and Linux environments.*
 
-[![Version](https://img.shields.io/badge/version-v0.1.3--beta0-blue.svg)](https://github.com/messapp/messapp)
+[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](https://github.com/messapp/messapp)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/messapp/messapp/blob/main/LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -116,13 +116,13 @@ The application is highly modularized to handle complex state and real-time even
   * **Dashboard Interface:** The primary command center driving the chat UI, real-time subscriptions, and message history (`Dashboard.jsx`).
   * **Modular Interface System:** Dedicated modal components for managing Server creation, Channel configurations, and User preferences.
 
-For a deeper dive into the data flow, database schema blueprint, and development architecture, please refer to our [System Documentation](https://www.google.com/search?q=./SYSTEM_DOCUMENTATION.md).
+For a deeper dive into the data flow, database schema blueprint, and development architecture, please refer to our [System Documentation](./SYSTEM_DOCUMENTATION.md).
 
 -----
 
 ## 🗺️ Roadmap
 
-**Current Version:** `v0.1.3-beta0`
+**Current Version:** `v0.1.0`
 
 ### Phase 1: Foundation (Completed)
 
@@ -157,10 +157,10 @@ MessApp is an open-source passion project built by a solo indie developer (Skibi
 
 If you love the aesthetic, appreciate the absolute focus on privacy, or just want to support the development of Phase 3, consider leaving a tip\! Your donations help keep the servers running and the coffee flowing.
 
-  * ☕ **[Buy me a Coffee (Ko-fi)](https://www.google.com/search?q=%23)** *(Replace with your link)*
-  * 💖 **[Sponsor me on GitHub](https://www.google.com/search?q=%23)** *(Replace with your link)*
-  * 💰 **Crypto (BTC):** `your_bitcoin_wallet_address_here`
-  * 💎 **Crypto (ETH):** `your_ethereum_wallet_address_here`
+  * ☕ **[Buy me a Coffee (Ko-fi)](https://ko-fi.com/skibidevs)**
+  * 💖 **[Sponsor me on GitHub](https://github.com/sponsors/skibidevs)**
+  * 💰 **Crypto (BTC):** `bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh`
+  * 💎 **Crypto (ETH):** `0x71C7656EC7ab88b098defB751B7401B5f6d8976F`
 
 -----
 
@@ -168,16 +168,11 @@ If you love the aesthetic, appreciate the absolute focus on privacy, or just wan
 
 We welcome contributions\! Please follow our established style guidelines and feature branch conventions (e.g., `feature/awesome-feature` or `fix/annoying-bug`).
 
-Ensure you run tests and linters before submitting a Pull Request:
+Ensure you run linters before submitting a Pull Request:
 
 ```bash
-npm run test
 npm run lint
 ```
 
 *MessApp is proudly built for communities, one mess at a time.*
-
-```
-
-*(Be sure to replace the `#` and `your_bitcoin_wallet_address_here` placeholders in the "Support the Project" section with your actual donation links!)*
 ```

@@ -91,7 +91,7 @@ export async function decryptWithAesGcm(key, { iv, ciphertext }) {
       fromBase64(ciphertext)
     )
     return textDecoder.decode(decrypted)
-  } catch (e) {
+  } catch (_e) { // Ignore err
     return "[Encrypted Message - Unreadable]"
   }
 }
