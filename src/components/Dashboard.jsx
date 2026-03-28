@@ -9,7 +9,7 @@ import { Loader2 } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { cacheThumbnail } from '../lib/cacheManager'
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm } from '../lib/crypto'
-import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download, Paperclip, FileText } from 'lucide-react'
+import { Settings, Pen, Send, Plus, Hash, Compass, Home, Users, ImagePlus, Search, Info, X, Bell, Trash2, Check, UserPlus, MessageSquare, CornerDownLeft, Edit3, Copy, LogOut, Menu, User, Ban, EyeOff, SmilePlus, Phone, Video, Mic, MicOff, VideoOff, PhoneOff, Activity, Minimize2, Maximize2, Download, Paperclip, FileText, Shield } from 'lucide-react'
 
 import AddFriendView from './modals/AddFriendView'
 import ServerActionPopout from './modals/ServerActionPopout'
@@ -74,8 +74,7 @@ class SoundEngine {
       gain.gain.linearRampToValueAtTime(0.05, t + 0.01); 
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
       osc.start(t); osc.stop(t + 0.1);
-    } catch(_err) { // Ignore err
-    }
+    } catch(_err) {}
   }
   startRing(isOutgoing) {
     try {
@@ -99,8 +98,7 @@ class SoundEngine {
       };
       ring();
       this.ringInterval = setInterval(ring, 2000);
-    } catch(_err) {
-    }
+    } catch(_err) {}
   }
   stopRing() {
     if (this.ringInterval) clearInterval(this.ringInterval);
@@ -293,7 +291,6 @@ const MemoizedMessage = React.memo(({
                     </div>
                   )}
 
-                  {/* 🚀 RENDER RICH LINK PREVIEWS */}
                   {extractedUrls && extractedUrls.map((url, i) => (
                     <div key={`link-prev-${m.id}-${i}`} className={`mt-1 ${alignRight ? 'flex justify-end' : 'flex justify-start'}`}>
                       <LinkPreview url={url} />
@@ -323,7 +320,6 @@ const MemoizedMessage = React.memo(({
                     </div>
                   )}
 
-                  {/* 🚀 THE NEW FILE CARD COMPONENT */}
                   {m.file_url && (
                     <div 
                       onClick={(e) => { 
@@ -447,7 +443,6 @@ const MemoizedMessage = React.memo(({
   )
 })
 
-// 🚀 Helper Function to Convert Bytes to KB/MB nicely
 const formatBytes = (bytes, decimals = 2) => {
   if (!+bytes) return '0 Bytes'
   const k = 1024
@@ -481,7 +476,7 @@ export default function Dashboard({ session }) {
 
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef(null)
-  const genericFileInputRef = useRef(null) // 🚀 NEW: Reference for Generic File Input
+  const genericFileInputRef = useRef(null)
   const messageInputRef = useRef(null)
 
   const [selectedImage, setSelectedImage] = useState(null)
@@ -489,13 +484,15 @@ export default function Dashboard({ session }) {
 
   const [serverAction, setServerAction] = useState(null)
   const [showProfilePopout, setShowProfilePopout] = useState(false)
-  const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
+  const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account', showMenu: true })
   const popoutRef = useRef(null)
   
   const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
+  const [recoveryCodeInput, setRecoveryCodeInput] = useState('')
   
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
@@ -544,7 +541,6 @@ export default function Dashboard({ session }) {
   const myUsername = session.user.user_metadata?.username || session.user.email.split('@')[0]
   const myTag = session.user.user_metadata?.unique_tag || `${myUsername}#0000`
 
-  // 🛡️ SKIBIDI E2EE ARCHITECTURE: Dynamic Shared Key Derivation
   const getSharedKeyForTarget = useCallback(async (targetId, isDm) => {
     if (!isDm) return null;
     const dm = dms.find(d => d.dm_room_id === targetId);
@@ -583,10 +579,14 @@ export default function Dashboard({ session }) {
   }, []);
 
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
-  }, []);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+          }
+        });
+      }
+    }, []);
 
   useEffect(() => {
     const theme = localStorage.getItem('appTheme') || 'dark';
@@ -709,8 +709,7 @@ export default function Dashboard({ session }) {
 
       if (payload.type === 'ice-candidate') {
         if (pcRef.current && pcRef.current.remoteDescription) {
-          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch (_err) { // Ignore err
-          }
+          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)) } catch (_err) {}
         }
       }
 
@@ -864,8 +863,7 @@ export default function Dashboard({ session }) {
   }
 
   const safeCacheSave = (targetId, dataArray) => {
-    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (_err) { // Ignore err
-    }
+    try { localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(dataArray)) } catch (_err) {}
   }
 
   const safeCacheLoad = (targetId) => {
@@ -983,12 +981,22 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
-        let pubKeyStr = null;
+        const { data: existingProfile } = await supabase.from('profiles').select('public_key, encrypted_private_key').eq('id', session.user.id).maybeSingle()
+
+        let pubKeyStr = existingProfile?.public_key || null;
+        let encryptedPrivKey = existingProfile?.encrypted_private_key || null;
         let privKeyJwkStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
         let pubKeyJwkStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+        let forceNew = localStorage.getItem(`e2ee_force_new_key_${session.user.id}`) === 'true';
 
-        if (!privKeyJwkStr || !pubKeyJwkStr) {
+        if (encryptedPrivKey && !privKeyJwkStr && !forceNew) {
+          setShowRecoveryPrompt(true);
+          return; 
+        }
+
+        if (!privKeyJwkStr || !pubKeyJwkStr || forceNew) {
           try {
+            localStorage.removeItem(`e2ee_force_new_key_${session.user.id}`);
             const keyPair = await generateEcdhKeyPair();
             const privJwk = await exportPrivateKey(keyPair.privateKey);
             const pubJwk = await exportPublicKey(keyPair.publicKey);
@@ -1000,7 +1008,7 @@ export default function Dashboard({ session }) {
             console.error('Failed to generate keys', err);
           }
         }
-        pubKeyStr = pubKeyJwkStr;
+        pubKeyStr = pubKeyJwkStr || pubKeyStr;
 
         const { username, unique_tag, avatar_url, banner_url, bio, pronouns } = session.user.user_metadata
         await supabase.from('profiles').upsert({ 
@@ -1038,8 +1046,13 @@ export default function Dashboard({ session }) {
     })
     
     const requestsSub = supabase.channel('friend-requests').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests).subscribe()
+    const dmMembersSub = supabase.channel('dm-members-sync').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members', filter: `profile_id=eq.${session.user.id}` }, fetchDms).subscribe()
 
-    return () => { supabase.removeChannel(presenceChannel); supabase.removeChannel(requestsSub) }
+    return () => { 
+      supabase.removeChannel(presenceChannel); 
+      supabase.removeChannel(requestsSub);
+      supabase.removeChannel(dmMembersSub);
+    }
   }, [session]) 
 
   useEffect(() => {
@@ -1092,8 +1105,7 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (_err) { // Ignore err
-    }
+    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (_err) {}
   }
 
   const handleWallpaperChange = async (wallpaperId) => {
@@ -1101,8 +1113,7 @@ export default function Dashboard({ session }) {
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), wallpaper: wallpaperId } }
     setActiveDm(updatedDm)
     setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (_err) { // Ignore err
-    }
+    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (_err) {}
   }
 
   const executeConfirmAction = async () => {
@@ -1214,7 +1225,13 @@ export default function Dashboard({ session }) {
   }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeyForTarget, decryptMessageList])
 
   useEffect(() => {
-    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchCurrentMessages() }
+    const handleVisibilityChange = () => { 
+      if (document.visibilityState === 'visible') {
+        fetchCurrentMessages();
+        fetchDms();
+        fetchFriendRequests();
+      }
+    }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [fetchCurrentMessages])
@@ -1422,7 +1439,6 @@ export default function Dashboard({ session }) {
     }
   }
 
-  // 🚀 Helper Function to Convert Bytes to KB/MB nicely
   const formatBytes = (bytes, decimals = 2) => {
     if (!+bytes) return '0 Bytes'
     const k = 1024
@@ -1432,7 +1448,6 @@ export default function Dashboard({ session }) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
   }
 
-  // 🚀 NEW THE UNIVERSAL FILE UPLOAD LOGIC
   const handleGenericFileUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -1457,7 +1472,6 @@ export default function Dashboard({ session }) {
       const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
       if (!targetId) return toast.error('Select a channel or DM before sending files.')
       
-      // 🛡️ Ensure empty text strings are properly wrapped in our AES-GCM format
       const sharedKey = await getSharedKeyForTarget(targetId, view === 'home');
       let contentToSave = '';
       if (sharedKey) {
@@ -1638,7 +1652,7 @@ export default function Dashboard({ session }) {
       )}
 
       {callActive && !callMinimized && (
-        <div className="fixed inset-0 z-[100] bg-[var(--bg-base)]/90 backdrop-blur-2xl flex flex-col items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[100] bg-[var(--bg-base)]/90 backdrop-blur-2xl flex flex-col items-center justify-center p-4 animate-fade-in pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
           
           <div className="absolute top-6 right-6 flex gap-4">
             <button onClick={() => setCallMinimized(true)} className="text-gray-400 hover:text-[var(--text-main)] bg-white/5 p-3 rounded-full border border-white/10 transition-colors cursor-pointer shadow-lg hover:bg-white/10"><Minimize2 size={20}/></button>
@@ -1689,7 +1703,7 @@ export default function Dashboard({ session }) {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
       )}
 
-      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]`}>
         
         <nav className="flex flex-col h-full w-20 bg-[var(--bg-base)] border-r border-[var(--border-subtle)] py-4 items-center shrink-0 relative z-20">
           <div className="mb-6 group">
@@ -1779,7 +1793,7 @@ export default function Dashboard({ session }) {
                 </div>
 
                 <div className="space-y-1">
-                  <button onClick={() => { setShowProfilePopout(false); setSettingsModalConfig({ isOpen: true, tab: 'account' }) }} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-[var(--border-subtle)] transition-colors cursor-pointer text-gray-300 hover:text-[var(--text-main)]">
+                  <button onClick={() => { setShowProfilePopout(false); setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: false }); setMobileMenuOpen(false); }} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-[var(--border-subtle)] transition-colors cursor-pointer text-gray-300 hover:text-[var(--text-main)]">
                     <Edit3 size={16} /> <span className="text-sm font-medium">Edit Profile</span>
                   </button>
                   <div className="h-[1px] bg-[var(--border-subtle)] my-2"></div>
@@ -1803,7 +1817,7 @@ export default function Dashboard({ session }) {
               </div>
             </button>
             
-            <button onClick={() => setSettingsModalConfig({ isOpen: true, tab: 'appearance' })} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Application Settings" title="App Settings">
+            <button onClick={() => { setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: true }); setMobileMenuOpen(false); }} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Application Settings" title="App Settings">
               <Settings size={18} aria-hidden="true" />
             </button>
           </div>
@@ -2077,7 +2091,6 @@ export default function Dashboard({ session }) {
 
                     <form onSubmit={handleSendMessage} className="bg-[var(--bg-surface)] rounded-2xl ghost-border flex items-end gap-1 md:gap-2 p-1.5 md:p-2 focus-within:border-[var(--theme-50)] shadow-inner transition-colors relative">
                       
-                      {/* 🚀 THE NEW TENOR GIF ENGINE POPOUT */}
                       {showGifPicker && (
                         <GifPickerPopout 
                           onSelectGif={handleSendGif} 
@@ -2092,12 +2105,10 @@ export default function Dashboard({ session }) {
                         {isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <ImagePlus size={20} aria-hidden="true" />}
                       </button>
 
-                      {/* 🚀 THE NEW GENERIC FILE UPLOAD BUTTON */}
                       <button type="button" onClick={() => genericFileInputRef.current?.click()} disabled={isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Upload File">
                         {isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <Paperclip size={20} aria-hidden="true" />}
                       </button>
 
-                      {/* 🚀 THE NEW TENOR GIF BUTTON */}
                       <button 
                         type="button" 
                         onClick={() => setShowGifPicker(!showGifPicker)} 
@@ -2133,7 +2144,7 @@ export default function Dashboard({ session }) {
           </div>
 
           {showRightSidebar && isChatActive && (
-            <aside className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] md:relative md:w-80 md:max-w-none bg-[var(--bg-surface)] border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-slide-right" style={scopedChatStyle}>
+            <aside className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] md:relative md:w-80 md:max-w-none bg-[var(--bg-surface)] border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-slide-right pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)]" style={scopedChatStyle}>
 
               {rightTab === 'info' && view === 'home' && activeDm && (
                 <div className="flex flex-col h-full overflow-hidden relative">
@@ -2289,7 +2300,7 @@ export default function Dashboard({ session }) {
       )}
 
       {confirmAction && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in" style={scopedChatStyle}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]" style={scopedChatStyle}>
           <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-2xl border border-[var(--border-subtle)] shadow-2xl p-6">
             <h3 className="text-xl font-bold text-[var(--text-main)] mb-2">
               {confirmAction.type === 'block' && `Block ${confirmAction.profile.username}?`}
@@ -2316,11 +2327,11 @@ export default function Dashboard({ session }) {
       {/* NEW: Lightbox Overlay Engine */}
       {selectedImage && (
         <div 
-          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in"
+          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
           onClick={() => setSelectedImage(null)}
         >
           {/* Header with Timestamp */}
-          <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10">
+          <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pt-[max(1rem,env(safe-area-inset-top))]">
             <div className="flex flex-col">
               <span className="text-white font-bold">{selectedImage.user}</span>
               <span className="text-gray-400 text-xs">{selectedImage.time}</span>
@@ -2344,7 +2355,7 @@ export default function Dashboard({ session }) {
           
           {/* Download Action (Forces local download, bypasses new tab) */}
           <button 
-            className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg"
+            className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg mb-[env(safe-area-inset-bottom)]"
             onClick={(e) => { 
               e.stopPropagation();
               toast('Saving image...', { icon: '⬇️', id: 'save-toast' })
@@ -2369,7 +2380,65 @@ export default function Dashboard({ session }) {
         </div>
       )}
 
-      {settingsModalConfig.isOpen && <UserSettingsModal session={session} initialTab={settingsModalConfig.tab} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account' })} />}
+      {/* 🚀 THE RECOVERY KEY CHECKPOINT MODAL */}
+      {showRecoveryPrompt && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in text-[var(--text-main)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+          <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-3xl border border-[var(--border-subtle)] shadow-2xl p-6 md:p-8 text-center">
+            <div className="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(99,102,241,0.3)]">
+               <Shield size={32} />
+            </div>
+            <h3 className="text-2xl font-bold mb-2 font-display">Enter Your PIN</h3>
+            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+              You are logging in from a new device. Enter your <strong>6-Digit PIN</strong> to unlock your Secure Storage and restore your messages.
+            </p>
+            
+            <input
+              type="password"
+              maxLength="6"
+              value={recoveryCodeInput}
+              onChange={(e) => setRecoveryCodeInput(e.target.value)}
+              placeholder="••••••"
+              className="w-48 bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 transition-all mx-auto block"
+            />
+            
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={async () => {
+                  try {
+                    if (recoveryCodeInput.length !== 6) throw new Error("Invalid PIN length");
+                    const { data } = await supabase.from('profiles').select('encrypted_private_key').eq('id', session.user.id).single();
+                    if (!data?.encrypted_private_key) throw new Error("No backup found");
+                    
+                    const { decryptKeyWithPin } = await import('../lib/crypto');
+                    const decryptedKeyStr = await decryptKeyWithPin(recoveryCodeInput, data.encrypted_private_key);
+                    
+                    localStorage.setItem(`e2ee_private_key_${session.user.id}`, decryptedKeyStr);
+                    toast.success('Keys restored! Reloading system...');
+                    setTimeout(() => window.location.reload(), 1000);
+                  } catch (e) {
+                    toast.error('Incorrect PIN or corrupted backup.');
+                  }
+                }}
+                className="w-full py-4 rounded-xl font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-all shadow-lg cursor-pointer"
+              >
+                Unlock & Enter
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.setItem(`e2ee_force_new_key_${session.user.id}`, 'true');
+                  toast('Generating new keys...', { icon: '⚠️' });
+                  setTimeout(() => window.location.reload(), 1000);
+                }}
+                className="w-full py-4 rounded-xl font-bold text-gray-400 hover:text-white bg-[var(--bg-element)] hover:bg-[var(--border-subtle)] transition-all cursor-pointer"
+              >
+                Skip (Lose old messages)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settingsModalConfig.isOpen && <UserSettingsModal session={session} initialTab={settingsModalConfig.tab} initialMobileMenu={settingsModalConfig.showMenu} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
       {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}

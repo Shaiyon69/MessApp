@@ -13,13 +13,9 @@ export default function ServerActionPopout({ onClose, action }) {
   }, [onClose])
 
   return (
-    // Backdrop for mobile screens, transparent on desktop so it looks like a popout
-    <div className="fixed inset-0 z-[150] flex flex-col justify-end md:justify-center items-center md:items-start md:static bg-black/60 md:bg-transparent backdrop-blur-sm md:backdrop-blur-none p-4 md:p-0">
+    <div className="fixed inset-0 z-[150] flex flex-col justify-end md:justify-center items-center md:items-start md:static bg-black/60 md:bg-transparent backdrop-blur-sm md:backdrop-blur-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       
-      <div 
-        ref={popoutRef} 
-        className="w-full max-w-sm md:absolute md:left-24 md:bottom-6 md:w-[280px] bg-[#111214] rounded-[32px] md:rounded-2xl border border-[#23252a] shadow-2xl overflow-hidden animate-slide-up md:animate-slide-right flex flex-col p-8 md:p-6 text-center items-center pb-12 md:pb-6"
-      >
+      <div ref={popoutRef} className="w-full max-w-sm md:absolute md:left-24 md:bottom-6 md:w-[280px] bg-[#111214] rounded-[32px] md:rounded-2xl border border-[#23252a] shadow-2xl overflow-hidden animate-slide-up md:animate-slide-right flex flex-col p-8 md:p-6 text-center items-center pb-12 md:pb-6">
         <button onClick={onClose} className="absolute top-4 md:top-3 right-4 md:right-3 text-gray-500 hover:text-white transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-full md:rounded-md p-2 md:p-1 bg-white/5 md:bg-transparent">
           <X size={18} />
         </button>

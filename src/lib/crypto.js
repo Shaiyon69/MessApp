@@ -13,6 +13,16 @@ export async function exportPublicKey(key) {
   return await crypto.subtle.exportKey('jwk', key)
 }
 
+export async function importPublicKey(jwk) {
+  return await crypto.subtle.importKey(
+    'jwk',
+    jwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    []
+  )
+}
+
 export async function exportPrivateKey(key) {
   return await crypto.subtle.exportKey('jwk', key)
 }
@@ -24,16 +34,6 @@ export async function importPrivateKey(jwk) {
     { name: 'ECDH', namedCurve: 'P-256' },
     true,
     ['deriveKey']
-  )
-}
-
-export async function importPublicKey(jwk) {
-  return await crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    []
   )
 }
 
@@ -81,15 +81,19 @@ export async function encryptWithAesGcm(key, data) {
 }
 
 export async function decryptWithAesGcm(key, { iv, ciphertext }) {
-  const decrypted = await crypto.subtle.decrypt(
-    {
-      name: 'AES-GCM',
-      iv: new Uint8Array(new Uint8Array(fromBase64(iv)))
-    },
-    key,
-    fromBase64(ciphertext)
-  )
-  return textDecoder.decode(decrypted)
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: new Uint8Array(new Uint8Array(fromBase64(iv)))
+      },
+      key,
+      fromBase64(ciphertext)
+    )
+    return textDecoder.decode(decrypted)
+  } catch (e) {
+    return "[Encrypted Message - Unreadable]"
+  }
 }
 
 export async function encryptBinaryAesGcm(key, arrayBuffer) {
@@ -171,4 +175,38 @@ export function generateSecureRandomNumber(min, max) {
   } while (array[0] >= maxSafeValue)
 
   return min + (array[0] % range)
+}
+
+// 🚀 6-DIGIT PIN SECURE STORAGE ENGINE (Messenger Style)
+export async function deriveKeyFromPin(pin) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(pin),
+    { name: "PBKDF2" },
+    false,
+    ["deriveKey"]
+  );
+  // A static salt guarantees the PIN maps to the exact same key every time
+  const salt = enc.encode("MESSAPP_SECURE_STORAGE_SALT_V1");
+  
+  return await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+}
+
+export async function encryptKeyWithPin(pin, privateKeyJwkStr) {
+  const key = await deriveKeyFromPin(pin);
+  const encrypted = await encryptWithAesGcm(key, privateKeyJwkStr);
+  return JSON.stringify(encrypted);
+}
+
+export async function decryptKeyWithPin(pin, encryptedKeyStr) {
+  const key = await deriveKeyFromPin(pin);
+  const encryptedData = JSON.parse(encryptedKeyStr);
+  return await decryptWithAesGcm(key, encryptedData);
 }
