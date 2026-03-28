@@ -6,11 +6,20 @@
 
 *A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, and Linux environments.*
 
-[![Version](https://img.shields.io/badge/version-v0.1.0--beta-blue.svg)](https://github.com/messapp/messapp)
+[![Version](https://img.shields.io/badge/version-v0.1.3--beta-blue.svg)](https://github.com/messapp/messapp)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/messapp/messapp/blob/main/LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Supabase](https://img.shields.io/badge/Supabase-Backend-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
+
+<br>
+
+### 💖 Support the Project
+*Building native apps and keeping real-time servers running takes time (and lots of coffee). If MessApp helps you or your community, consider dropping a tip to support ongoing development!*
+
+[![Support on Ko-fi](https://img.shields.io/badge/Support_on_Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/shaiyon)
+
+*(**GCash:** `0933-546-3911`)*
 
 </div>
 
@@ -34,6 +43,11 @@
 |:---:|:---:|
 | <img src="./public/screenshots/calling.png" alt="Voice Calling" width="400"/> | <img src="./public/screenshots/servers.png" alt="Servers" width="400"/> |
 
+### New Features: E2EE Secure Storage & Data Control
+| Privacy & Safety | App Settings |
+|:---:|:---:|
+| <img src="./public/screenshots/settings.png" alt="Privacy & Safety" width="400"/> | <img src="./public/screenshots/settings.png" alt="Settings Menu" width="400"/> |
+
 ### App Settings
 <p align="center">
   <img src="./public/screenshots/settings.png" alt="Settings Menu" width="800"/>
@@ -50,6 +64,8 @@
 * **Rich Messaging:** Markdown rendering with syntax highlighting for code blocks.
 * **User Customization:** Comprehensive profile management and UI theme color persistence.
 * **Robust Security:** Secure email-link authentication, session persistence, and strict Postgres Row Level Security (RLS) policies to protect user data.
+* **End-to-End Encryption (E2EE):** Secure encrypted message vaults ensuring absolute privacy.
+* **Data Control:** Hard deletes giving users full autonomy over their data.
 
 ---
 
@@ -134,9 +150,15 @@ For a deeper dive into the data flow, database schema blueprint, and development
 - [ ] Desktop notifications & Native mobile overlays
 
 ### Phase 3: Privacy & Security (Upcoming)
-- [ ] End-to-End Encryption (E2EE) using `crypto.subtle`
+- [x] End-to-End Encryption (E2EE) using `crypto.subtle`
 - [ ] Double Ratchet algorithm for perfect forward secrecy
-- [ ] Local encrypted message vaults
+- [x] Local encrypted message vaults
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
 ---
 
@@ -149,5 +171,7 @@ Ensure you run tests and linters before submitting a Pull Request:
 npm run test
 npm run lint
 ```
-
+---
+<div align=center>
 *MessApp is proudly built for communities, one mess at a time.*
+</div>
