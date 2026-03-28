@@ -1,4 +1,4 @@
-````markdown
+```
 <div align="center">
 
 # 🚀 MessApp
@@ -79,7 +79,7 @@ Follow these steps to set up the development environment on your local machine.
    ```bash
    git clone [https://github.com/messapp/messapp.git](https://github.com/messapp/messapp.git)
    cd messapp
-````
+```
 
 2.  **Install dependencies:**
 
