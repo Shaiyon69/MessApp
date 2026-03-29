@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
-import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const BANNER_OPTIONS = [
@@ -175,8 +175,30 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
 
   const handleDeactivate = () => toast.error('Deactivation requires email confirmation in this beta version.')
   
+  // 🚀 THE FIX: THE SMART LOGOUT
+  // This clears your session but deliberately saves your E2EE keys so you don't need a PIN on the same device!
   const handleLogout = async () => { 
-    try { await supabase.auth.signOut(); localStorage.clear(); window.location.reload(); } 
+    try { 
+      await supabase.auth.signOut(); 
+      
+      const keysToKeep = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        // Save the private keys and the app theme before the nuke
+        if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled')) {
+          keysToKeep[key] = localStorage.getItem(key);
+        }
+      }
+      
+      localStorage.clear(); 
+      
+      // Restore the keys back into memory!
+      for (const [k, v] of Object.entries(keysToKeep)) {
+        localStorage.setItem(k, v);
+      }
+      
+      window.location.reload(); 
+    } 
     catch (e) { toast.error("Failed to log out: " + e.message); }
   }
 
@@ -210,12 +232,13 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
   }, [onClose])
 
   const TABS = [
-    { id: 'account', label: 'My Account', icon: User },
-    { id: 'privacy', label: 'Privacy & Safety', icon: Lock },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'appearance', label: 'Appearance', icon: Palette },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-  ]
+      { id: 'account', label: 'My Account', icon: User },
+      { id: 'privacy', label: 'Privacy & Safety', icon: Lock },
+      { id: 'security', label: 'Security', icon: Shield },
+      { id: 'appearance', label: 'Appearance', icon: Palette },
+      { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'legal', label: 'Legal & Policies', icon: FileText },
+    ]
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
@@ -507,13 +530,18 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
                           const pin = document.getElementById('pin-setup-input').value;
                           if (pin.length !== 6 || isNaN(pin)) return toast.error('PIN must be exactly 6 digits.');
                           const priv = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
+                          const pubKey = localStorage.getItem(`e2ee_public_key_${session.user.id}`); 
                           if (!priv) return toast.error('No local key found to back up.');
 
                           const toastId = toast.loading(hasSecureStorage ? 'Updating PIN...' : 'Encrypting and uploading key...');
                           try {
                             const { encryptKeyWithPin } = await import('../../lib/crypto');
                             const encryptedKey = await encryptKeyWithPin(pin, priv);
-                            const { error } = await supabase.from('profiles').update({ encrypted_private_key: encryptedKey }).eq('id', session.user.id);
+                            
+                            const updatePayload = { encrypted_private_key: encryptedKey };
+                            if (pubKey) updatePayload.public_key = pubKey;
+
+                            const { error } = await supabase.from('profiles').update(updatePayload).eq('id', session.user.id);
                             if (error) throw error;
                             toast.success(hasSecureStorage ? 'PIN updated successfully!' : 'Secure Storage Enabled! Keys backed up.', { id: toastId });
                             setHasSecureStorage(true);
@@ -528,6 +556,67 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
                       </button>
                     </div>
                   </div>
+
+                  {hasSecureStorage && (
+                    <div className="bg-indigo-500/5 p-6 rounded-2xl border border-indigo-500/20 mt-6 shadow-sm">
+                      <h4 className="text-sm font-bold text-indigo-400 uppercase tracking-widest mb-3 flex items-center gap-2"><History size={16} /> Restore Old Messages</h4>
+                      <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+                        Did you skip the PIN entry during login? Enter your old PIN here to restore your past encryption keys from the cloud. Your new messages and old messages will merge.
+                      </p>
+                      <div className="flex flex-col md:flex-row gap-3">
+                        <input id="pin-restore-input" type="password" maxLength="6" placeholder="••••••" className="bg-[#0d0f12] border border-indigo-500/30 focus:border-indigo-500 rounded-xl px-4 py-3 text-white text-center tracking-[0.5em] font-mono text-xl md:w-48 outline-none transition-colors" />
+                        <button 
+                          onClick={async () => {
+                            const pin = document.getElementById('pin-restore-input').value;
+                            if (pin.length !== 6 || isNaN(pin)) return toast.error('PIN must be exactly 6 digits.');
+                            
+                            const toastId = toast.loading('Restoring keys...');
+                            try {
+                              const { data } = await supabase.from('profiles').select('encrypted_private_key').eq('id', session.user.id).single();
+                              if (!data?.encrypted_private_key) throw new Error("No backup found");
+                              
+                              const { decryptKeyWithPin, importPrivateKey } = await import('../../lib/crypto');
+                              const decryptedKeyStr = await decryptKeyWithPin(pin, data.encrypted_private_key);
+                              
+                              if (!decryptedKeyStr) throw new Error("Decryption failed");
+                              
+                              let parsedKey;
+                              try {
+                                parsedKey = JSON.parse(decryptedKeyStr);
+                                if (!parsedKey.kty) throw new Error("Invalid key format");
+                              } catch (err) {
+                                throw new Error("Incorrect PIN");
+                              }
+
+                              const currentMain = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
+                              if (currentMain === decryptedKeyStr) {
+                                  toast.error("This PIN unlocks your CURRENT key! There are no old keys to restore.", { id: toastId });
+                                  return;
+                              }
+                              
+                              const legacyKeysStr = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`);
+                              const legacyKeys = legacyKeysStr ? JSON.parse(legacyKeysStr) : [];
+                              
+                              const isAlreadyLegacy = legacyKeys.some(k => JSON.stringify(k) === decryptedKeyStr);
+                              if (!isAlreadyLegacy) {
+                                  legacyKeys.push(parsedKey);
+                                  localStorage.setItem(`e2ee_legacy_keys_${session.user.id}`, JSON.stringify(legacyKeys));
+                              }
+
+                              toast.success('Old messages restored! Reloading system...', { id: toastId });
+                              setTimeout(() => window.location.reload(), 1000);
+                            } catch (e) {
+                              toast.error('Incorrect PIN. Please try again.', { id: toastId });
+                            }
+                          }} 
+                          className="flex-1 text-white px-6 py-3 rounded-xl font-bold transition-all cursor-pointer flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 shadow-lg shadow-indigo-500/20"
+                        >
+                          <Key size={18} /> Restore Old Messages
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
 
@@ -556,6 +645,37 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
                   <div className="space-y-2">
                     <ToggleSwitch label="Enable Desktop/Push Notifications" description="Receive alerts when you are pinged or receive a DM outside the app." checked={desktopNotifs} onChange={requestDesktopNotifs} />
                     <ToggleSwitch label="Message Sounds" description="Play a subtle sound when a new message arrives." checked={soundEnabled} onChange={setSoundEnabled} />
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'legal' && (
+                <div className="animate-fade-in pb-10">
+                  <h2 className="hidden md:block text-2xl font-bold tracking-tight text-white mb-6 md:mb-8 font-display">Legal & Policies</h2>
+                  
+                  <div className="bg-[#1c1e22] rounded-2xl ghost-border overflow-hidden shadow-sm mb-6">
+                    <div className="p-5 sm:p-6 border-b border-[#23252a]">
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Terms of Service</h4>
+                    </div>
+                    <div className="p-5 sm:p-6 text-gray-300 text-sm leading-relaxed space-y-4">
+                      <p>Welcome to MessApp. By using our service, you agree to these terms. MessApp is a secure communication platform. You are responsible for your account and all activity originating from it.</p>
+                      <h5 className="text-white font-bold mt-4">User-Generated Content (UGC) Policy</h5>
+                      <p>MessApp has a zero-tolerance policy for objectionable content and abusive users. You agree not to use MessApp to transmit content that is illegal, harassing, threatening, or violates the rights of others.</p>
+                      <p>If you encounter abusive behavior, use the "Block" feature in the Privacy & Safety tab to immediately prevent the user from contacting you. Violators of these terms may have their access permanently revoked without notice.</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#1c1e22] rounded-2xl ghost-border overflow-hidden shadow-sm">
+                    <div className="p-5 sm:p-6 border-b border-[#23252a]">
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Privacy Policy</h4>
+                    </div>
+                    <div className="p-5 sm:p-6 text-gray-300 text-sm leading-relaxed space-y-4">
+                      <p>Your privacy is our core principle. MessApp utilizes End-to-End Encryption (AES-GCM) for direct messages. We do not have the ability to read, decipher, or access your private communications.</p>
+                      <h5 className="text-white font-bold mt-4">Data Collection</h5>
+                      <p>We collect minimal data required to operate the service: your email address for authentication, and basic profile information (username, avatar) that you choose to provide. Encrypted message payloads are temporarily stored on our servers to facilitate delivery and synchronization across your devices.</p>
+                      <h5 className="text-white font-bold mt-4">Data Deletion</h5>
+                      <p>You maintain full control over your data. You may delete individual messages, entire conversations, or your complete account at any time via the settings menu. Account deletion results in the immediate and permanent erasure of all associated data from our active servers.</p>
+                    </div>
                   </div>
                 </div>
               )}
