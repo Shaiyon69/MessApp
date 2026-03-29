@@ -11,7 +11,7 @@ export default function LeftSidebar(props) {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm" onClick={() => props.setMobileMenuOpen(false)} />
       )}
 
-      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]`}>
+      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <nav className="flex flex-col h-full w-20 bg-[var(--bg-base)] border-r border-[var(--border-subtle)] py-4 items-center shrink-0 relative z-20">
           <div className="mb-6 group">
             <button onClick={props.handleHomeClick} className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer ${props.view === 'home' || props.view === 'notifications' ? 'text-[var(--text-main)] shadow-lg' : 'bg-[var(--bg-surface)] text-indigo-500 hover:bg-white/10'}`} style={props.view === 'home' || props.view === 'notifications' ? { backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' } : {}}>
@@ -74,7 +74,6 @@ export default function LeftSidebar(props) {
                             <MoreVertical size={16} />
                           </button>
 
-                          {/* 🚀 FIXED: Positioned inward (right-8 top-10) to avoid overflow-y-auto clipping */}
                           {isMenuOpen && (
                             <>
                               <div className="fixed inset-0 z-[60]" onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); }}></div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
+import { App as CapacitorApp } from '@capacitor/app'
 import toast, { Toaster } from 'react-hot-toast'
 import { Search, X, Download, Shield, Key } from 'lucide-react'
 
@@ -50,7 +51,9 @@ export default function Dashboard({ session }) {
   const [onlineUsers, setOnlineUsers] = useState([])
   const [friendRequests, setFriendRequests] = useState([])
   const [blockedUsers, setBlockedUsers] = useState([]) 
-  const [restrictedUsers, setRestrictedUsers] = useState(() => JSON.parse(localStorage.getItem(`restricted_${session.user.id}`) || '[]'))
+  const [restrictedUsers, setRestrictedUsers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch(e) { return [] }
+  })
   const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [rightTab, setRightTab] = useState('search')
   const [searchQuery, setSearchQuery] = useState('')
@@ -86,6 +89,46 @@ export default function Dashboard({ session }) {
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms)
   const webRTCProps = useWebRTC(session, activeDm)
 
+  const stateRef = useRef({});
+  const lastHomeClickRef = useRef(0);
+
+  useEffect(() => {
+    stateRef.current = { 
+      mobileMenuOpen, 
+      showRightSidebar, 
+      settingsModalConfig, 
+      selectedImage: chatManagerProps.selectedImage,
+      showProfilePopout,
+      showQuickSwitcher,
+      confirmAction,
+      showServerSettings,
+      showChannelModal,
+      showChannelSettings
+    };
+  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings]);
+
+  useEffect(() => {
+    const setupBackButton = async () => {
+      await CapacitorApp.addListener('backButton', () => {
+        const state = stateRef.current;
+        
+        if (state.selectedImage) chatManagerProps.setSelectedImage(null);
+        else if (state.confirmAction) setConfirmAction(null);
+        else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
+        else if (state.showProfilePopout) setShowProfilePopout(false);
+        else if (state.showServerSettings) setShowServerSettings(false);
+        else if (state.showChannelModal) setShowChannelModal(false);
+        else if (state.showChannelSettings) setShowChannelSettings(false);
+        else if (state.settingsModalConfig.isOpen) setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true });
+        else if (state.showRightSidebar) { setShowRightSidebar(false); setSearchQuery(''); }
+        else if (!state.mobileMenuOpen) setMobileMenuOpen(true);
+        else setMobileMenuOpen(false);
+      });
+    };
+    setupBackButton();
+    return () => { CapacitorApp.removeAllListeners('backButton'); };
+  }, []);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
       if (event === 'SIGNED_OUT' || !currentSession) {
@@ -120,7 +163,6 @@ export default function Dashboard({ session }) {
   }, [session.user.id])
 
   useEffect(() => {
-    // Safegaurd against zombie auth tokens
     if (!session?.user?.id) return; 
 
     const syncProfile = async () => {
@@ -138,8 +180,6 @@ export default function Dashboard({ session }) {
           return; 
         }
 
-        // 🚀 THE SHIELD: Reconstruct the Public Key natively from the Private Key coordinates.
-        // This makes it physically impossible for the local keys to be mismatched!
         if (privKeyJwkStr && !pubKeyJwkStr) {
            try {
              const parsedPriv = JSON.parse(privKeyJwkStr);
@@ -181,7 +221,7 @@ export default function Dashboard({ session }) {
           banner_url: banner_url || null, 
           bio: bio || null, 
           pronouns: pronouns || null,
-          public_key: pubKeyStr // Overwrites the DB with the flawless, reconstructed key
+          public_key: pubKeyStr 
         }, { onConflict: 'id' }) 
       }
     }
@@ -262,6 +302,26 @@ export default function Dashboard({ session }) {
     }
   }
 
+  const handleHomeClick = () => {
+    const now = Date.now();
+    const isDoubleClick = now - lastHomeClickRef.current < 400;
+    lastHomeClickRef.current = now;
+
+    if (isDoubleClick) {
+      setView('home'); 
+      setHomeTab('online'); 
+      setActiveServer(null); 
+      setActiveChannel(null); 
+      selectDm(null); 
+      closeRightSidebar(); 
+      setMobileMenuOpen(false); 
+    } else {
+      setView('home'); 
+      setActiveServer(null); 
+      setActiveChannel(null); 
+    }
+  }
+
   const handleThemeChange = async (colorHex) => {
     if (!activeDm) return;
     const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
@@ -335,15 +395,8 @@ export default function Dashboard({ session }) {
     if (otherMembers) {
       const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
       setDms(uniqueDms)
-      const lastDmId = localStorage.getItem(`last_dm_${session.user.id}`)
-      if (lastDmId && view === 'home') {
-        const lastOpenDm = uniqueDms.find(d => d.dm_room_id === lastDmId);
-        if (lastOpenDm) setActiveDm(lastOpenDm);
-      }
     }
   }
-
-  const handleHomeClick = () => { setView('home'); setHomeTab('online'); setActiveServer(null); setActiveChannel(null); selectDm(null); closeRightSidebar(); setMobileMenuOpen(false); }
 
   useEffect(() => {
     if (view === 'server' && activeServer) {
@@ -386,7 +439,7 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="flex h-[100dvh] w-screen bg-[var(--bg-base)] text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div className="flex h-[100dvh] w-full bg-[var(--bg-base)] text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
       <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
 
@@ -547,7 +600,7 @@ export default function Dashboard({ session }) {
       )}
 
       {confirmAction && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]" style={scopedChatStyle}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in" style={scopedChatStyle}>
           <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-2xl border border-[var(--border-subtle)] shadow-2xl p-6">
             <h3 className="text-xl font-bold text-[var(--text-main)] mb-2">
               {confirmAction.type === 'block' && `Block ${confirmAction.profile.username}?`}
@@ -575,10 +628,10 @@ export default function Dashboard({ session }) {
 
       {chatManagerProps.selectedImage && (
         <div 
-          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in"
           onClick={() => chatManagerProps.setSelectedImage(null)}
         >
-          <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pt-[max(1rem,env(safe-area-inset-top))]">
+          <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pt-4">
             <div className="flex flex-col">
               <span className="text-white font-bold">{chatManagerProps.selectedImage.user}</span>
               <span className="text-gray-400 text-xs">{chatManagerProps.selectedImage.time}</span>
@@ -601,7 +654,7 @@ export default function Dashboard({ session }) {
             />
           
           <button 
-            className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg mb-[env(safe-area-inset-bottom)]"
+            className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg mb-4"
             onClick={(e) => { 
               e.stopPropagation();
               toast('Saving image...', { icon: '⬇️', id: 'save-toast' })
@@ -679,7 +732,7 @@ export default function Dashboard({ session }) {
       )}
 
       {showRecoveryPrompt && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in text-[var(--text-main)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in text-[var(--text-main)]">
           <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-3xl border border-[var(--border-subtle)] shadow-2xl p-6 md:p-8 text-center">
             <div className="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(99,102,241,0.3)]">
                <Shield size={32} />
@@ -722,7 +775,6 @@ export default function Dashboard({ session }) {
                     
                     localStorage.setItem(`e2ee_private_key_${session.user.id}`, decryptedKeyStr);
                     
-                    // 🚀 THE ULTIMATE FIX: Reconstruct the Public Key securely!
                     const recoveredPubJwk = {
                       kty: parsedKey.kty,
                       crv: parsedKey.crv,

@@ -90,7 +90,6 @@ export const MemoizedMessage = React.memo(({
   toggleReaction, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage
 }) => {
   
-  // 🚀 THE ULTIMATE GHOST FILTER: If this message contains the unreadable string, self-destruct instantly.
   if (m.is_unreadable || (typeof m.content === 'string' && m.content.includes('[Encrypted Message]'))) {
     return null;
   }
@@ -123,6 +122,8 @@ export const MemoizedMessage = React.memo(({
     return urls ? Array.from(new Set(urls)).slice(0, 3) : null;
   }, [m.content, m.is_deleted]);
 
+  const isEmojiOnly = typeof m.content === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(m.content.trim());
+
   return (
     <div id={`message-${m.id}`} className={`flex gap-2.5 md:gap-3 transition-all duration-500 ${showHeader ? 'mt-4 md:mt-5' : 'mt-1'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse' : ''}`} onMouseLeave={() => { setShowReactionPicker(false); setShowMobileActions(false); }}>
       
@@ -150,7 +151,7 @@ export const MemoizedMessage = React.memo(({
           <div className={`flex items-start gap-2 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} mt-0.5 relative group/bubble`}>
             
             <div 
-              className={`flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[75%] shrink-0 cursor-pointer md:cursor-default`}
+              className={`flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[82vw] md:max-w-[65vw] shrink-0 min-w-0 cursor-pointer md:cursor-default`}
               onTouchStart={handleTouchStart} 
               onTouchEnd={handleTouchEndOrMove} 
               onTouchMove={handleTouchEndOrMove} 
@@ -175,24 +176,30 @@ export const MemoizedMessage = React.memo(({
               ) : (
                 <>
                   {typeof m.content === 'string' && m.content.trim() !== '' && (
-                    <div className={`px-3 py-1.5 md:px-4 md:py-2 rounded-2xl border w-fit max-w-full ${alignRight ? 'rounded-tr-none bg-[var(--theme-10)] border-[var(--theme-20)] text-[var(--text-main)]' : 'rounded-tl-none bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-main)]'} shadow-sm backdrop-blur-md text-left transition-transform active:scale-[0.98] md:active:scale-100`}>
-                      <div className="leading-relaxed markdown-body text-[13px] md:text-[14px] break-words">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            code({ inline, className, children, ...props}) {
-                              const match = /language-(\w+)/.exec(className || '')
-                              return !inline && match ? (
-                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                              ) : <code className="bg-black/50 text-[var(--theme-base)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-white/5" {...props}>{children}</code>
-                            },
-                            a({...props}) { return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" {...props} /> }
-                          }}
-                        >
-                          {m.content}
-                        </ReactMarkdown>
+                    isEmojiOnly ? (
+                      <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
+                        {m.content.trim()}
                       </div>
-                    </div>
+                    ) : (
+                      <div className={`px-3 py-2 md:px-4 md:py-2.5 rounded-[20px] border w-fit max-w-full ${alignRight ? 'rounded-tr-none bg-[var(--theme-10)] border-[var(--theme-20)] text-[var(--text-main)]' : 'rounded-tl-none bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-main)]'} shadow-sm backdrop-blur-md text-left transition-transform active:scale-[0.98] md:active:scale-100 break-words`}>
+                        <div className="leading-relaxed markdown-body text-[14.5px] whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-3">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              code({ inline, className, children, ...props}) {
+                                const match = /language-(\w+)/.exec(className || '')
+                                return !inline && match ? (
+                                  <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
+                                ) : <code className="bg-black/50 text-[var(--theme-base)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-white/5" {...props}>{children}</code>
+                              },
+                              a({...props}) { return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" {...props} /> }
+                            }}
+                          >
+                            {m.content}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    )
                   )}
 
                   {extractedUrls && extractedUrls.map((url, i) => (
@@ -282,7 +289,7 @@ export const MemoizedMessage = React.memo(({
             </div>
 
             {!m.is_deleted && (
-              <div className={`flex items-center gap-1 transition-opacity duration-200 shrink-0 relative ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100' : 'opacity-0 md:group-hover/bubble:opacity-100'}`}>
+              <div className={`flex items-center gap-1 transition-all duration-200 shrink-0 absolute -top-10 ${alignRight ? 'right-0' : 'left-0'} md:relative md:top-auto md:right-auto md:left-auto bg-[var(--bg-surface)] md:bg-transparent border border-[var(--border-subtle)] md:border-transparent shadow-2xl md:shadow-none rounded-xl p-1.5 md:p-0 z-[60] md:z-auto ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'}`}>
                 
                 {showReactionPicker && (
                   <div className={`absolute ${alignRight ? 'right-8' : 'left-8'} bottom-full mb-2 z-[100] animate-fade-in shadow-2xl`}>

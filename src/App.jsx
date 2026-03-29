@@ -43,7 +43,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-[#121417] p-4 sm:p-8 font-sans">
+    <div className="flex flex-col items-center justify-center min-h-screen w-full bg-[#121417] p-4 sm:p-8 font-sans">
       {showRegister ? (
         <Register switchToLogin={() => setShowRegister(false)} />
       ) : (
