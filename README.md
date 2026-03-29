@@ -18,9 +18,6 @@
 *Building native apps and keeping real-time servers running takes time (and lots of coffee). If MessApp helps you or your community, consider dropping a tip to support ongoing development!*
 
 [![Support on Ko-fi](https://img.shields.io/badge/Support_on_Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/shaiyon)
-
-*(**GCash:** `0933-546-3911`)*
-
 </div>
 
 ---
