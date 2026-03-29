@@ -49,11 +49,17 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
 
   const [appTheme, setAppTheme] = useState(() => localStorage.getItem('appTheme') || 'dark')
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('soundEnabled') !== 'false')
-  const [desktopNotifs, setDesktopNotifs] = useState(() => Notification.permission === 'granted')
+  const [desktopNotifs, setDesktopNotifs] = useState(() => {
+    try { return typeof Notification !== 'undefined' && Notification.permission === 'granted' } catch(e) { return false }
+  })
 
   const [allowDirectMessages, setAllowDirectMessages] = useState(true)
-  const [blockedUsers, setBlockedUsers] = useState(() => JSON.parse(localStorage.getItem(`blocked_${session.user.id}`) || '[]'))
-  const [restrictedUsers, setRestrictedUsers] = useState(() => JSON.parse(localStorage.getItem(`restricted_${session.user.id}`) || '[]'))
+  const [blockedUsers, setBlockedUsers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`blocked_${session.user.id}`)) || [] } catch(e) { return [] }
+  })
+  const [restrictedUsers, setRestrictedUsers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch(e) { return [] }
+  })
   const [blockedProfiles, setBlockedProfiles] = useState([])
   const [restrictedProfiles, setRestrictedProfiles] = useState([])
 
@@ -99,12 +105,16 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
 
   const requestDesktopNotifs = async (enabled) => {
     if (!enabled) { setDesktopNotifs(false); return toast.success("Desktop notifications disabled."); }
-    if (!("Notification" in window)) return toast.error("This browser/device does not support standard web notifications.")
-    if (Notification.permission === "granted") setDesktopNotifs(true)
-    else if (Notification.permission !== "denied") {
-      const permission = await Notification.requestPermission()
-      if (permission === "granted") { setDesktopNotifs(true); toast.success("Desktop notifications enabled!") }
-      else toast.error("Permission denied.")
+    try {
+      if (!("Notification" in window)) return toast.error("This browser/device does not support standard web notifications.")
+      if (Notification.permission === "granted") setDesktopNotifs(true)
+      else if (Notification.permission !== "denied") {
+        const permission = await Notification.requestPermission()
+        if (permission === "granted") { setDesktopNotifs(true); toast.success("Desktop notifications enabled!") }
+        else toast.error("Permission denied.")
+      }
+    } catch(e) {
+      toast.error("Notifications are blocked on this device.");
     }
   }
 
@@ -175,8 +185,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
 
   const handleDeactivate = () => toast.error('Deactivation requires email confirmation in this beta version.')
   
-  // 🚀 THE FIX: THE SMART LOGOUT
-  // This clears your session but deliberately saves your E2EE keys so you don't need a PIN on the same device!
   const handleLogout = async () => { 
     try { 
       await supabase.auth.signOut(); 
@@ -184,7 +192,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
       const keysToKeep = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        // Save the private keys and the app theme before the nuke
         if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled')) {
           keysToKeep[key] = localStorage.getItem(key);
         }
@@ -192,7 +199,6 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
       
       localStorage.clear(); 
       
-      // Restore the keys back into memory!
       for (const [k, v] of Object.entries(keysToKeep)) {
         localStorage.setItem(k, v);
       }
@@ -241,10 +247,10 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
     ]
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden">
       
       {showLogoutConfirm && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
           <div className="bg-[#15171a] w-full max-w-sm rounded-3xl border border-[#23252a] shadow-2xl p-6 text-center animate-slide-up md:animate-fade-in">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
               <LogOut size={32} className="text-red-400" />
@@ -260,7 +266,7 @@ export default function UserSettingsModal({ session, initialTab = 'account', ini
       )}
 
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
           <div className="bg-[#15171a] w-full max-w-sm rounded-3xl border border-red-500/50 shadow-2xl p-6 text-center animate-slide-up md:animate-fade-in">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
               <AlertTriangle size={32} className="text-red-500" />
