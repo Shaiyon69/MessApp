@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
-import { PushNotifications } from '@capacitor/push-notifications'
 import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -132,40 +131,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     
     try {
       if (Capacitor.isNativePlatform()) {
-        if (!Capacitor.isPluginAvailable('PushNotifications')) {
-            return toast.error("Push plugin not available.");
-        }
-        
-        try {
-          let permStatus = await PushNotifications.checkPermissions();
-          if (permStatus.receive === 'prompt') {
-            permStatus = await PushNotifications.requestPermissions();
-          }
-          if (permStatus.receive !== 'granted') {
-            toast.error("Permission denied by device settings.");
-            return;
-          }
-
-          await PushNotifications.register();
-          
-          PushNotifications.addListener('registration', async (token) => {
-            console.log('Push registration success, token: ' + token.value);
-            await supabase.from('profiles').update({ fcm_token: token.value }).eq('id', session.user.id);
-          });
-
-          PushNotifications.addListener('registrationError', (error) => {
-            toast.error("Firebase missing! You must add google-services.json to build.");
-          });
-
-          setDesktopNotifs(true);
-          localStorage.setItem('notificationsEnabled', 'true');
-          toast.success("Native push initialized!");
-          
-        } catch (nativeError) {
-          console.warn("Native Push Error:", nativeError);
-          toast.error("Native push requires Firebase config.");
-        }
-
+        toast.error("Native push requires Firebase config.");
       } else {
         if (!("Notification" in window)) return toast.error("This browser does not support notifications.");
         if (Notification.permission === "granted") {
