@@ -136,7 +136,6 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
             return toast.error("Push plugin not available.");
         }
         
-        // Wrap the native call to prevent fatal app crashes if Firebase is missing
         try {
           let permStatus = await PushNotifications.checkPermissions();
           if (permStatus.receive === 'prompt') {
@@ -146,10 +145,22 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
             toast.error("Permission denied by device settings.");
             return;
           }
+
           await PushNotifications.register();
+          
+          PushNotifications.addListener('registration', async (token) => {
+            console.log('Push registration success, token: ' + token.value);
+            await supabase.from('profiles').update({ fcm_token: token.value }).eq('id', session.user.id);
+          });
+
+          PushNotifications.addListener('registrationError', (error) => {
+            toast.error("Firebase missing! You must add google-services.json to build.");
+          });
+
           setDesktopNotifs(true);
           localStorage.setItem('notificationsEnabled', 'true');
-          toast.success("Push notifications enabled!");
+          toast.success("Native push initialized!");
+          
         } catch (nativeError) {
           console.warn("Native Push Error:", nativeError);
           toast.error("Native push requires Firebase config.");

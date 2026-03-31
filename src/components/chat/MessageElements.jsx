@@ -294,7 +294,7 @@ export const MemoizedMessage = React.memo(({
                 {showReactionPicker && (
                   <div 
                     className={`fixed bottom-20 left-1/2 -translate-x-1/2 sm:absolute sm:translate-x-0 ${alignRight ? 'sm:right-8' : 'sm:left-8'} sm:bottom-full sm:mb-2 z-[100] animate-fade-in shadow-2xl bg-[var(--bg-surface)] rounded-xl overflow-hidden border border-[var(--border-subtle)]`}
-                    onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                    onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}
                     onMouseDown={(e) => { e.preventDefault(); }}
                   >
                     <div className="fixed inset-0 z-0 cursor-pointer sm:hidden" onClick={(e) => { e.stopPropagation(); setShowReactionPicker(false); }}></div>
@@ -305,8 +305,8 @@ export const MemoizedMessage = React.memo(({
                         lazyLoadEmojis={true}
                         width={typeof window !== 'undefined' && window.innerWidth < 350 ? Math.min(window.innerWidth - 32, 280) : 300}
                         height={350}
+                        searchDisabled={true}
                         autoFocusSearch={false}
-                        searchDisabled={typeof window !== 'undefined' && window.innerWidth < 768}
                         previewConfig={{ showPreview: false }} 
                         onEmojiClick={(emojiData) => {
                           const hasReacted = groupedReactions[emojiData.emoji]?.some(r => r.profile_id === currentUserId);
@@ -354,6 +354,10 @@ export const MemoizedMessage = React.memo(({
                         if (document.activeElement) document.activeElement.blur();
                         setShowReactionPicker(!showReactionPicker); 
                       }} 
+                      onTouchStartCapture={(e) => { 
+                        if (document.activeElement) document.activeElement.blur(); 
+                      }}
+                      onMouseDown={(e) => { e.preventDefault(); }}
                       className="p-1.5 text-gray-500 hover:text-yellow-400 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" 
                       title="React"
                     >

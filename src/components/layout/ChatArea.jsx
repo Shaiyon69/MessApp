@@ -312,7 +312,7 @@ export default function ChatArea(props) {
                     </div>
                   )}
                   <form onSubmit={props.handleSendMessage} className="bg-[var(--bg-surface)] rounded-3xl border border-[var(--border-subtle)] flex items-center gap-2 p-1.5 focus-within:border-[var(--theme-50)] focus-within:shadow-[0_0_15px_var(--theme-10)] shadow-sm transition-all relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
-                    <div ref={gifPickerRef} onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}>
+                    <div ref={gifPickerRef} onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}>
                       {props.showGifPicker && (
                         <GifPickerPopout 
                           onSelectGif={props.handleSendGif} 
@@ -322,7 +322,7 @@ export default function ChatArea(props) {
                     </div>
                     <div ref={attachMenuRef} className="relative shrink-0 flex items-center justify-center w-[44px] h-[44px]">
                       {showAttachMenu && (
-                        <div className="absolute bottom-full left-0 mb-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-2xl z-50 flex flex-col p-1.5 animate-slide-up origin-bottom-left min-w-[160px]" onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}>
+                        <div className="absolute bottom-full left-0 mb-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-2xl z-50 flex flex-col p-1.5 animate-slide-up origin-bottom-left min-w-[160px]" onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}>
                           <button type="button" onClick={() => { props.fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <ImagePlus size={18} className="text-indigo-400" /> Upload Image
                           </button>
@@ -367,7 +367,7 @@ export default function ChatArea(props) {
                         {showInputEmojiPicker && (
                           <div 
                             className="fixed bottom-20 right-2 sm:absolute sm:bottom-full sm:right-0 md:right-4 sm:mb-2 z-[100] shadow-2xl rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-                            onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                            onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}
                             onMouseDown={(e) => { e.preventDefault(); }}
                           >
                             <EmojiPicker 
@@ -376,14 +376,22 @@ export default function ChatArea(props) {
                               lazyLoadEmojis={true}
                               width={typeof window !== 'undefined' && window.innerWidth < 360 ? Math.min(window.innerWidth - 16, 320) : 320}
                               height={380}
+                              searchDisabled={true}
                               autoFocusSearch={false}
-                              searchDisabled={typeof window !== 'undefined' && window.innerWidth < 768}
                               previewConfig={{showPreview: false}}
                               onEmojiClick={handleEmojiSelect} 
                             />
                           </div>
                         )}
-                        <button type="button" onClick={toggleEmojiPicker} onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }} disabled={props.isUploading} className={`w-[36px] h-[36px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-surface)]'}`} title="Insert Emoji">
+                        <button 
+                          type="button" 
+                          onClick={toggleEmojiPicker} 
+                          onTouchStartCapture={(e) => { e.preventDefault(); if (document.activeElement) document.activeElement.blur(); toggleEmojiPicker(e); }} 
+                          onMouseDown={(e) => { e.preventDefault(); }} 
+                          disabled={props.isUploading} 
+                          className={`w-[36px] h-[36px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-surface)]'}`} 
+                          title="Insert Emoji"
+                        >
                           <SmilePlus size={20} aria-hidden="true" />
                         </button>
                       </div>

@@ -6,12 +6,27 @@ export class SoundEngine {
     
     this.unlockHandler = () => {
       this.hasInteracted = true;
-      document.removeEventListener('click', this.unlockHandler);
-      document.removeEventListener('touchstart', this.unlockHandler);
+      try {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {}); 
+        }
+        
+        const buffer = this.ctx.createBuffer(1, 1, 22050);
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.ctx.destination);
+        source.start(0);
+      } catch (e) {}
+
+      document.removeEventListener('click', this.unlockHandler, true);
+      document.removeEventListener('touchstart', this.unlockHandler, true);
     };
     
-    document.addEventListener('click', this.unlockHandler, { once: true });
-    document.addEventListener('touchstart', this.unlockHandler, { once: true });
+    document.addEventListener('click', this.unlockHandler, { once: true, capture: true });
+    document.addEventListener('touchstart', this.unlockHandler, { once: true, capture: true });
   }
 
   init() {
@@ -30,6 +45,9 @@ export class SoundEngine {
   }
 
   playPop() {
+    // 🚀 HARDWARE FIX: If the app is in the background or screen is off, DO NOT play the web audio pop.
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    
     if (!this.init()) return; 
     try {
       if (this.ctx.state !== 'running') return; 
@@ -53,6 +71,7 @@ export class SoundEngine {
   }
 
   startRing(isOutgoing) {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     if (!this.init()) return; 
     try {
       this.stopRing();
