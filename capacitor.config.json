@@ -1,5 +1,9 @@
 {
-  "appId": "com.shaiyon.messapp",
+  "appId": "com.messapp.dev",
   "appName": "MessApp",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "url": "http://192.168.100.157:5173",
+    "cleartext": true
+  }
 }

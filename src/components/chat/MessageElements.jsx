@@ -292,15 +292,21 @@ export const MemoizedMessage = React.memo(({
               <div className={`flex items-center gap-1 transition-all duration-200 shrink-0 absolute -top-10 ${alignRight ? 'right-0' : 'left-0'} md:relative md:top-auto md:right-auto md:left-auto bg-[var(--bg-surface)] md:bg-transparent border border-[var(--border-subtle)] md:border-transparent shadow-2xl md:shadow-none rounded-xl p-1.5 md:p-0 z-[60] md:z-auto ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'}`}>
                 
                 {showReactionPicker && (
-                  <div className={`absolute ${alignRight ? 'right-8' : 'left-8'} bottom-full mb-2 z-[100] animate-fade-in shadow-2xl`}>
-                    <div className="fixed inset-0 z-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); setShowReactionPicker(false); }}></div>
-                    <div className="relative z-10 border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-2xl">
+                  <div 
+                    className={`fixed bottom-20 left-1/2 -translate-x-1/2 sm:absolute sm:translate-x-0 ${alignRight ? 'sm:right-8' : 'sm:left-8'} sm:bottom-full sm:mb-2 z-[100] animate-fade-in shadow-2xl bg-[var(--bg-surface)] rounded-xl overflow-hidden border border-[var(--border-subtle)]`}
+                    onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                    onMouseDown={(e) => { e.preventDefault(); }}
+                  >
+                    <div className="fixed inset-0 z-0 cursor-pointer sm:hidden" onClick={(e) => { e.stopPropagation(); setShowReactionPicker(false); }}></div>
+                    <div className="relative z-10 border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-2xl bg-[var(--bg-surface)]">
                       <EmojiPicker 
-                        theme="dark" 
+                        theme={document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'} 
                         emojiStyle="native"
                         lazyLoadEmojis={true}
-                        width={280}
+                        width={typeof window !== 'undefined' && window.innerWidth < 350 ? Math.min(window.innerWidth - 32, 280) : 300}
                         height={350}
+                        autoFocusSearch={false}
+                        searchDisabled={typeof window !== 'undefined' && window.innerWidth < 768}
                         previewConfig={{ showPreview: false }} 
                         onEmojiClick={(emojiData) => {
                           const hasReacted = groupedReactions[emojiData.emoji]?.some(r => r.profile_id === currentUserId);
@@ -341,7 +347,18 @@ export const MemoizedMessage = React.memo(({
                 ) : (
                   <>
                     <button onClick={() => { setReplyingTo(m); setShowMobileActions(false); }} className="p-1.5 text-gray-500 hover:text-[var(--theme-base)] bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" title="Reply"><CornerDownLeft size={14} aria-hidden="true" /></button>
-                    <button onClick={() => setShowReactionPicker(!showReactionPicker)} className="p-1.5 text-gray-500 hover:text-yellow-400 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" title="React"><SmilePlus size={14} aria-hidden="true" /></button>
+                    <button 
+                      onClick={(e) => { 
+                        e.preventDefault(); 
+                        e.stopPropagation(); 
+                        if (document.activeElement) document.activeElement.blur();
+                        setShowReactionPicker(!showReactionPicker); 
+                      }} 
+                      className="p-1.5 text-gray-500 hover:text-yellow-400 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" 
+                      title="React"
+                    >
+                      <SmilePlus size={14} aria-hidden="true" />
+                    </button>
                     {isMe && (
                       <button onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); setShowMobileActions(false); }} className="p-1.5 text-gray-500 hover:text-[var(--text-main)] bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" title="Edit"><Pen size={14} aria-hidden="true" /></button>
                     )}

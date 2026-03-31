@@ -11,6 +11,11 @@ export default function LeftSidebar(props) {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm" onClick={() => props.setMobileMenuOpen(false)} />
       )}
 
+      {/* Profile Popout Click-Outside Interceptor */}
+      {props.showProfilePopout && (
+        <div className="fixed inset-0 z-[45]" onClick={() => props.setShowProfilePopout(false)}></div>
+      )}
+
       <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <nav className="flex flex-col h-full w-20 bg-[var(--bg-base)] border-r border-[var(--border-subtle)] py-4 items-center shrink-0 relative z-20">
           <div className="mb-6 group">
@@ -69,7 +74,7 @@ export default function LeftSidebar(props) {
                           
                           <button 
                             onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `sidebar-${dm.dm_room_id}`); }}
-                            className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors focus-visible:opacity-100 ${isMenuOpen || isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                            className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors focus-visible:opacity-100 opacity-100`}
                           >
                             <MoreVertical size={16} />
                           </button>
@@ -135,7 +140,7 @@ export default function LeftSidebar(props) {
             </div>
           )}
 
-          <div className="p-3 bg-[var(--bg-base)] border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0">
+          <div className="p-3 bg-[var(--bg-base)] border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0 relative z-50">
             <button onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className="flex items-center gap-3 min-w-0 p-1.5 hover:bg-[var(--bg-surface)] rounded-xl transition-colors text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2">
               <StatusAvatar url={props.myAvatar} username={props.myUsername} isOnline={true} className="w-9 h-9" />
               <div className="flex flex-col truncate">

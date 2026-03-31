@@ -59,7 +59,9 @@ export default function Dashboard({ session }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [serverAction, setServerAction] = useState(null)
   const [showProfilePopout, setShowProfilePopout] = useState(false)
+  
   const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account', showMenu: true })
+  
   const popoutRef = useRef(null)
   const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
@@ -91,6 +93,38 @@ export default function Dashboard({ session }) {
 
   const stateRef = useRef({});
   const lastHomeClickRef = useRef(0);
+  const acceptingRefs = useRef(new Set());
+  const exitTimerRef = useRef(null);
+
+  // MOBILE AUDIO UNLOCKER: Forces hardware to initialize on first screen tap so pop sounds work.
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        const silent = new Audio("data:audio/mp3;base64,//MkxAA");
+        silent.play().catch(()=>{});
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          const ctx = new AudioContext();
+          const buffer = ctx.createBuffer(1, 1, 22050);
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start(0);
+          ctx.resume();
+        }
+      } catch(e) {}
+      document.removeEventListener('touchstart', unlockAudio, true);
+      document.removeEventListener('click', unlockAudio, true);
+    };
+    
+    document.addEventListener('touchstart', unlockAudio, { once: true, capture: true });
+    document.addEventListener('click', unlockAudio, { once: true, capture: true });
+    return () => {
+      document.removeEventListener('touchstart', unlockAudio, true);
+      document.removeEventListener('click', unlockAudio, true);
+    }
+  }, []);
 
   useEffect(() => {
     stateRef.current = { 
@@ -103,9 +137,11 @@ export default function Dashboard({ session }) {
       confirmAction,
       showServerSettings,
       showChannelModal,
-      showChannelSettings
+      showChannelSettings,
+      activeDm,
+      view
     };
-  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings]);
+  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, activeDm, view]);
 
   useEffect(() => {
     const setupBackButton = async () => {
@@ -119,10 +155,24 @@ export default function Dashboard({ session }) {
         else if (state.showServerSettings) setShowServerSettings(false);
         else if (state.showChannelModal) setShowChannelModal(false);
         else if (state.showChannelSettings) setShowChannelSettings(false);
-        else if (state.settingsModalConfig.isOpen) setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true });
+        else if (state.settingsModalConfig.isOpen) {
+            if (!state.settingsModalConfig.showMenu && window.innerWidth < 768) {
+                setSettingsModalConfig(prev => ({ ...prev, showMenu: true }));
+            } else {
+                setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true });
+            }
+        }
         else if (state.showRightSidebar) { setShowRightSidebar(false); setSearchQuery(''); }
-        else if (!state.mobileMenuOpen) setMobileMenuOpen(true);
-        else setMobileMenuOpen(false);
+        else if (!state.mobileMenuOpen) {
+            setMobileMenuOpen(true);
+        } else {
+            if (exitTimerRef.current) {
+                CapacitorApp.exitApp();
+            } else {
+                toast("Press back again to exit", { duration: 2000, position: 'bottom-center' });
+                exitTimerRef.current = setTimeout(() => { exitTimerRef.current = null; }, 2000);
+            }
+        }
       });
     };
     setupBackButton();
@@ -247,8 +297,14 @@ export default function Dashboard({ session }) {
       if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id }) 
     })
     
-    const requestsSub = supabase.channel('friend-requests').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `receiver_id=eq.${session.user.id}` }, fetchFriendRequests).subscribe()
-    const dmMembersSub = supabase.channel('dm-members-sync').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members', filter: `profile_id=eq.${session.user.id}` }, fetchDms).subscribe()
+    const requestsSub = supabase.channel('public:friendships').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
+         fetchFriendRequests();
+         fetchDms();
+    }).subscribe();
+
+    const dmMembersSub = supabase.channel('public:dm_members').on('postgres_changes', { event: '*', schema: 'public', table: 'dm_members' }, () => {
+         fetchDms();
+    }).subscribe();
 
     return () => { 
       supabase.removeChannel(presenceChannel); 
@@ -271,14 +327,25 @@ export default function Dashboard({ session }) {
   }
 
   const handleAcceptRequest = async (request) => {
+    if (acceptingRefs.current.has(request.id)) return;
+    acceptingRefs.current.add(request.id);
     try {
+      const { data: check } = await supabase.from('friendships').select('status').eq('id', request.id).single()
+      if (check?.status === 'accepted') return;
+
       await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
       const { data: newRoom } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
-      if (newRoom) await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }, { dm_room_id: newRoom.id, profile_id: request.sender_id }])
+      if (newRoom) {
+        await supabase.from('dm_members').insert([
+          { dm_room_id: newRoom.id, profile_id: session.user.id }, 
+          { dm_room_id: newRoom.id, profile_id: request.sender_id }
+        ])
+      }
       fetchFriendRequests()
       fetchDms()
       toast.success("Friend request accepted!")
     } catch { toast.error("Failed to accept request.") }
+    finally { acceptingRefs.current.delete(request.id); }
   }
 
   const handleDeclineRequest = async (requestId) => {
@@ -367,13 +434,15 @@ export default function Dashboard({ session }) {
         const { error } = await supabase.from('dm_rooms').delete().eq('id', confirmAction.dm_room_id);
         if (error) throw error;
         
+        await supabase.from('friendships').delete().or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${profile.id}),and(sender_id.eq.${profile.id},receiver_id.eq.${session.user.id})`);
+        
         setDms(prev => prev.filter(dm => dm.dm_room_id !== confirmAction.dm_room_id));
         if (activeDm?.dm_room_id === confirmAction.dm_room_id) {
           setActiveDm(null);
           setView('home');
           setShowRightSidebar(false);
         }
-        toast.success("Conversation permanently deleted");
+        toast.success("Conversation and friend link permanently deleted");
       }
     } catch (_err) {
       toast.error("Failed to update user status or delete chat")
@@ -809,7 +878,7 @@ export default function Dashboard({ session }) {
         </div>
       )}
 
-      {settingsModalConfig.isOpen && <UserSettingsModal session={session} initialTab={settingsModalConfig.tab} initialMobileMenu={settingsModalConfig.showMenu} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })} />}
+      {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
       {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
