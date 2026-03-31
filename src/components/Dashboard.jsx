@@ -15,7 +15,7 @@ import ChatArea from './layout/ChatArea'
 
 import ServerActionPopout from './modals/ServerActionPopout'
 import ServerSettingsModal from './modals/ServerSettings'
-import ChannelCreationModal from './modals/ChannelCreation'
+// import ChannelCreationModal from './modals/ChannelCreation'
 import ChannelSettingsModal from './modals/ChannelSettings'
 import UserSettingsModal from './modals/UserSettings'
 
