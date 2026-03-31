@@ -22,8 +22,11 @@ jobs:
       - name: Build Web Assets (Vite)
         run: npm run build
 
-      - name: Sync Capacitor
-        run: npx cap sync android
+      - name: Capacitor Sync & Force Asset Copy
+        run: |
+          npx cap sync android
+          # Manually force assets into the Android project to bypass .gitignore issues
+          cp -r dist/* android/app/src/main/assets/public/
 
       - name: Setup Java
         uses: actions/setup-java@v4
