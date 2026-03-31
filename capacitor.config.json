@@ -1,6 +1,6 @@
 {
-  "appId": "com.messapp.dev",
+  "appId": "com.shaiyon.messapp",
   "appName": "MessApp",
-  "webDir": "dist"
+  "webDir": "dist",
+  "bundledWebRuntime": false
 }
-
