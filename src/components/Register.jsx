@@ -66,28 +66,28 @@ export default function Register({ switchToLogin }) {
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Email Address</label>
               <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-12">
                 <span className="material-symbols-outlined text-gray-500 mr-3 text-[18px]" aria-hidden="true">alternate_email</span>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="user@messapp.dev" />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="user@messapp.dev" />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Display Name</label>
               <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-12">
                 <span className="material-symbols-outlined text-gray-500 mr-3 text-[18px]" aria-hidden="true">person</span>
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="What should we call you?" />
+                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="What should we call you?" />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Password</label>
               <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-12">
                 <span className="material-symbols-outlined text-gray-500 mr-3 text-[18px]" aria-hidden="true">lock</span>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="••••••••" />
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="••••••••" />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Confirm Password</label>
               <div className="flex items-center bg-[#15171a] rounded-xl ghost-border px-4 transition-all h-12">
                 <span className="material-symbols-outlined text-gray-500 mr-3 text-[18px]" aria-hidden="true">lock_reset</span>
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="••••••••" />
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-white placeholder-gray-600 font-sans text-[16px] md:text-sm" placeholder="••••••••" />
               </div>
             </div>
             <button type="submit" disabled={loading} className="mt-1 w-full h-12 bg-gradient-to-r from-indigo-300 to-indigo-600 text-[#0d0f12] rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">

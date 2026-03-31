@@ -38,7 +38,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [selectedImage, setSelectedImage] = useState(null)
   const [showGifPicker, setShowGifPicker] = useState(false)
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
-  const [pendingFile, setPendingFile] = useState(null);
+  const [pendingFile, setPendingFile] = useState(null)
 
   const fileInputRef = useRef(null)
   const genericFileInputRef = useRef(null)
@@ -47,13 +47,36 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const scrollContainerRef = useRef(null)
   const typingChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
+  
+  const sharedKeysCacheRef = useRef({})
 
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0]
 
   useEffect(() => { localStorage.setItem(`deleted_msgs_${session.user.id}`, JSON.stringify(localDeletedMessages)) }, [localDeletedMessages, session.user.id])
 
+  const instantScrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        }
+      });
+    }, 10);
+  }, []);
+
+  const smoothScrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
+        }
+      });
+    }, 10);
+  }, []);
+
   const getSharedKeysForTarget = useCallback(async (targetId, isDm, rawMsgData = []) => {
     if (!isDm) return null;
+    if (sharedKeysCacheRef.current[targetId]) return sharedKeysCacheRef.current[targetId];
     
     let targetPubStr = null;
     
@@ -113,6 +136,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           } catch(e) {}
         }
       }
+      
+      sharedKeysCacheRef.current[targetId] = keys;
       return keys;
     } catch (e) {
       return null;
@@ -160,7 +185,6 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             let decryptedContent = null;
             let unlocked = false;
 
-            // 🚀 ENVELOPE DECRYPTION MATRIX
             if (encObj.spub && encObj.tpub) {
               const amISender = msg.profile_id === session.user.id;
               const rawHistoricalPub = amISender ? encObj.tpub : encObj.spub;
@@ -178,7 +202,6 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
                     const historicalShared = await deriveSharedAesKey(impPriv, theirHistoricalPub);
                     const attempt = await decryptWithAesGcm(historicalShared, encObj);
                     
-                    // 🚀 CRITICAL FIX: Ensure it didn't return the swallowed failure string!
                     if (attempt && !attempt.includes('[Encrypted Message - Unreadable]')) {
                         decryptedContent = attempt;
                         unlocked = true;
@@ -188,7 +211,6 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
               }
             }
 
-            // DB Fallback
             if (!unlocked && sharedKeys?.main) {
               try { 
                 const attempt = await decryptWithAesGcm(sharedKeys.main, encObj); 
@@ -318,11 +340,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', chronoData);
       const decryptedData = await decryptMessageList(chronoData, sharedKeys);
       
-      const container = scrollContainerRef.current;
-      const anchorElement = document.getElementById(`message-${oldestMessage.id}`);
-      const anchorOffsetTop = anchorElement ? anchorElement.offsetTop : 0;
-      const previousScrollTop = container ? container.scrollTop : 0;
-      const offsetFromAnchor = previousScrollTop - anchorOffsetTop; 
+      let anchorOffsetTop = 0;
+      let previousScrollTop = 0;
+      if (scrollContainerRef.current) {
+        const anchorElement = document.getElementById(`message-${oldestMessage.id}`);
+        if (anchorElement) {
+           anchorOffsetTop = anchorElement.offsetTop;
+           previousScrollTop = scrollContainerRef.current.scrollTop;
+        }
+      }
 
       setMessages(prev => {
         const safePrev = prev.filter(m => m[field] === targetId);
@@ -335,14 +361,16 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       setIsLoadingMore(false);
 
-      setTimeout(() => {
-        if (scrollContainerRef.current) {
-          const newAnchorElement = document.getElementById(`message-${oldestMessage.id}`);
-          if (newAnchorElement) {
-            scrollContainerRef.current.scrollTop = newAnchorElement.offsetTop + offsetFromAnchor;
-          }
-        }
-      }, 50); 
+      if (anchorOffsetTop > 0) {
+        setTimeout(() => {
+           requestAnimationFrame(() => {
+             const newAnchorElement = document.getElementById(`message-${oldestMessage.id}`);
+             if (newAnchorElement && scrollContainerRef.current) {
+               scrollContainerRef.current.scrollTop = previousScrollTop + (newAnchorElement.offsetTop - anchorOffsetTop);
+             }
+           });
+        }, 0);
+      }
     } else {
       setIsLoadingMore(false);
     }
@@ -363,7 +391,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (cachedData.length > 0) {
       const validCache = Array.from(new Map(cachedData.filter(m => m && m.id).map(item => [item.id, item])).values());
       setMessages(validCache)
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
+      instantScrollToBottom()
     }
 
     const { data } = await supabase.from('messages').select('*, profiles(username, avatar_url, public_key), message_reactions(*)').eq(field, targetId).order('created_at', { ascending: false }).limit(100)
@@ -383,8 +411,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         return uniqueData;
       })
     }
-    setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 100)
-  }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeysForTarget, decryptMessageList])
+    instantScrollToBottom()
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeysForTarget, decryptMessageList, instantScrollToBottom])
 
   useEffect(() => {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
@@ -392,7 +420,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     
     setHasMoreMessages(true);
     setMessages(safeCacheLoad(targetId))
-    setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight; }, 10)
+    instantScrollToBottom()
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
     fetchCurrentMessages() 
@@ -406,46 +434,52 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       setTypingUsers(uniqueTypers)
     })
 
-    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, async (payload) => {
+    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, (payload) => {
       if (payload.eventType === 'INSERT') {
-        const { data: fullMsg } = await supabase.from('messages').select('*, profiles(username, avatar_url, public_key), message_reactions(*)').eq('id', payload.new.id).single()
+        (async () => {
+          const { data: fullMsg } = await supabase.from('messages').select('*, profiles(username, avatar_url, public_key), message_reactions(*)').eq('id', payload.new.id).single()
+          if (fullMsg) {
+            const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg]);
+            const [decryptedMsg] = await decryptMessageList([fullMsg], sharedKeys);
 
-        if (fullMsg) {
-          const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg]);
-          const [decryptedMsg] = await decryptMessageList([fullMsg], sharedKeys);
+            let isAtBottom = false;
+            if (scrollContainerRef.current) {
+              const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+              isAtBottom = scrollHeight - scrollTop - clientHeight < 150;
+            }
 
-          setMessages(prev => {
-            if (prev.some(msg => msg.id === decryptedMsg.id)) return prev; 
-            const safePrev = prev.filter(m => m[field] === targetId);
-            if (decryptedMsg[field] !== targetId) return safePrev;
-            const updated = [...safePrev, decryptedMsg];
-            updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-            safeCacheSave(targetId, updated);
-            return updated;
-          })
-          
-          if (decryptedMsg.profile_id !== session.user.id) {
-            if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
-          }
-          
-          if (scrollContainerRef.current) {
-            const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-            if (scrollHeight - scrollTop - clientHeight < 150) {
-              setTimeout(() => { scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50);
+            setMessages(prev => {
+              if (prev.some(msg => msg.id === decryptedMsg.id)) return prev; 
+              const safePrev = prev.filter(m => m[field] === targetId);
+              if (decryptedMsg[field] !== targetId) return safePrev;
+              const updated = [...safePrev, decryptedMsg];
+              updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+              safeCacheSave(targetId, updated);
+              return updated;
+            })
+            
+            if (decryptedMsg.profile_id !== session.user.id) {
+              if (localStorage.getItem('soundEnabled') !== 'false') audioSys.playPop();
+            }
+            
+            if (isAtBottom || decryptedMsg.profile_id === session.user.id) {
+              smoothScrollToBottom();
             }
           }
-        }
+        })();
       }
       
       if (payload.eventType === 'UPDATE') {
-        const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [payload.new]);
-        const [decryptedMsg] = await decryptMessageList([payload.new], sharedKeys);
+        (async () => {
+          const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [payload.new]);
+          const [decryptedMsg] = await decryptMessageList([payload.new], sharedKeys);
 
-        setMessages(current => {
-          const updated = current.map(msg => msg.id === decryptedMsg.id ? { ...msg, ...decryptedMsg } : msg)
-          safeCacheSave(targetId, updated)
-          return updated
-        })
+          setMessages(current => {
+            const updated = current.map(msg => msg.id === decryptedMsg.id ? { ...msg, ...decryptedMsg } : msg)
+            safeCacheSave(targetId, updated)
+            return updated
+          })
+        })();
       }
       
       if (payload.eventType === 'DELETE') {
@@ -464,7 +498,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       supabase.removeChannel(roomChannel)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
-  }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, fetchCurrentMessages, getSharedKeysForTarget, decryptMessageList])
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, fetchCurrentMessages, getSharedKeysForTarget, decryptMessageList, instantScrollToBottom, smoothScrollToBottom])
 
   const toggleReaction = async (messageId, emoji, hasReacted) => {
     try {
@@ -538,7 +572,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
 
       setReplyingTo(null);
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+      smoothScrollToBottom();
       toast.success('Sent!', { id: toastId });
     } catch (err) {
       toast.error('Upload failed', { id: toastId });
@@ -592,7 +626,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
 
       setReplyingTo(null)
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+      smoothScrollToBottom()
     } catch (_err) {
       toast.error('Failed to send message.')
       if (messageInputRef.current) messageInputRef.current.value = text
@@ -628,7 +662,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
 
       setReplyingTo(null)
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+      smoothScrollToBottom()
     } catch (_err) { toast.error('Failed to send GIF.') }
   }
 
@@ -673,7 +707,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
 
       toast.success('File uploaded!', { id: 'upload-toast' })
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+      smoothScrollToBottom()
     } catch (_err) { toast.error('Failed to upload file', { id: 'upload-toast' }) } 
     finally { setIsUploading(false); if (genericFileInputRef.current) genericFileInputRef.current.value = '' }
   }
@@ -723,7 +757,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       cacheThumbnail(targetId || 'global', publicUrl)
       toast.success('Image optimized and uploaded')
-      setTimeout(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' }); }, 50)
+      smoothScrollToBottom()
     } catch (_err) { toast.error('Failed to upload image') } 
     finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }

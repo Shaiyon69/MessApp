@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus } from 'lucide-react'
+import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import AddFriendView from '../modals/AddFriendView'
@@ -9,18 +9,27 @@ import toast from 'react-hot-toast'
 
 export default function ChatArea(props) {
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  
   const emojiPickerRef = useRef(null);
   const gifPickerRef = useRef(null);
+  const attachMenuRef = useRef(null);
 
   const toggleEmojiPicker = (e) => {
+    e.preventDefault();
     e.stopPropagation();
+    if (document.activeElement) document.activeElement.blur();
     props.setShowGifPicker(false);
-    setShowInputEmojiPicker(!showInputEmojiPicker);
+    setShowAttachMenu(false);
+    setShowInputEmojiPicker(prev => !prev);
   };
 
   const toggleGifPicker = (e) => {
+    e.preventDefault();
     e.stopPropagation();
+    if (document.activeElement) document.activeElement.blur();
     setShowInputEmojiPicker(false);
+    setShowAttachMenu(false);
     props.setShowGifPicker(!props.showGifPicker);
   };
 
@@ -28,6 +37,7 @@ export default function ChatArea(props) {
     const handleClickOutside = (event) => {
       if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target)) setShowInputEmojiPicker(false);
       if (gifPickerRef.current && !gifPickerRef.current.contains(event.target)) props.setShowGifPicker(false);
+      if (attachMenuRef.current && !attachMenuRef.current.contains(event.target)) setShowAttachMenu(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -39,12 +49,9 @@ export default function ChatArea(props) {
       const start = input.selectionStart;
       const end = input.selectionEnd;
       input.value = input.value.substring(0, start) + emojiData.emoji + input.value.substring(end);
-      
       const newPos = start + emojiData.emoji.length;
       input.selectionStart = input.selectionEnd = newPos;
-      input.focus();
     }
-    setShowInputEmojiPicker(false);
   };
 
   return (
@@ -65,15 +72,13 @@ export default function ChatArea(props) {
                 <span className="hidden sm:inline text-base">Friends</span>
               </div>
               <div className="w-[1px] h-6 bg-[var(--border-subtle)] hidden sm:block shrink-0"></div>
-              
               <div className="flex items-center gap-2 shrink-0">
-                <button onClick={() => props.setHomeTab('online')} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${props.homeTab === 'online' ? 'bg-[var(--bg-element)] text-[var(--text-main)] ghost-border' : 'text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>Online</button>
-                <button onClick={() => props.setHomeTab('all')} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${props.homeTab === 'all' ? 'bg-[var(--bg-element)] text-[var(--text-main)] ghost-border' : 'text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>All</button>
-                <button onClick={() => props.setHomeTab('pending')} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer flex items-center gap-2 ${props.homeTab === 'pending' ? 'bg-[var(--bg-element)] text-[var(--text-main)] ghost-border' : 'text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>
+                <button onClick={() => props.setHomeTab('online')} className={`px-3 py-2 rounded-lg text-sm font-bold transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${props.homeTab === 'online' ? 'bg-[var(--bg-element)] text-[var(--text-main)] border border-[var(--border-subtle)] shadow-sm' : 'text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>Online</button>
+                <button onClick={() => props.setHomeTab('all')} className={`px-3 py-2 rounded-lg text-sm font-bold transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer ${props.homeTab === 'all' ? 'bg-[var(--bg-element)] text-[var(--text-main)] border border-[var(--border-subtle)] shadow-sm' : 'text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>All</button>
+                <button onClick={() => props.setHomeTab('pending')} className={`px-3 py-2 rounded-lg text-sm font-bold transition-all focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer flex items-center gap-2 ${props.homeTab === 'pending' ? 'bg-[var(--bg-element)] text-[var(--text-main)] border border-[var(--border-subtle)] shadow-sm' : 'text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-transparent'}`}>
                   Pending {props.friendRequests.length > 0 && <span className="bg-red-500 text-[var(--text-main)] text-[11px] w-5 h-5 flex items-center justify-center rounded-full font-bold">{props.friendRequests.length}</span>}
                 </button>
               </div>
-              
               <button 
                 onClick={() => { props.setHomeTab('add_friend'); props.selectDm(null); }} 
                 className={`ml-auto px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 cursor-pointer hover:brightness-110 shrink-0 ${props.homeTab === 'add_friend' ? 'text-[var(--text-main)] shadow-lg' : 'bg-[var(--bg-element)] text-indigo-400 hover:bg-[var(--bg-surface)]'}`} 
@@ -95,7 +100,6 @@ export default function ChatArea(props) {
             <h2 className="font-headline font-bold text-transparent bg-clip-text text-xl tracking-tight shrink-0 truncate animate-fade-in" style={{ backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' }} key="header-dash">MESSY APPY</h2>
           )}
         </div>
-        
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
           {props.isChatActive && (
             <>
@@ -111,7 +115,6 @@ export default function ChatArea(props) {
 
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative" key={props.view + (props.activeChannel?.id || props.activeDm?.dm_room_id || '')}>
-          
           {props.isChatActive && props.currentWallpaper !== 'default' && (
             <div className="absolute inset-0 pointer-events-none z-0 opacity-20" style={{ backgroundImage: props.wallpaperCSS, backgroundSize: props.currentWallpaper === 'doodles' ? '400px' : 'cover', backgroundPosition: 'center' }}/>
           )}
@@ -127,13 +130,11 @@ export default function ChatArea(props) {
                       <input id="dm-search-input" type="text" placeholder="Search for a conversation..." className="bg-transparent border-none outline-none text-[var(--text-main)] text-sm w-full placeholder-gray-500" />
                       <Search size={18} className="text-gray-500 ml-2" />
                     </div>
-                    
                     <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
                       {props.homeTab === 'online' && `Online — ${props.onlineFriends.length}`}
                       {props.homeTab === 'all' && `All Friends — ${props.allFriends.length}`}
                       {props.homeTab === 'pending' && `Pending — ${props.friendRequests.length}`}
                     </div>
-
                     <div className="space-y-2">
                       {props.homeTab === 'pending' && props.friendRequests.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 opacity-50"><Bell size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">No pending friend requests.</p></div>
@@ -150,7 +151,6 @@ export default function ChatArea(props) {
                           </div>
                         </div>
                       ))}
-
                       {(props.homeTab === 'online' || props.homeTab === 'all') && (props.homeTab === 'all' ? props.allFriends : props.onlineFriends).length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 opacity-50"><Users size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">It's quiet in here.</p></div>
                       )}
@@ -161,17 +161,16 @@ export default function ChatArea(props) {
                             <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => props.selectDm(dm)}>
                               <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={props.onlineUsersSet.has(dm.profiles.id)} className="w-10 h-10" />
                               <div>
-                                <div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles.unique_tag}</span></div>
+                                <div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles?.unique_tag}</span></div>
                                 <div className="text-xs text-gray-400">{props.onlineUsersSet.has(dm.profiles.id) ? 'Online' : 'Offline'}</div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center gap-2 opacity-100 transition-opacity">
                               <button className="p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-[var(--bg-element)] text-gray-300 transition-colors" onClick={(e) => { e.stopPropagation(); props.selectDm(dm); }}><MessageSquare size={18} /></button>
-                              <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dm.dm_room_id}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'opacity-100 bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
+                              <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dm.dm_room_id}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
                                 <MoreVertical size={18} />
                               </button>
                             </div>
-
                             {isMenuOpen && (
                               <>
                                 <div className="fixed inset-0 z-[60]" onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); }}></div>
@@ -191,7 +190,6 @@ export default function ChatArea(props) {
                   </div>
                 )}
               </div>
-
               <div className="w-80 border-l border-[var(--border-subtle)] hidden xl:flex flex-col bg-[var(--bg-base)] shrink-0" key="active-now-panel">
                 <div className="p-6 pb-4 shrink-0">
                   <h2 className="text-lg font-bold text-[var(--text-main)] font-display">Active Now</h2>
@@ -225,18 +223,14 @@ export default function ChatArea(props) {
                     <Loader2 className="animate-spin text-[var(--theme-base)]" size={24} />
                   </div>
                 )}
-
                 {props.visibleMessages.length === 0 && (props.activeChannel || props.activeDm) && !props.isLoadingMore && (
                   <div className="flex flex-col justify-end h-full min-h-[300px] max-w-2xl pb-10">
                     <h3 className="font-headline text-3xl font-bold tracking-tight mb-2 text-[var(--text-main)]">Welcome to {props.view === 'home' ? 'the beginning' : `#${props.activeChannel?.name}`}</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
                   </div>
                 )}
-
-                {/* 🚀 THE ULTIMATE SHIELD: Pre-filters the array before rendering */}
                 {props.visibleMessages.filter(m => {
                     const text = String(m.content || '');
-                    // Annihilates any literal DB string containing "Encrypted Message"
                     return !text.includes('Encrypted Message');
                 }).map((m, index) => {
                   const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}-${crypto.randomUUID()}`;
@@ -244,16 +238,13 @@ export default function ChatArea(props) {
                   if (isMessageBlocked) return (
                     <div key={uniqueKey} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                   )
-
                   const showHeader = index === 0 || props.visibleMessages[index - 1].profile_id !== m.profile_id || new Date(m.created_at) - new Date(props.visibleMessages[index - 1].created_at) > 300000;
                   const isDM = props.view === 'home';
                   const isMe = m.profile_id === props.session.user.id;
                   const alignRight = isDM && isMe;
                   const isEditing = props.editingMessageId === m.id;
                   const isHighlighted = props.highlightedMessageId === m.id;
-                  
                   const repliedMsg = m.reply_to_message_id ? props.validMessages.find(msg => msg.id === m.reply_to_message_id) : null;
-                  
                   return (
                     <MemoizedMessage 
                       key={uniqueKey}
@@ -283,14 +274,12 @@ export default function ChatArea(props) {
                 })}
                 <div ref={props.messagesEndRef} className="h-4" />
               </div>
-
               {props.isBlocked ? (
                 <div className="p-4 mx-4 md:mx-6 mb-4 md:mb-6 text-center text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl font-bold text-sm shadow-inner z-10 relative">
                   You cannot reply to a blocked conversation. Unblock the user to send messages.
                 </div>
               ) : (
-                <div className="p-4 md:p-6 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
-                  
+                <div className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
                   {props.typingUsers.length > 0 && (
                     <div className="absolute -top-5 left-6 flex items-center gap-2 text-[11px] font-bold text-[var(--theme-base)] animate-fade-in pointer-events-none z-20">
                       <div className="flex items-center gap-1 px-1">
@@ -301,7 +290,6 @@ export default function ChatArea(props) {
                       <span>{props.typingUsers.length === 1 ? `${props.typingUsers[0].username} is typing...` : `${props.typingUsers.length} people are typing...`}</span>
                     </div>
                   )}
-
                   {props.replyingTo && (
                     <div className="bg-[var(--theme-20)] backdrop-blur-md border-l-4 border-[var(--theme-base)] px-4 py-2 mb-2 mx-2 rounded-r-xl flex items-center justify-between text-sm animate-fade-in shadow-sm">
                       <div className="flex items-center gap-2 min-w-0">
@@ -311,7 +299,6 @@ export default function ChatArea(props) {
                       <button onClick={() => props.setReplyingTo(null)} className="text-gray-400 hover:text-[var(--text-main)] ml-2 p-1 rounded-md hover:bg-white/10 transition-colors cursor-pointer shrink-0"><X size={14}/></button>
                     </div>
                   )}
-
                   {props.pendingFile && (
                     <div className="mx-2 mb-3 p-3 bg-[var(--bg-surface)] border border-[var(--theme-base)] rounded-2xl flex items-center gap-4 animate-slide-up shadow-2xl relative">
                       <div className="w-16 h-16 rounded-xl overflow-hidden border border-white/10">
@@ -324,10 +311,8 @@ export default function ChatArea(props) {
                       <button onClick={() => props.setPendingFile(null)} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors"><X size={18}/></button>
                     </div>
                   )}
-
-                  <form onSubmit={props.handleSendMessage} className="bg-[var(--bg-surface)] rounded-2xl ghost-border flex items-end gap-1 md:gap-2 p-1.5 md:p-2 focus-within:border-[var(--theme-50)] shadow-inner transition-colors relative">
-                    
-                    <div ref={gifPickerRef}>
+                  <form onSubmit={props.handleSendMessage} className="bg-[var(--bg-surface)] rounded-3xl border border-[var(--border-subtle)] flex items-center gap-2 p-1.5 focus-within:border-[var(--theme-50)] focus-within:shadow-[0_0_15px_var(--theme-10)] shadow-sm transition-all relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
+                    <div ref={gifPickerRef} onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}>
                       {props.showGifPicker && (
                         <GifPickerPopout 
                           onSelectGif={props.handleSendGif} 
@@ -335,65 +320,84 @@ export default function ChatArea(props) {
                         />
                       )}
                     </div>
-
-                    <div ref={emojiPickerRef} className="relative">
-                      {showInputEmojiPicker && (
-                        <div className="absolute bottom-full left-0 mb-4 z-50 shadow-2xl rounded-xl overflow-hidden border border-[var(--border-subtle)]">
-                          <EmojiPicker 
-                            theme="dark" 
-                            emojiStyle="native"
-                            lazyLoadEmojis={true}
-                            width={320}
-                            height={380}
-                            previewConfig={{showPreview: false}}
-                            onEmojiClick={handleEmojiSelect} 
-                          />
+                    <div ref={attachMenuRef} className="relative shrink-0 flex items-center justify-center w-[44px] h-[44px]">
+                      {showAttachMenu && (
+                        <div className="absolute bottom-full left-0 mb-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-2xl z-50 flex flex-col p-1.5 animate-slide-up origin-bottom-left min-w-[160px]" onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}>
+                          <button type="button" onClick={() => { props.fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                            <ImagePlus size={18} className="text-indigo-400" /> Upload Image
+                          </button>
+                          <button type="button" onClick={() => { props.genericFileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                            <Paperclip size={18} className="text-green-400" /> Upload File
+                          </button>
+                          <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
+                          <button type="button" onClick={(e) => { setShowAttachMenu(false); toggleGifPicker(e); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                            <div className="bg-pink-500/20 text-pink-400 rounded p-0.5 text-[10px] font-black">GIF</div> Send a GIF
+                          </button>
                         </div>
                       )}
-                      <button type="button" onClick={toggleEmojiPicker} disabled={props.isUploading} className={`p-2.5 md:p-3 font-bold text-sm rounded-xl transition-colors shrink-0 disabled:opacity-50 cursor-pointer ${showInputEmojiPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-base)]'}`} title="Insert Emoji">
-                        <SmilePlus size={20} aria-hidden="true" />
+                      <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (document.activeElement) document.activeElement.blur(); setShowAttachMenu(!showAttachMenu); }} disabled={props.isUploading} className="w-full h-full flex items-center justify-center rounded-full transition-all cursor-pointer bg-[var(--bg-element)] hover:bg-[var(--theme-20)] text-gray-400 hover:text-[var(--theme-base)]">
+                        {props.isUploading ? <Loader2 className="animate-spin text-[var(--text-main)]" size={20} /> : <Plus size={22} className="transition-transform duration-200" />}
                       </button>
                     </div>
-
                     <input type="file" accept="image/*" ref={props.fileInputRef} onChange={props.handleFileUpload} className="hidden" />
                     <input type="file" ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} className="hidden" />
-                    
-                    <button type="button" onClick={() => props.fileInputRef.current?.click()} disabled={props.isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Upload Image">
-                      {props.isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <ImagePlus size={20} aria-hidden="true" />}
-                    </button>
-
-                    <button type="button" onClick={() => props.genericFileInputRef.current?.click()} disabled={props.isUploading} className="p-2.5 md:p-3 text-gray-500 hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--bg-base)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer" title="Upload File">
-                      {props.isUploading ? <Loader2 className="animate-spin text-[var(--theme-base)]" size={20} /> : <Paperclip size={20} aria-hidden="true" />}
-                    </button>
-
-                    <button 
-                      type="button" 
-                      onClick={toggleGifPicker} 
-                      disabled={props.isUploading} 
-                      className={`p-2.5 md:p-3 font-bold text-sm rounded-xl transition-colors shrink-0 disabled:opacity-50 cursor-pointer ${props.showGifPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-base)]'}`} 
-                      title="Send GIF"
-                    >
-                      GIF
-                    </button>
-
-                    <textarea 
-                      ref={props.messageInputRef}
-                      onFocus={() => { setShowInputEmojiPicker(false); props.setShowGifPicker(false); }}
-                      onPaste={props.handlePaste}
-                      className="flex-1 bg-transparent border-none outline-none text-[var(--text-main)] resize-none py-2.5 md:py-3 custom-scrollbar text-[14px] md:text-[15px] font-body min-w-0 placeholder:text-gray-600" 
-                      placeholder={props.pendingFile ? "Add a caption..." : `Message ${props.view === 'home' ? '@' + props.activeDm?.profiles?.username : '#' + props.activeChannel?.name}`} 
-                      onChange={props.handleTyping} 
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) { 
-                          e.preventDefault(); 
-                          props.handleSendMessage(e); 
-                        }
-                      }} 
-                      rows={1} 
-                      style={{ minHeight: '44px', maxHeight: '200px' }} 
-                    />
-                    <button type="submit" disabled={props.isUploading} className="p-2.5 md:p-3 text-[var(--theme-base)] hover:text-[var(--theme-base)] rounded-xl hover:bg-[var(--theme-10)] transition-colors shrink-0 disabled:opacity-50 cursor-pointer">
-                      <Send size={20} aria-hidden="true" />
+                    <div className="flex-1 flex items-center bg-[var(--bg-element)] rounded-[22px] relative min-w-0 border border-transparent min-h-[44px]">
+                      <textarea 
+                        ref={props.messageInputRef}
+                        onFocus={() => { 
+                          setShowInputEmojiPicker(false); 
+                          props.setShowGifPicker(false); 
+                          setShowAttachMenu(false); 
+                          setTimeout(() => { if (props.scrollContainerRef?.current) { props.scrollContainerRef.current.scrollTop = props.scrollContainerRef.current.scrollHeight; } }, 300);
+                        }}
+                        onPaste={props.handlePaste}
+                        className="flex-1 bg-transparent border-none outline-none text-[var(--text-main)] resize-none py-2.5 px-4 custom-scrollbar text-[14px] md:text-[15px] font-body min-w-0 placeholder:text-gray-500" 
+                        placeholder={props.pendingFile ? "Add a caption..." : `Message ${props.view === 'home' ? '@' + props.activeDm?.profiles?.username : '#' + props.activeChannel?.name}`} 
+                        onChange={props.handleTyping} 
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) { 
+                            e.preventDefault(); 
+                            props.handleSendMessage(e); 
+                          }
+                        }} 
+                        rows={1} 
+                        style={{ minHeight: '44px', maxHeight: '200px' }} 
+                      />
+                      <div ref={emojiPickerRef} className="flex items-center justify-center h-[44px] w-[44px] shrink-0">
+                        {showInputEmojiPicker && (
+                          <div 
+                            className="fixed bottom-20 right-2 sm:absolute sm:bottom-full sm:right-0 md:right-4 sm:mb-2 z-[100] shadow-2xl rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+                            onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}
+                            onMouseDown={(e) => { e.preventDefault(); }}
+                          >
+                            <EmojiPicker 
+                              theme={document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'}
+                              emojiStyle="native"
+                              lazyLoadEmojis={true}
+                              width={typeof window !== 'undefined' && window.innerWidth < 360 ? Math.min(window.innerWidth - 16, 320) : 320}
+                              height={380}
+                              searchDisabled={true}
+                              autoFocusSearch={false}
+                              previewConfig={{showPreview: false}}
+                              onEmojiClick={handleEmojiSelect} 
+                            />
+                          </div>
+                        )}
+                        <button 
+                          type="button" 
+                          onClick={toggleEmojiPicker} 
+                          onTouchStartCapture={(e) => { e.preventDefault(); if (document.activeElement) document.activeElement.blur(); toggleEmojiPicker(e); }} 
+                          onMouseDown={(e) => { e.preventDefault(); }} 
+                          disabled={props.isUploading} 
+                          className={`w-[36px] h-[36px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-surface)]'}`} 
+                          title="Insert Emoji"
+                        >
+                          <SmilePlus size={20} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                    <button type="submit" disabled={props.isUploading} className="w-[44px] h-[44px] flex items-center justify-center rounded-full bg-[var(--theme-base)] text-white hover:brightness-110 shadow-lg shadow-[var(--theme-50)] transition-all shrink-0 disabled:opacity-50 cursor-pointer">
+                      <Send size={18} className="translate-x-[-1px] translate-y-[1px]" aria-hidden="true" />
                     </button>
                   </form>
                 </div>

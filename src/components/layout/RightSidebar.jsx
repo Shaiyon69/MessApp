@@ -1,5 +1,5 @@
 import React from 'react'
-import { X, Search, ImagePlus, EyeOff, Ban, Trash2 } from 'lucide-react'
+import { X, Search, ImagePlus, EyeOff, Ban, Trash2, Palette, Shield, UserX, AlertTriangle, VolumeX } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 
 export default function RightSidebar({
@@ -26,11 +26,9 @@ export default function RightSidebar({
 
   return (
     <>
-      {/* 🚀 The Glassmorphic Backdrop: Closes the sidebar if you click outside of it */}
       <div className="fixed inset-0 z-40 bg-black/10 backdrop-blur-[2px] animate-fade-in cursor-pointer" onClick={closeRightSidebar}></div>
       
-      {/* 🚀 The Floating Drawer: Changed from md:relative to absolute fixed overlay */}
-      <aside className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] md:w-96 md:max-w-none bg-[var(--bg-surface)] border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_50px_rgba(0,0,0,0.5)] animate-slide-right pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)]" style={scopedChatStyle}>
+      <aside className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] md:w-96 md:max-w-none bg-[var(--bg-surface)] border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_50px_rgba(0,0,0,0.5)] animate-slide-right" style={scopedChatStyle}>
         
         {rightTab === 'info' && (
           <div className="flex flex-col h-full overflow-hidden relative">
