@@ -1,5 +1,5 @@
 import React from 'react'
-import { Minimize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff } from 'lucide-react'
+import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff } from 'lucide-react'
 import { StatusAvatar } from './MessageElements'
 
 export default function CallOverlay({
@@ -15,7 +15,7 @@ export default function CallOverlay({
   // 🚀 ISLAND DOCKED UI (MINIMIZED)
   if (callMinimized) {
     return (
-      <div className="mx-0 md:mx-2 mb-3 bg-[#111214]/90 backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl p-2.5 flex items-center justify-between shadow-2xl animate-fade-in z-40">
+      <div className="absolute bottom-20 left-4 right-4 bg-[#111214]/90 backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl p-3 flex items-center justify-between shadow-2xl animate-fade-in z-40">
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
         <div className="flex items-center gap-3 px-2 min-w-0">
           <div className="relative shrink-0">

@@ -16,16 +16,17 @@ export default function ChatArea(props) {
   const attachMenuRef = useRef(null);
 
   const toggleEmojiPicker = (e) => {
-    e.preventDefault();
     e.stopPropagation();
-    if (document.activeElement) document.activeElement.blur();
+    // Dismiss keyboard on mobile
+    if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') {
+      document.activeElement.blur();
+    }
     props.setShowGifPicker(false);
     setShowAttachMenu(false);
     setShowInputEmojiPicker(prev => !prev);
   };
 
   const toggleGifPicker = (e) => {
-    e.preventDefault();
     e.stopPropagation();
     if (document.activeElement) document.activeElement.blur();
     setShowInputEmojiPicker(false);
@@ -155,9 +156,10 @@ export default function ChatArea(props) {
                         <div className="flex flex-col items-center justify-center py-12 opacity-50"><Users size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">It's quiet in here.</p></div>
                       )}
                       {(props.homeTab === 'online' || props.homeTab === 'all') && (props.homeTab === 'all' ? props.allFriends : props.onlineFriends).map((dm, i) => {
-                        const isMenuOpen = props.dmActionMenuId === `main-${dm.dm_room_id}`;
+                        const dmKey = dm.dm_room_id || `friend-${dm.profiles?.id || i}`;
+                        const isMenuOpen = props.dmActionMenuId === `main-${dmKey}`;
                         return (
-                          <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="relative flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
+                          <div key={`dm-list-${dmKey}`} className="relative flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
                             <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => props.selectDm(dm)}>
                               <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={props.onlineUsersSet.has(dm.profiles.id)} className="w-10 h-10" />
                               <div>
@@ -167,7 +169,7 @@ export default function ChatArea(props) {
                             </div>
                             <div className="flex items-center gap-2 opacity-100 transition-opacity">
                               <button className="p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-[var(--bg-element)] text-gray-300 transition-colors" onClick={(e) => { e.stopPropagation(); props.selectDm(dm); }}><MessageSquare size={18} /></button>
-                              <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dm.dm_room_id}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
+                              <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dmKey}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
                                 <MoreVertical size={18} />
                               </button>
                             </div>
@@ -179,7 +181,9 @@ export default function ChatArea(props) {
                                   <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.restrictedUsersSet.has(dm.profiles.id) ? 'unrestrict' : 'restrict', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors">{props.restrictedUsersSet.has(dm.profiles.id) ? 'Unrestrict' : 'Mute (Restrict)'}</button>
                                   <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.blockedUsersSet.has(dm.profiles.id) ? 'unblock' : 'block', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">{props.blockedUsersSet.has(dm.profiles.id) ? 'Unblock' : 'Block User'}</button>
                                   <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
-                                  <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: 'delete_dm', profile: dm.profiles, dm_room_id: dm.dm_room_id }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-between group"><span>Delete Chat</span><Trash2 size={14} className="opacity-50 group-hover:opacity-100"/></button>
+                                  {dm.dm_room_id && (
+                                    <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: 'delete_dm', profile: dm.profiles, dm_room_id: dm.dm_room_id }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-between group"><span>Delete Chat</span><Trash2 size={14} className="opacity-50 group-hover:opacity-100"/></button>
+                                  )}
                                 </div>
                               </>
                             )}
@@ -386,8 +390,6 @@ export default function ChatArea(props) {
                         <button 
                           type="button" 
                           onClick={toggleEmojiPicker} 
-                          onTouchStartCapture={(e) => { e.preventDefault(); if (document.activeElement) document.activeElement.blur(); toggleEmojiPicker(e); }} 
-                          onMouseDown={(e) => { e.preventDefault(); }} 
                           disabled={props.isUploading} 
                           className={`w-[36px] h-[36px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'text-gray-500 hover:text-[var(--theme-base)] hover:bg-[var(--bg-surface)]'}`} 
                           title="Insert Emoji"

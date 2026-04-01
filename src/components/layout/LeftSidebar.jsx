@@ -1,10 +1,12 @@
-import React from 'react'
-import { Home, Plus, Compass, Search, Edit3, Copy, LogOut, Settings, MoreVertical, MessageSquare, Trash2, Ban, EyeOff } from 'lucide-react'
+import React, { useState } from 'react'
+import { Home, Plus, Compass, Search, Edit3, Copy, LogOut, Settings, MoreVertical, MessageSquare, Trash2, Ban, EyeOff, HelpCircle } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { supabase } from '../../supabaseClient'
 import toast from 'react-hot-toast'
+import Help from '../Help'
 
 export default function LeftSidebar(props) {
+  const [showHelp, setShowHelp] = useState(false)
   return (
     <>
       {props.mobileMenuOpen && (
@@ -58,13 +60,14 @@ export default function LeftSidebar(props) {
                   <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3 block px-2">Direct Messages</span>
                   <div className="space-y-1">
                     {props.dms.map((dm, i) => {
+                      const dmKey = dm.dm_room_id || `friend-${dm.profiles?.id || i}`;
                       const isActive = props.activeDm?.dm_room_id === dm.dm_room_id && props.view === 'home';
                       const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
                       const isOnline = props.onlineUsersSet.has(dm.profiles.id);
-                      const isMenuOpen = props.dmActionMenuId === `sidebar-${dm.dm_room_id}`;
+                      const isMenuOpen = props.dmActionMenuId === `sidebar-${dmKey}`;
 
                       return (
-                        <div key={`dm-list-${dm.dm_room_id || i}`} className="relative group flex items-center mb-1">
+                        <div key={`dm-list-${dmKey}`} className="relative group flex items-center mb-1">
                           <button onClick={() => { props.setView('home'); props.selectDm(dm); }} className={`flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] border-[var(--border-subtle)] shadow-inner' : 'hover:bg-[var(--bg-base)] text-gray-400 hover:text-[var(--text-main)] border-transparent'}`}>
                             <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={isOnline} className="w-8 h-8" />
                             <div className="flex-1 min-w-0 text-left pr-6">
@@ -73,7 +76,7 @@ export default function LeftSidebar(props) {
                           </button>
                           
                           <button 
-                            onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `sidebar-${dm.dm_room_id}`); }}
+                            onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `sidebar-${dmKey}`); }}
                             className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors focus-visible:opacity-100 opacity-100`}
                           >
                             <MoreVertical size={16} />
@@ -87,7 +90,9 @@ export default function LeftSidebar(props) {
                                 <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.restrictedUsersSet.has(dm.profiles.id) ? 'unrestrict' : 'restrict', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors">{props.restrictedUsersSet.has(dm.profiles.id) ? 'Unrestrict' : 'Mute (Restrict)'}</button>
                                 <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.blockedUsersSet.has(dm.profiles.id) ? 'unblock' : 'block', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">{props.blockedUsersSet.has(dm.profiles.id) ? 'Unblock' : 'Block User'}</button>
                                 <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
-                                <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: 'delete_dm', profile: dm.profiles, dm_room_id: dm.dm_room_id }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-between group"><span>Delete Chat</span><Trash2 size={14} className="opacity-50 group-hover:opacity-100"/></button>
+                                {dm.dm_room_id && (
+                                  <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: 'delete_dm', profile: dm.profiles, dm_room_id: dm.dm_room_id }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-between group"><span>Delete Chat</span><Trash2 size={14} className="opacity-50 group-hover:opacity-100"/></button>
+                                )}
                               </div>
                             </>
                           )}
@@ -152,9 +157,15 @@ export default function LeftSidebar(props) {
             <button onClick={() => { props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: true }); props.setMobileMenuOpen(false); }} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Application Settings" title="App Settings">
               <Settings size={18} aria-hidden="true" />
             </button>
+            
+            <button onClick={() => setShowHelp(true)} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Help and Support" title="Help & Support">
+              <HelpCircle size={18} aria-hidden="true" />
+            </button>
           </div>
         </aside>
       </div>
+      
+      {showHelp && <Help onClose={() => setShowHelp(false)} />}
     </>
   )
 }

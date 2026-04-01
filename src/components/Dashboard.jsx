@@ -7,9 +7,13 @@ import { Search, X, Download, Shield, Key } from 'lucide-react'
 import { audioSys } from '../lib/SoundEngine'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
+import { useServerManager } from '../hooks/useServerManager'
+import { useMessageReactions } from '../hooks/useMessageReactions'
+import { usePWA } from '../hooks/usePWA'
 
 import CallOverlay from './chat/CallOverlay'
 import LeftSidebar from './layout/LeftSidebar'
+import ServerSidebar from './layout/ServerSidebar'
 import RightSidebar from './layout/RightSidebar'
 import ChatArea from './layout/ChatArea'
 
@@ -54,6 +58,9 @@ export default function Dashboard({ session }) {
   const [restrictedUsers, setRestrictedUsers] = useState(() => {
     try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch(e) { return [] }
   })
+  const [deletedConversations, setDeletedConversations] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`deleted_conversations_${session.user.id}`)) || [] } catch (e) { return [] }
+  })
   const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [rightTab, setRightTab] = useState('search')
   const [searchQuery, setSearchQuery] = useState('')
@@ -90,41 +97,14 @@ export default function Dashboard({ session }) {
 
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms)
   const webRTCProps = useWebRTC(session, activeDm)
+  const serverManagerProps = useServerManager(session)
+  const messageReactionsProps = useMessageReactions(session)
+  const pwaProps = usePWA()
 
   const stateRef = useRef({});
   const lastHomeClickRef = useRef(0);
   const acceptingRefs = useRef(new Set());
   const exitTimerRef = useRef(null);
-
-  // MOBILE AUDIO UNLOCKER: Forces hardware to initialize on first screen tap so pop sounds work.
-  useEffect(() => {
-    const unlockAudio = () => {
-      try {
-        const silent = new Audio("data:audio/mp3;base64,//MkxAA");
-        silent.play().catch(()=>{});
-
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          const ctx = new AudioContext();
-          const buffer = ctx.createBuffer(1, 1, 22050);
-          const source = ctx.createBufferSource();
-          source.buffer = buffer;
-          source.connect(ctx.destination);
-          source.start(0);
-          ctx.resume();
-        }
-      } catch(e) {}
-      document.removeEventListener('touchstart', unlockAudio, true);
-      document.removeEventListener('click', unlockAudio, true);
-    };
-    
-    document.addEventListener('touchstart', unlockAudio, { once: true, capture: true });
-    document.addEventListener('click', unlockAudio, { once: true, capture: true });
-    return () => {
-      document.removeEventListener('touchstart', unlockAudio, true);
-      document.removeEventListener('click', unlockAudio, true);
-    }
-  }, []);
 
   useEffect(() => {
     stateRef.current = { 
@@ -204,13 +184,52 @@ export default function Dashboard({ session }) {
   }, []);
 
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
+  useEffect(() => { localStorage.setItem(`deleted_conversations_${session.user.id}`, JSON.stringify(deletedConversations)) }, [deletedConversations, session.user.id])
 
-  const selectDm = useCallback((dm) => {
-    setActiveDm(dm)
-    setMobileMenuOpen(false)
-    if (dm) localStorage.setItem(`last_dm_${session.user.id}`, dm.dm_room_id)
-    else localStorage.removeItem(`last_dm_${session.user.id}`)
+  const createFreshDmRoom = useCallback(async (profile) => {
+    try {
+      const { data: newRoom, error: roomError } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
+      if (roomError || !newRoom) throw roomError || new Error('Failed to create room')
+      const { error: membersError } = await supabase.from('dm_members').insert([
+        { dm_room_id: newRoom.id, profile_id: session.user.id },
+        { dm_room_id: newRoom.id, profile_id: profile.id }
+      ])
+      if (membersError) throw membersError
+      return {
+        dm_room_id: newRoom.id,
+        dm_rooms: { theme_color: null, wallpaper: null },
+        profiles: profile
+      }
+    } catch (_err) {
+      toast.error('Failed to start a new conversation')
+      return null
+    }
   }, [session.user.id])
+
+  const selectDm = useCallback(async (dm) => {
+    if (!dm) {
+      setActiveDm(null)
+      setMobileMenuOpen(false)
+      localStorage.removeItem(`last_dm_${session.user.id}`)
+      return
+    }
+
+    let nextDm = dm
+    if (!dm.dm_room_id && dm.profiles?.id) {
+      const createdDm = await createFreshDmRoom(dm.profiles)
+      if (!createdDm) return
+      setDms(prev => {
+        const filtered = prev.filter(item => item.profiles?.id !== dm.profiles.id)
+        return [...filtered, createdDm]
+      })
+      nextDm = createdDm
+    }
+
+    setActiveDm(nextDm)
+    setMobileMenuOpen(false)
+    if (nextDm.dm_room_id) localStorage.setItem(`last_dm_${session.user.id}`, nextDm.dm_room_id)
+    else localStorage.removeItem(`last_dm_${session.user.id}`)
+  }, [createFreshDmRoom, session.user.id])
 
   useEffect(() => {
     if (!session?.user?.id) return; 
@@ -431,21 +450,22 @@ export default function Dashboard({ session }) {
         toast.success(`Unrestricted ${profile.username}`); 
       }
       else if (type === 'delete_dm') {
-        const { error } = await supabase.from('dm_rooms').delete().eq('id', confirmAction.dm_room_id);
-        if (error) throw error;
-        
-        await supabase.from('friendships').delete().or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${profile.id}),and(sender_id.eq.${profile.id},receiver_id.eq.${session.user.id})`);
-        
-        setDms(prev => prev.filter(dm => dm.dm_room_id !== confirmAction.dm_room_id));
-        if (activeDm?.dm_room_id === confirmAction.dm_room_id) {
-          setActiveDm(null);
-          setView('home');
-          setShowRightSidebar(false);
+        const roomId = confirmAction.dm_room_id;
+        if (roomId) {
+          setDeletedConversations(prev => prev.includes(roomId) ? prev : [...prev, roomId]);
+          localStorage.removeItem(`local_chat_${roomId}`);
+          if (activeDm?.dm_room_id === roomId) {
+            setActiveDm(null);
+            setView('home');
+            setShowRightSidebar(false);
+            localStorage.removeItem(`last_dm_${session.user.id}`);
+          }
+          await fetchDms();
         }
-        toast.success("Conversation and friend link permanently deleted");
+        toast.success("Conversation deleted for you");
       }
     } catch (_err) {
-      toast.error("Failed to update user status or delete chat")
+      toast.error("Failed to update user status or chat")
     }
     setConfirmAction(null);
   }
@@ -457,14 +477,53 @@ export default function Dashboard({ session }) {
 
   const fetchDms = async () => {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
-    if (!myRooms || myRooms.length === 0) { setDms([]); return }
-    const roomIds = myRooms.map(r => r.dm_room_id)
-    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
-      
-    if (otherMembers) {
-      const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
-      setDms(uniqueDms)
+    const roomIds = (myRooms || []).map(r => r.dm_room_id)
+
+    let existingDms = []
+    if (roomIds.length > 0) {
+      const { data: otherMembers } = await supabase
+        .from('dm_members')
+        .select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)')
+        .in('dm_room_id', roomIds)
+        .neq('profile_id', session.user.id)
+      existingDms = (otherMembers || []).filter(item => !deletedConversations.includes(item.dm_room_id))
     }
+
+    const [sentRes, receivedRes] = await Promise.all([
+      supabase
+        .from('friendships')
+        .select('receiver_id, profiles!fk_receiver(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)')
+        .eq('sender_id', session.user.id)
+        .eq('status', 'accepted'),
+      supabase
+        .from('friendships')
+        .select('sender_id, profiles!fk_sender(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)')
+        .eq('receiver_id', session.user.id)
+        .eq('status', 'accepted')
+    ])
+
+    const friendProfiles = [
+      ...((sentRes.data || []).map(row => row.profiles).filter(Boolean)),
+      ...((receivedRes.data || []).map(row => row.profiles).filter(Boolean))
+    ]
+
+    const existingByProfileId = new Map(
+      existingDms
+        .filter(item => item?.profiles?.id)
+        .map(item => [item.profiles.id, item])
+    )
+
+    const mergedFriends = Array.from(
+      new Map(friendProfiles.map(profile => [profile.id, profile])).values()
+    ).map(profile => (
+      existingByProfileId.get(profile.id) || {
+        dm_room_id: null,
+        dm_rooms: { theme_color: null, wallpaper: null },
+        profiles: profile
+      }
+    ))
+
+    setDms(mergedFriends)
   }
 
   useEffect(() => {
@@ -683,7 +742,7 @@ export default function Dashboard({ session }) {
               {confirmAction.type === 'unblock' && "They will be able to message you again."}
               {confirmAction.type === 'restrict' && "We'll move the chat out of your main list."}
               {confirmAction.type === 'unrestrict' && "This chat will return to your main list."}
-              {confirmAction.type === 'delete_dm' && "This will permanently vaporize all messages in this chat for both users. This action cannot be undone."}
+              {confirmAction.type === 'delete_dm' && "This removes this conversation and its messages only for you. Your friend keeps their full history, and messaging again starts a new chat."}
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmAction(null)} className="flex-1 py-3 rounded-xl font-bold text-gray-300 hover:text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-all focus-visible:ring-2 focus-visible:ring-white cursor-pointer">Cancel</button>

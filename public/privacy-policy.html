@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MessApp Privacy Policy</title>
+    <style>
+        :root {
+            --bg-base: #121417;
+            --bg-surface: #1a1c24;
+            --bg-element: #25262b;
+            --text-main: #ffffff;
+            --text-secondary: #b4b4b4;
+            --text-muted: #6b7280;
+            --border-subtle: #374151;
+            --border-medium: #4b5563;
+            --theme-base: #6366f1;
+            --theme-hover: #7c3aed;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-main);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #6366f1, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+        
+        .section {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .section h2 {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: var(--text-main);
+        }
+        
+        .section h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 1.5rem 0 0.5rem 0;
+            color: var(--text-main);
+        }
+        
+        .section p {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+        
+        .section ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .section li {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+        
+        .section li:before {
+            content: "•";
+            color: var(--theme-base);
+            position: absolute;
+            left: 0;
+        }
+        
+        .highlight {
+            background: var(--bg-element);
+            border-left: 4px solid var(--theme-base);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0.5rem;
+        }
+        
+        .contact-info {
+            background: linear-gradient(135deg, var(--theme-base), var(--theme-hover));
+            color: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            text-align: center;
+            margin-top: 2rem;
+        }
+        
+        .contact-info h3 {
+            color: white;
+            margin-bottom: 1rem;
+        }
+        
+        .contact-info p {
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 0.5rem;
+        }
+        
+        .back-button {
+            display: inline-block;
+            background: var(--theme-base);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            font-weight: 500;
+            margin-bottom: 2rem;
+            transition: background-color 0.2s;
+        }
+        
+        .back-button:hover {
+            background: var(--theme-hover);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .section {
+                padding: 1.5rem;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="javascript:history.back()" class="back-button">← Back to App</a>
+        
+        <div class="header">
+            <h1>MessApp Privacy Policy</h1>
+            <p><strong>Last Updated:</strong> April 1, 2026 | <strong>Effective Date:</strong> April 1, 2026</p>
+        </div>
+
+        <div class="section">
+            <h2>Introduction</h2>
+            <p>MessApp is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and protect your information when you use our encrypted messaging application.</p>
+        </div>
+
+        <div class="section">
+            <h2>Information We Collect</h2>
+            
+            <h3>1. Account Information</h3>
+            <ul>
+                <li><strong>Email Address:</strong> Required for authentication and account recovery</li>
+                <li><strong>Username:</strong> Display name within the app</li>
+                <li><strong>Profile Picture:</strong> Optional avatar for identification</li>
+                <li><strong>Bio/Status:</strong> Optional personal information</li>
+            </ul>
+
+            <h3>2. Content Data</h3>
+            <ul>
+                <li><strong>Messages:</strong> End-to-end encrypted messages that we cannot read</li>
+                <li><strong>Media Files:</strong> Images and files you share (encrypted)</li>
+                <li><strong>Reactions:</strong> Emoji reactions to messages</li>
+            </ul>
+
+            <h3>3. Technical Data</h3>
+            <ul>
+                <li><strong>Device Information:</strong> Operating system, device type</li>
+                <li><strong>Usage Analytics:</strong> App performance metrics, crash reports</li>
+                <li><strong>Authentication Tokens:</strong> Secure session management</li>
+            </ul>
+
+            <h3>4. Encryption Keys</h3>
+            <ul>
+                <li><strong>Public Keys:</strong> Stored securely for message encryption</li>
+                <li><strong>Private Keys:</strong> Encrypted and stored locally with your PIN</li>
+                <li><strong>Backup Keys:</strong> Optional cloud backup (encrypted with PIN)</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>How We Use Your Information</h2>
+            
+            <h3>1. Core Functionality</h3>
+            <ul>
+                <li><strong>Message Delivery:</strong> Route encrypted messages between users</li>
+                <li><strong>Authentication:</strong> Verify your identity and secure your account</li>
+                <li><strong>Encryption:</strong> Manage public/private key pairs for E2EE</li>
+            </ul>
+
+            <h3>2. App Improvement</h3>
+            <ul>
+                <li><strong>Crash Reports:</strong> Automatically report app crashes to improve stability</li>
+                <li><strong>Performance Metrics:</strong> Monitor app performance and optimize experience</li>
+                <li><strong>Usage Analytics:</strong> Understand feature usage to improve the app</li>
+            </ul>
+
+            <h3>3. Support</h3>
+            <ul>
+                <li><strong>Customer Support:</strong> Respond to your questions and issues</li>
+                <li><strong>Account Recovery:</strong> Help you recover your account if needed</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>Data Security</h2>
+            
+            <div class="highlight">
+                <h3>End-to-End Encryption (E2EE)</h3>
+                <p>All messages are encrypted using AES-GCM-256. Keys are derived using ECDH P-256 curve. We cannot access your message content. Private keys are encrypted with your PIN.</p>
+            </div>
+
+            <h3>Storage Security</h3>
+            <ul>
+                <li>Private keys stored locally with PBKDF2 encryption</li>
+                <li>Optional cloud backup encrypted with your PIN</li>
+                <li>Public keys stored securely for key exchange</li>
+                <li>Database access is restricted and monitored</li>
+            </ul>
+
+            <h3>Transmission Security</h3>
+            <ul>
+                <li>All communications use HTTPS/TLS</li>
+                <li>Real-time connections use secure WebSocket (WSS)</li>
+                <li>API endpoints require authentication</li>
+                <li>Regular security audits and updates</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>Data We Don't Collect</h2>
+            <div class="highlight">
+                <p><strong>We are committed to zero-access encryption. This means:</strong></p>
+                <ul>
+                    <li>We cannot read your encrypted messages</li>
+                    <li>We don't track you for advertising purposes</li>
+                    <li>We don't collect location data</li>
+                    <li>We don't access your contact lists</li>
+                    <li>We don't store call logs or voice data</li>
+                    <li>We don't collect financial information</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Third-Party Services</h2>
+            
+            <h3>Supabase (Database & Authentication)</h3>
+            <ul>
+                <li>Provides secure database and authentication services</li>
+                <li>Stores encrypted metadata and public keys</li>
+                <li>Processes authentication requests</li>
+                <li><a href="https://supabase.com/privacy" target="_blank" style="color: var(--theme-base);">Privacy Policy</a></li>
+            </ul>
+
+            <h3>Firebase (Push Notifications & Analytics)</h3>
+            <ul>
+                <li>Sends push notifications for new messages</li>
+                <li>Collects anonymous crash reports and performance data</li>
+                <li><a href="https://firebase.google.com/privacy" target="_blank" style="color: var(--theme-base);">Privacy Policy</a></li>
+            </ul>
+
+            <h3>Google Play Services (Android)</h3>
+            <ul>
+                <li>Required for push notifications and app functionality</li>
+                <li>Minimal data collection for essential services</li>
+                <li><a href="https://policies.google.com/privacy" target="_blank" style="color: var(--theme-base);">Privacy Policy</a></li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>Your Rights</h2>
+            
+            <h3>1. Access and Portability</h3>
+            <ul>
+                <li>Download your account data</li>
+                <li>Export your messages (decrypted with your keys)</li>
+                <li>Transfer your data to other services</li>
+            </ul>
+
+            <h3>2. Correction and Deletion</h3>
+            <ul>
+                <li>Update your profile information</li>
+                <li>Delete your account and all associated data</li>
+                <li>Request correction of inaccurate information</li>
+            </ul>
+
+            <h3>3. Control and Consent</h3>
+            <ul>
+                <li>Grant or revoke permissions</li>
+                <li>Opt-out of analytics (limited functionality)</li>
+                <li>Manage notification preferences</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>Data Retention</h2>
+            <ul>
+                <li><strong>Account Data:</strong> Retained until account deletion</li>
+                <li><strong>Messages:</strong> Retained until you delete them</li>
+                <li><strong>Analytics Data:</strong> Retained for 26 months</li>
+                <li><strong>Crash Reports:</strong> Retained for 12 months</li>
+                <li><strong>Backup Keys:</strong> Retained until account deletion</li>
+            </ul>
+        </div>
+
+        <div class="contact-info">
+            <h3>Contact Information</h3>
+            <p>For privacy-related questions or concerns:</p>
+            <p><strong>Email:</strong> <a href="mailto:privacy@messapp.com" style="color: white;">privacy@messapp.com</a></p>
+            <p><strong>Website:</strong> <a href="https://messapp.com/privacy" target="_blank" style="color: white;">messapp.com/privacy</a></p>
+            <p><strong>Support:</strong> <a href="mailto:support@messapp.com" style="color: white;">support@messapp.com</a></p>
+        </div>
+    </div>
+</body>
+</html>

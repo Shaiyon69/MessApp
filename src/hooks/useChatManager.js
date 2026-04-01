@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
 import imageCompression from 'browser-image-compression'
@@ -108,13 +108,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         
         if (targetPubStr) {
            const pubJwk = JSON.parse(targetPubStr);
-           try { keys.main = await deriveSharedAesKey(mainImpPriv, { ...pubJwk, ext: true }); } catch(e){}
+           try { keys.main = await deriveSharedAesKey(mainImpPriv, { ...pubJwk, ext: true }); } catch(_e){}
         }
         
         try {
             const selfPubJwk = { kty: privJwk.kty, crv: privJwk.crv, x: privJwk.x, y: privJwk.y, ext: true };
             keys.legacy.push(await deriveSharedAesKey(mainImpPriv, selfPubJwk));
-        } catch(e){}
+        } catch(_e){}
       }
 
       const legacyKeysStr = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`);
@@ -125,21 +125,21 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             const impL = await importPrivateKey({ ...ljwk, ext: true });
             if (targetPubStr) {
                const pubJwk = JSON.parse(targetPubStr);
-               try { keys.legacy.push(await deriveSharedAesKey(impL, { ...pubJwk, ext: true })); } catch(e){}
+               try { keys.legacy.push(await deriveSharedAesKey(impL, { ...pubJwk, ext: true })); } catch(_e){}
             }
             
             try {
                 const legacyPubJwk = { kty: ljwk.kty, crv: ljwk.crv, x: ljwk.x, y: ljwk.y, ext: true };
                 keys.legacy.push(await deriveSharedAesKey(impL, legacyPubJwk));
                 if (mainImpPriv) keys.legacy.push(await deriveSharedAesKey(mainImpPriv, legacyPubJwk));
-            } catch(e){}
-          } catch(e) {}
+            } catch(_e){}
+          } catch(_e) {}
         }
       }
       
       sharedKeysCacheRef.current[targetId] = keys;
       return keys;
-    } catch (e) {
+    } catch (_e) {
       return null;
     }
   }, [activeDm, dms, session.user.id]);
@@ -169,7 +169,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         }
       }
       return JSON.stringify(encrypted);
-    } catch (e) {
+    } catch (_e) {
       return content;
     }
   };
@@ -207,7 +207,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
                         unlocked = true;
                         break;
                     }
-                 } catch(e) {}
+                 } catch(_e) {}
               }
             }
 
@@ -218,7 +218,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
                     decryptedContent = attempt; 
                     unlocked = true; 
                 }
-              } catch(e) {}
+              } catch(_e) {}
             }
             if (!unlocked && sharedKeys?.legacy) {
               for (const lKey of sharedKeys.legacy) {
@@ -229,7 +229,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
                       unlocked = true; 
                       break; 
                   }
-                } catch(e) {}
+                } catch(_e) {}
               }
             }
 
@@ -246,7 +246,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
                return { ...msg, content: '', is_unreadable: true };
             }
           }
-        } catch (e) {
+        } catch (_e) {
           if (msg.image_url || msg.file_url) {
              const cleanedMsg = { ...msg, content: '' };
              delete cleanedMsg.is_unreadable;

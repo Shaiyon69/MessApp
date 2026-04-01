@@ -122,7 +122,7 @@ The application is highly modularized to handle complex state and real-time even
 * **Dashboard Interface:** The primary command center driving the chat UI, real-time subscriptions, and message history (`Dashboard.jsx`).
 * **Modular Interface System:** Dedicated modal components for managing Server creation, Channel configurations, and User preferences.
 
-For a deeper dive into the data flow, database schema blueprint, and development architecture, please refer to our [System Documentation](./SYSTEM_DOCUMENTATION.md).
+For a deeper dive into the data flow, database schema blueprint, and development architecture, please refer to our [System Documentation](./docs/SYSTEM_DOCUMENTATION.md).
 
 ---
 

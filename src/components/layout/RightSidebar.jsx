@@ -94,10 +94,14 @@ export default function RightSidebar({
                 <button onClick={() => setConfirmAction({ type: blockedUsersSet.has(activeDm.profiles.id) ? 'unblock' : 'block', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
                   <Ban size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">{blockedUsersSet.has(activeDm.profiles.id) ? `Unblock ${activeDm.profiles.username}` : `Block ${activeDm.profiles.username}`}</span>
                 </button>
-                <div className="h-[1px] bg-[var(--border-subtle)]/50 mx-4"></div>
-                <button onClick={() => setConfirmAction({ type: 'delete_dm', profile: activeDm.profiles, dm_room_id: activeDm.dm_room_id })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
-                  <Trash2 size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">Delete Conversation</span>
-                </button>
+                {activeDm.dm_room_id && (
+                  <>
+                    <div className="h-[1px] bg-[var(--border-subtle)]/50 mx-4"></div>
+                    <button onClick={() => setConfirmAction({ type: 'delete_dm', profile: activeDm.profiles, dm_room_id: activeDm.dm_room_id })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
+                      <Trash2 size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">Delete Conversation</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

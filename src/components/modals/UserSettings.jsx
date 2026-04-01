@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
-import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
+import About from '../About'
+
+const isTauriDesktop = () =>
+  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 const BANNER_OPTIONS = [
   { id: 'indigo', value: 'linear-gradient(to right, #4f46e5, #9333ea)' },
@@ -18,15 +22,16 @@ const ToggleSwitch = ({ label, description, checked, onChange }) => (
   <div className="flex items-center justify-between p-4 bg-[var(--bg-element)] rounded-xl ghost-border mb-4 shadow-sm">
     <div className="pr-4">
       <h5 className="text-[var(--text-main)] font-bold text-sm md:text-base">{label}</h5>
-      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{description}</p>
+      <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{description}</p>
     </div>
-    <button type="button" onClick={() => onChange(!checked)} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer ${checked ? 'bg-indigo-500' : 'bg-gray-600'}`}>
+    <button type="button" onClick={() => onChange(!checked)} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer ${checked ? 'bg-indigo-500' : 'bg-[var(--border-subtle)]'}`}>
       <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
   </div>
 )
 
-export default function UserSettingsModal({ session, settingsConfig, setSettingsConfig, onClose }) {
+export default function UserSettings({ session, settingsConfig, setSettingsConfig, onClose }) {
+  const [showAbout, setShowAbout] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -166,6 +171,25 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           toast.error("Native push requires Firebase config.");
         }
 
+      } else if (isTauriDesktop()) {
+        try {
+          const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
+          let granted = await isPermissionGranted()
+          if (!granted) {
+            const permission = await requestPermission()
+            granted = permission === 'granted'
+          }
+
+          if (!granted) {
+            return toast.error('Desktop notification permission denied by system settings.')
+          }
+
+          setDesktopNotifs(true)
+          localStorage.setItem('notificationsEnabled', 'true')
+          toast.success('Desktop notifications enabled!')
+        } catch (_tauriErr) {
+          toast.error('Desktop notification API unavailable on this build.')
+        }
       } else {
         if (!("Notification" in window)) return toast.error("This browser does not support notifications.");
         if (Notification.permission === "granted") {
@@ -271,7 +295,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const keysToKeep = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled' || key === 'notificationsEnabled')) {
+        if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled' || key === 'notificationsEnabled' || key === 'messapp_onboarding_complete')) {
           keysToKeep[key] = localStorage.getItem(key);
         }
       }
@@ -335,7 +359,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               <LogOut size={32} className="text-red-400" />
             </div>
             <h3 className="text-xl font-bold text-[var(--text-main)] mb-2">Ready to leave?</h3>
-            <p className="text-gray-400 text-sm mb-8">Are you sure you want to log out of MessApp?</p>
+            <p className="text-[var(--text-secondary)] text-sm mb-8">Are you sure you want to log out of MessApp?</p>
             <div className="flex flex-col gap-3">
               <button onClick={handleLogout} className="w-full h-14 md:h-12 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-500/20 cursor-pointer text-base md:text-sm">Yes, Log Out</button>
               <button onClick={() => setShowLogoutConfirm(false)} className="w-full h-14 md:h-12 bg-[var(--bg-element)] hover:bg-[var(--border-subtle)] text-[var(--text-main)] rounded-xl font-bold transition-all cursor-pointer border border-[var(--border-subtle)] text-base md:text-sm">Cancel</button>
@@ -351,7 +375,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               <AlertTriangle size={32} className="text-red-500" />
             </div>
             <h3 className="text-xl font-bold text-[var(--text-main)] mb-2">Delete Account?</h3>
-            <p className="text-gray-400 text-sm mb-6">This action is <span className="text-red-400 font-bold">permanent</span> and cannot be undone. All data will be wiped.</p>
+            <p className="text-[var(--text-secondary)] text-sm mb-6">This action is <span className="text-red-400 font-bold">permanent</span> and cannot be undone. All data will be wiped.</p>
             <div className="flex flex-col gap-3">
               <button onClick={handleDeleteAccount} disabled={isDeleting} className="w-full h-14 md:h-12 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-500/20 cursor-pointer text-base md:text-sm flex items-center justify-center disabled:opacity-50">
                 {isDeleting ? <Loader2 className="animate-spin" size={20} /> : 'Permanently Delete'}
@@ -367,18 +391,18 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
         <aside className={`${settingsConfig.showMenu ? 'flex' : 'hidden'} md:flex w-full md:w-64 bg-[var(--bg-base)] md:bg-[var(--bg-surface)] border-r border-[var(--border-subtle)] flex-col shrink-0 z-20 h-full`}>
           <div className="flex md:hidden items-center justify-between w-full px-6 h-16 bg-[var(--bg-base)] border-b border-[var(--border-subtle)] shrink-0 sticky top-0">
              <h3 className="text-xl font-bold text-[var(--text-main)] tracking-tight">Settings</h3>
-             <button onClick={onClose} className="p-2 bg-[var(--bg-element)] rounded-full text-gray-400 hover:text-[var(--text-main)] transition-colors cursor-pointer"><X size={24} /></button>
+             <button onClick={onClose} className="p-2 bg-[var(--bg-element)] rounded-full text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer"><X size={24} /></button>
           </div>
 
-          <h3 className="hidden md:block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 px-3 pt-8">User Settings</h3>
+          <h3 className="hidden md:block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-2 px-3 pt-8">User Settings</h3>
           
           <div className="flex flex-col p-4 md:p-0 gap-4 md:gap-1 flex-1 overflow-y-auto">
             <div className="bg-[var(--bg-element)] md:bg-transparent rounded-2xl md:rounded-none border border-[var(--border-subtle)] md:border-none overflow-hidden shadow-sm md:shadow-none">
               {TABS.map((tab, index) => (
                 <div key={tab.id}>
-                  <button onClick={() => { setSettingsConfig(prev => ({ ...prev, tab: tab.id, showMenu: false })); }} className={`w-full flex items-center justify-between md:justify-start gap-2 md:gap-3 px-5 md:px-3 h-16 md:h-10 font-medium text-base md:text-sm transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 outline-none cursor-pointer ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'md:bg-[var(--bg-element)] md:text-[var(--text-main)] text-[var(--theme-base)] md:shadow-sm' : 'text-[var(--text-main)] md:text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] bg-transparent'}`}>
-                    <div className="flex items-center gap-3"><tab.icon size={20} className={`md:w-[18px] md:h-[18px] ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--theme-base)] md:text-[var(--text-main)]' : 'text-gray-500'}`} /> <span className={settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--text-main)]' : 'md:text-gray-400 md:hover:text-[var(--text-main)] transition-colors'}>{tab.label}</span></div>
-                    <ChevronRight size={20} className="md:hidden text-gray-500" />
+                  <button onClick={() => { setSettingsConfig(prev => ({ ...prev, tab: tab.id, showMenu: false })); }} className={`w-full flex items-center justify-between md:justify-start gap-2 md:gap-3 px-5 md:px-3 h-16 md:h-10 font-medium text-base md:text-sm transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 outline-none cursor-pointer ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'md:bg-[var(--bg-element)] md:text-[var(--text-main)] text-[var(--theme-base)] md:shadow-sm' : 'text-[var(--text-main)] md:text-[var(--text-secondary)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] bg-transparent'}`}>
+                    <div className="flex items-center gap-3"><tab.icon size={20} className={`md:w-[18px] md:h-[18px] ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--theme-base)] md:text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`} /> <span className={settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--text-main)]' : 'md:text-[var(--text-secondary)] md:hover:text-[var(--text-main)] transition-colors'}>{tab.label}</span></div>
+                    <ChevronRight size={20} className="md:hidden text-[var(--text-muted)]" />
                   </button>
                   {index < TABS.length - 1 && <div className="h-[1px] bg-[var(--border-subtle)] md:hidden mx-5"></div>}
                 </div>
@@ -400,8 +424,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           </div>
 
           <div className="hidden md:flex absolute top-10 right-10 flex-col items-center gap-1 group z-50">
-            <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-full border-2 border-gray-600 text-gray-400 group-hover:text-[var(--text-main)] group-hover:bg-[var(--bg-element)] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"><X size={18} aria-hidden="true" /></button>
-            <span className="text-[10px] font-bold text-gray-600 uppercase">ESC</span>
+            <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-full border-2 border-[var(--border-subtle)] text-[var(--text-muted)] group-hover:text-[var(--text-main)] group-hover:bg-[var(--bg-element)] transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"><X size={18} aria-hidden="true" /></button>
+            <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase">ESC</span>
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar relative p-4 sm:p-8 md:p-14 pb-32 md:pb-14">
@@ -416,7 +440,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                     <div className="px-5 md:px-6 pb-6 relative flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
                       <div className="relative group cursor-pointer shrink-0 -mt-12 sm:-mt-14 z-10 w-fit">
                         <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full bg-[var(--bg-base)] flex items-center justify-center border-4 border-[var(--bg-element)] shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden">
-                          {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <User size={48} className="text-gray-500" aria-hidden="true" />}
+                          {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <User size={48} className="text-[var(--text-muted)]" aria-hidden="true" />}
                         </div>
                         <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border-4 border-transparent">
                           <Upload size={18} className="mb-1 text-white" />
@@ -426,15 +450,15 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       </div>
                       <div className="flex flex-col flex-1 pb-1">
                         <h4 className="text-xl sm:text-2xl font-bold text-[var(--text-main)] leading-tight">{username}</h4>
-                        <p className="text-sm text-gray-500 font-medium">{fullTag}</p>
+                        <p className="text-sm text-[var(--text-secondary)] font-medium">{fullTag}</p>
                       </div>
                     </div>
                   </div>
 
                   <form onSubmit={updateProfileDetails} className="bg-[var(--bg-element)] p-5 sm:p-6 rounded-2xl ghost-border space-y-6 shadow-sm">
-                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3"><Edit2 size={16} /> Public Profile</h4>
+                    <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3"><Edit2 size={16} /> Public Profile</h4>
                     <div>
-                      <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 mb-3 block">Banner Color</label>
+                      <label className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest ml-1 mb-3 block">Banner Color</label>
                       <div className="flex flex-wrap gap-3">
                         {BANNER_OPTIONS.map(b => (
                           <button type="button" key={b.id} onClick={() => setBannerUrl(b.value)} className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-transform cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${bannerUrl === b.value ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.3)]' : 'border-transparent hover:scale-105'}`} style={{ background: b.value }} title={`Select ${b.id} banner`} />
@@ -443,16 +467,16 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 mb-2 block">Display Name</label>
+                        <label className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest ml-1 mb-2 block">Display Name</label>
                         <input className="w-full px-4 h-14 md:h-12 bg-[var(--bg-base)] rounded-xl ghost-border focus:border-indigo-500 outline-none transition-all text-[var(--text-main)] font-medium shadow-inner text-[16px] md:text-sm" type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 mb-2 block">Pronouns</label>
+                        <label className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest ml-1 mb-2 block">Pronouns</label>
                         <input className="w-full px-4 h-14 md:h-12 bg-[var(--bg-base)] rounded-xl ghost-border focus:border-indigo-500 outline-none transition-all text-[var(--text-main)] font-medium shadow-inner text-[16px] md:text-sm" type="text" placeholder="e.g. they/them" value={pronouns} onChange={(e) => setPronouns(e.target.value)} />
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 mb-2 block">About Me</label>
+                      <label className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest ml-1 mb-2 block">About Me</label>
                       <textarea className="w-full px-4 py-4 md:py-3 min-h-[100px] bg-[var(--bg-base)] rounded-xl ghost-border focus:border-indigo-500 outline-none transition-all text-[var(--text-main)] font-medium shadow-inner resize-none custom-scrollbar text-[16px] md:text-sm" rows={3} placeholder="Write a little bit about yourself..." value={bio} onChange={(e) => setBio(e.target.value)} />
                     </div>
                     <div className="flex justify-end pt-2">
@@ -464,12 +488,12 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
                   <div className="bg-[var(--bg-element)] rounded-2xl ghost-border overflow-hidden shadow-sm">
                     <div className="p-5 sm:p-6 border-b border-[var(--border-subtle)]">
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><User size={16} /> Account Information</h4>
+                      <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest flex items-center gap-2"><User size={16} /> Account Information</h4>
                     </div>
                     <div className="p-5 sm:p-6 space-y-6">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
-                          <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1">Account ID</span>
+                          <span className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest block mb-1">Account ID</span>
                           <div className="text-[var(--text-main)] font-mono bg-[var(--bg-base)] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] inline-block">{fullTag}</div>
                         </div>
                         <button type="button" onClick={copyTag} className="bg-[var(--bg-surface)] hover:bg-[var(--border-subtle)] text-[var(--text-main)] px-4 h-14 md:h-10 rounded-xl md:rounded-lg font-medium transition-colors cursor-pointer border border-[var(--border-subtle)] flex items-center justify-center gap-2 w-full sm:w-auto text-base md:text-sm">
@@ -479,9 +503,9 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <div className="h-[1px] bg-[var(--border-subtle)] w-full"></div>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex items-start gap-3 w-full sm:w-auto">
-                          <Mail className="text-gray-500 mt-0.5 hidden sm:block" size={20} />
+                          <Mail className="text-[var(--text-muted)] mt-0.5 hidden sm:block" size={20} />
                           <div className="flex-1">
-                            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Email Address</span>
+                            <span className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest block mb-0.5">Email Address</span>
                             {isEditingEmail ? (
                               <input type="email" autoFocus value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="w-full bg-[var(--bg-base)] text-[var(--text-main)] px-4 h-14 md:h-10 rounded-xl md:rounded-lg border border-indigo-500 outline-none text-[16px] md:text-sm mt-2 md:mt-0" />
                             ) : (
@@ -502,10 +526,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
                   <div className="bg-[var(--bg-element)] rounded-2xl ghost-border overflow-hidden shadow-sm">
                     <div className="p-5 sm:p-6 border-b border-[var(--border-subtle)]">
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Shield size={16} /> Password Reset</h4>
+                      <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest flex items-center gap-2"><Shield size={16} /> Password Reset</h4>
                     </div>
                     <div className="p-5 sm:p-6 space-y-4">
-                      <p className="text-sm text-gray-400 mb-4">Need a new password? We'll send a secure reset link to your registered email address.</p>
+                      <p className="text-sm text-[var(--text-secondary)] mb-4">Need a new password? We'll send a secure reset link to your registered email address.</p>
                       <button type="button" onClick={handlePasswordReset} disabled={loading || resetCooldown > 0} className="w-full bg-[var(--bg-base)] hover:bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-main)] h-16 md:h-14 px-4 rounded-xl flex items-center justify-between transition-colors cursor-pointer group disabled:opacity-50">
                         <div className="flex items-center gap-3">
                           <Key size={20} className="text-indigo-400" /> 
@@ -513,7 +537,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                             {resetCooldown > 0 ? `Wait ${resetCooldown}s to send again` : 'Send Reset Link'}
                           </span>
                         </div>
-                        {loading ? <Loader2 size={18} className="animate-spin text-gray-400" /> : <span className="text-xs text-gray-500 group-hover:text-[var(--text-main)] transition-colors hidden sm:block">Click to Send</span>}
+                        {loading ? <Loader2 size={18} className="animate-spin text-[var(--text-muted)]" /> : <span className="text-xs text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors hidden sm:block">Click to Send</span>}
                       </button>
                     </div>
                   </div>
@@ -524,7 +548,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
                           <h5 className="text-[var(--text-main)] font-bold mb-0.5 text-base md:text-sm">Disable Account</h5>
-                          <p className="text-xs text-gray-500">Temporarily hide your profile and messages.</p>
+                          <p className="text-xs text-[var(--text-muted)]">Temporarily hide your profile and messages.</p>
                         </div>
                         <button type="button" onClick={handleDeactivate} className="w-full sm:w-auto bg-transparent border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 h-14 md:h-10 rounded-xl md:rounded-lg font-bold transition-all cursor-pointer text-base md:text-sm">Disable</button>
                       </div>
@@ -532,7 +556,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
                           <h5 className="text-[var(--text-main)] font-bold mb-0.5 text-base md:text-sm">Delete Account</h5>
-                          <p className="text-xs text-gray-500">Permanently erase your account and data.</p>
+                          <p className="text-xs text-[var(--text-muted)]">Permanently erase your account and data.</p>
                         </div>
                         <button type="button" onClick={() => setShowDeleteConfirm(true)} className="w-full sm:w-auto bg-red-500/10 border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white px-6 h-14 md:h-10 rounded-xl md:rounded-lg font-bold transition-all cursor-pointer text-base md:text-sm">Delete</button>
                       </div>
@@ -547,7 +571,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Privacy & Safety</h2>
                   
                   <div className="space-y-4">
-                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-6 mb-2">Interactions</h4>
+                    <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest mt-6 mb-2">Interactions</h4>
                     <ToggleSwitch 
                       label="Allow direct messages" 
                       description="Allow users who share a server with you to send direct messages." 
@@ -561,9 +585,9 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       onChange={(val) => handlePrivacyToggle('allow_friend_requests', val, setAllowFriendRequests)} 
                     />
 
-                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-8 mb-2">Blocked Users</h4>
+                    <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest mt-8 mb-2">Blocked Users</h4>
                     <div className="bg-[var(--bg-element)] rounded-2xl ghost-border overflow-hidden">
-                      {blockedProfiles.length === 0 ? <div className="p-6 text-center text-gray-500 text-sm">You haven't blocked anyone.</div> : (
+                      {blockedProfiles.length === 0 ? <div className="p-6 text-center text-[var(--text-muted)] text-sm">You haven't blocked anyone.</div> : (
                         blockedProfiles.map((profile, idx) => (
                           <div key={profile.id}>
                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:bg-[var(--bg-surface)] transition-colors gap-4">
@@ -571,7 +595,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                                 <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[var(--bg-base)] overflow-hidden border border-[var(--border-subtle)] shrink-0">
                                   {profile.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center font-bold text-[var(--text-main)] uppercase text-lg md:text-base">{profile.username[0]}</span>}
                                 </div>
-                                <div className="flex flex-col"><span className="text-[var(--text-main)] font-bold text-base md:text-sm">{profile.username}</span><span className="text-gray-500 text-sm md:text-xs font-mono">{profile.unique_tag}</span></div>
+                                <div className="flex flex-col"><span className="text-[var(--text-main)] font-bold text-base md:text-sm">{profile.username}</span><span className="text-[var(--text-muted)] text-sm md:text-xs font-mono">{profile.unique_tag}</span></div>
                               </div>
                               <button onClick={() => handleUnblock(profile.id)} className="bg-[var(--bg-base)] hover:bg-red-500/20 text-red-400 w-full sm:w-auto px-4 h-12 md:h-10 rounded-xl md:rounded-lg font-bold transition-colors cursor-pointer border border-[var(--border-subtle)] hover:border-red-500/30 text-base md:text-sm">Unblock</button>
                             </div>
@@ -581,9 +605,9 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       )}
                     </div>
 
-                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-8 mb-2 flex items-center gap-2">Muted Accounts</h4>
+                    <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest mt-8 mb-2 flex items-center gap-2">Muted Accounts</h4>
                     <div className="bg-[var(--bg-element)] rounded-2xl ghost-border overflow-hidden">
-                      {restrictedProfiles.length === 0 ? <div className="p-6 text-center text-gray-500 text-sm">You haven't restricted anyone. Muting hides their messages from your active list.</div> : (
+                      {restrictedProfiles.length === 0 ? <div className="p-6 text-center text-[var(--text-muted)] text-sm">You haven't restricted anyone. Muting hides their messages from your active list.</div> : (
                         restrictedProfiles.map((profile, idx) => (
                           <div key={profile.id}>
                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 hover:bg-[var(--bg-surface)] transition-colors gap-4">
@@ -591,9 +615,9 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                                 <div className="w-12 h-12 md:w-10 md:h-10 rounded-full bg-[var(--bg-base)] overflow-hidden border border-[var(--border-subtle)] shrink-0">
                                   {profile.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center font-bold text-[var(--text-main)] uppercase text-lg md:text-base">{profile.username[0]}</span>}
                                 </div>
-                                <div className="flex flex-col"><span className="text-[var(--text-main)] font-bold text-base md:text-sm">{profile.username}</span><span className="text-gray-500 text-sm md:text-xs font-mono">{profile.unique_tag}</span></div>
+                                <div className="flex flex-col"><span className="text-[var(--text-main)] font-bold text-base md:text-sm">{profile.username}</span><span className="text-[var(--text-muted)] text-sm md:text-xs font-mono">{profile.unique_tag}</span></div>
                               </div>
-                              <button onClick={() => handleUnrestrict(profile.id)} className="bg-[var(--bg-base)] hover:bg-[var(--bg-element)] text-gray-300 w-full sm:w-auto px-4 h-12 md:h-10 rounded-xl md:rounded-lg font-bold transition-colors cursor-pointer border border-[var(--border-subtle)] hover:border-gray-500 text-base md:text-sm">Unmute</button>
+                              <button onClick={() => handleUnrestrict(profile.id)} className="bg-[var(--bg-base)] hover:bg-[var(--bg-element)] text-[var(--text-secondary)] w-full sm:w-auto px-4 h-12 md:h-10 rounded-xl md:rounded-lg font-bold transition-colors cursor-pointer border border-[var(--border-subtle)] hover:border-[var(--border-subtle)] text-base md:text-sm">Unmute</button>
                             </div>
                             {idx < restrictedProfiles.length - 1 && <div className="h-[1px] bg-[var(--border-subtle)] mx-4"></div>}
                           </div>
@@ -615,7 +639,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       </div>
                       <div>
                         <h3 className="text-[var(--text-main)] font-bold text-lg">{hasSecureStorage ? 'E2EE Cloud Backup Enabled' : 'Enable E2EE Backup'}</h3>
-                        <p className="text-xs text-gray-400">{hasSecureStorage ? 'Your encryption keys are safely backed up.' : 'Securely back up your keys'}</p>
+                        <p className="text-xs text-[var(--text-muted)]">{hasSecureStorage ? 'Your encryption keys are safely backed up.' : 'Securely back up your keys'}</p>
                       </div>
                     </div>
                     
@@ -663,8 +687,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
                   {hasSecureStorage && (
                     <div className="bg-[var(--bg-element)] p-6 rounded-2xl ghost-border mt-6 shadow-sm">
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2"><History size={16} /> Restore Legacy Keys</h4>
-                      <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+                      <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3 flex items-center gap-2"><History size={16} /> Restore Legacy Keys</h4>
+                      <p className="text-sm text-[var(--text-muted)] mb-6 leading-relaxed">
                         If you skipped the PIN entry during login, you won't be able to read old messages. Enter your PIN here to fetch and restore your past encryption keys from the cloud.
                       </p>
                       <div className="flex flex-col md:flex-row gap-3">
@@ -729,10 +753,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Appearance</h2>
                   <div className="bg-[var(--bg-element)] p-5 sm:p-6 rounded-2xl ghost-border space-y-6 shadow-sm">
                     <div>
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">App Theme</h4>
+                      <h4 className="text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest mb-4">App Theme</h4>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         {['dark', 'midnight', 'light'].map(theme => (
-                          <button key={theme} onClick={() => setAppTheme(theme)} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-indigo-500 bg-indigo-500/10 shadow-md' : 'border-[var(--border-subtle)] hover:border-gray-500'}`}>
+                          <button key={theme} onClick={() => setAppTheme(theme)} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-indigo-500 bg-indigo-500/10 shadow-md' : 'border-[var(--border-subtle)] hover:border-[var(--border-subtle)]'}`}>
                             <div className={`w-full h-16 rounded-lg ghost-border ${theme === 'dark' ? 'bg-[#0d0f12]' : theme === 'midnight' ? 'bg-black' : 'bg-gray-200'}`}></div>
                             <span className="text-base md:text-sm font-bold capitalize text-[var(--text-main)]">{theme}</span>
                           </button>
@@ -761,7 +785,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                     <div className="p-5 sm:p-6 border-b border-[var(--border-subtle)]">
                       <h4 className="text-sm font-bold text-[var(--text-main)] uppercase tracking-widest">Terms of Service</h4>
                     </div>
-                    <div className="p-5 sm:p-6 text-gray-400 text-sm leading-relaxed space-y-4">
+                    <div className="p-5 sm:p-6 text-[var(--text-secondary)] text-sm leading-relaxed space-y-4">
                       <p>Welcome to MessApp. By utilizing our platform, you agree to comply with our core operational standards. MessApp is built as a secure, decentralized-friendly communication platform. You maintain sole responsibility for the activity originating from your cryptographic identity.</p>
                       <h5 className="text-[var(--text-main)] font-bold mt-4">Zero-Tolerance UGC Policy</h5>
                       <p>We maintain a strict zero-tolerance protocol regarding abusive content and harassment. You agree not to weaponize MessApp to transmit illicit, threatening, or rights-violating payloads.</p>
@@ -773,7 +797,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                     <div className="p-5 sm:p-6 border-b border-[var(--border-subtle)]">
                       <h4 className="text-sm font-bold text-[var(--text-main)] uppercase tracking-widest">Privacy Protocol</h4>
                     </div>
-                    <div className="p-5 sm:p-6 text-gray-400 text-sm leading-relaxed space-y-4">
+                    <div className="p-5 sm:p-6 text-[var(--text-secondary)] text-sm leading-relaxed space-y-4">
                       <p>Absolute privacy is the foundation of our architecture. MessApp deploys strictly implemented End-to-End Encryption (AES-GCM) across all direct communications. We physically lack the cryptographic keys required to decipher, read, or intercept your private data.</p>
                       <h5 className="text-[var(--text-main)] font-bold mt-4">Data Minimization</h5>
                       <p>We capture only the bare minimum telemetry required for network stability: your authentication email and explicit public profile variables. Encrypted payloads are routed through our servers strictly for delivery synchronization and are inaccessible to our infrastructure.</p>
@@ -781,8 +805,33 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <p>You wield complete authority over your footprint. You may execute localized message deletion, full conversation wiping, or total account eradication at will. Account deletion triggers an immediate cascade purge across our active server arrays.</p>
                     </div>
                   </div>
+
+                  <div className="bg-[var(--bg-element)] rounded-2xl ghost-border overflow-hidden shadow-sm">
+                    <div className="p-5 sm:p-6 border-b border-[var(--border-subtle)]">
+                      <h4 className="text-sm font-bold text-[var(--text-main)] uppercase tracking-widest">About MessApp</h4>
+                    </div>
+                    <div className="p-5 sm:p-6">
+                      <button 
+                        onClick={() => setShowAbout(true)}
+                        className="w-full flex items-center justify-between p-4 bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] rounded-xl transition-colors group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
+                            <Info className="w-6 h-6 text-white" />
+                          </div>
+                          <div className="text-left">
+                            <h5 className="text-[var(--text-main)] font-medium">App Information</h5>
+                            <p className="text-[var(--text-secondary)] text-sm">Version, features, and credits</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
+
+              {showAbout && <About onClose={() => setShowAbout(false)} />}
 
             </div>
           </div>

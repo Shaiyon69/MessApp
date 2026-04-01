@@ -11,22 +11,32 @@ export class SoundEngine {
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         }
         if (this.ctx.state === 'suspended') {
-          this.ctx.resume().catch(() => {}); 
+          this.ctx.resume().then(() => {
+            // Create a silent sound to fully unlock audio
+            const buffer = this.ctx.createBuffer(1, 1, 22050);
+            const source = this.ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.ctx.destination);
+            source.start(0);
+          }).catch(() => {}); 
+        } else {
+          // Create a silent sound to fully unlock audio
+          const buffer = this.ctx.createBuffer(1, 1, 22050);
+          const source = this.ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(this.ctx.destination);
+          source.start(0);
         }
-        
-        const buffer = this.ctx.createBuffer(1, 1, 22050);
-        const source = this.ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.ctx.destination);
-        source.start(0);
       } catch (e) {}
 
       document.removeEventListener('click', this.unlockHandler, true);
       document.removeEventListener('touchstart', this.unlockHandler, true);
+      document.removeEventListener('keydown', this.unlockHandler, true);
     };
     
     document.addEventListener('click', this.unlockHandler, { once: true, capture: true });
     document.addEventListener('touchstart', this.unlockHandler, { once: true, capture: true });
+    document.addEventListener('keydown', this.unlockHandler, { once: true, capture: true });
   }
 
   init() {

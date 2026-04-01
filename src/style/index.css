@@ -36,6 +36,11 @@
   --bg-element: #1c1e22;
   --border-subtle: #23252a;
   --text-main: #ffffff;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --theme-base: #6366f1;
+  --theme-10: rgba(99, 102, 241, 0.1);
+  --theme-20: rgba(99, 102, 241, 0.2);
 }
 
 [data-theme="midnight"] {
@@ -44,6 +49,11 @@
   --bg-element: #111111;
   --border-subtle: #1e1e1e;
   --text-main: #f8fafc;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --theme-base: #6366f1;
+  --theme-10: rgba(99, 102, 241, 0.1);
+  --theme-20: rgba(99, 102, 241, 0.2);
 }
 
 [data-theme="light"] {
@@ -51,7 +61,12 @@
   --bg-surface: #ffffff;
   --bg-element: #e5e7eb;
   --border-subtle: #d1d5db;
-  --text-main: #111827;
+  --text-main: #000000;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --theme-base: #6366f1;
+  --theme-10: rgba(99, 102, 241, 0.1);
+  --theme-20: rgba(99, 102, 241, 0.2);
 }
 
 /* LIGHT MODE TEXT CONTRAST OVERRIDES */

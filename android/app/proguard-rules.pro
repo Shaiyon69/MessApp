@@ -1,21 +1,47 @@
 # Add project specific ProGuard rules here.
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep Capacitor classes
+-keep class com.getcapacitor.** { *; }
+-keep class com.getcapacitor.plugin.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep WebView JavaScript interface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep React Native related classes (if any)
+-keep class com.facebook.react.** { *; }
+
+# Keep Supabase related classes
+-keep class io.supabase.** { *; }
+-keep class kotlin.** { *; }
+
+# Keep crypto related classes for E2EE
+-keep class javax.crypto.** { *; }
+-keep class java.security.** { *; }
+
+# Preserve line number information for debugging
+-keepattributes SourceFile,LineNumberTable
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
+
+# Hide original source file names
+-renamesourcefileattribute SourceFile
+
+# Keep model classes
+-keep class com.shaiyon.messapp.** { *; }
+
+# Keep Gson related classes
+-keepattributes Signature
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.gson.**
+
+# OkHttp and Retrofit
+-keep class okhttp3.** { *; }
+-keep class retrofit2.** { *; }
+-dontwarn okhttp3.**
+-dontwarn retrofit2.**
