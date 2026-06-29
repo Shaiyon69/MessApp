@@ -2,50 +2,47 @@ export class SoundEngine {
   constructor() {
     this.ctx = null;
     this.ringInterval = null;
-    this.hasInteracted = false; 
-    
-    this.unlockHandler = () => {
-      this.hasInteracted = true;
-      try {
-        if (!this.ctx) {
-          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (this.ctx.state === 'suspended') {
-          this.ctx.resume().catch(() => {}); 
-        }
-        
-        const buffer = this.ctx.createBuffer(1, 1, 22050);
-        const source = this.ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.ctx.destination);
-        source.start(0);
-      } catch (e) {}
+    this.hasInteracted = false;
+  }
 
-      document.removeEventListener('click', this.unlockHandler, true);
-      document.removeEventListener('touchstart', this.unlockHandler, true);
-    };
-    
-    document.addEventListener('click', this.unlockHandler, { once: true, capture: true });
-    document.addEventListener('touchstart', this.unlockHandler, { once: true, capture: true });
+  getContext() {
+    if (!this.hasInteracted) return null;
+    if (typeof window === 'undefined') return null;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!this.ctx) this.ctx = new AudioContextClass();
+    return this.ctx;
+  }
+
+  async unlock() {
+    this.hasInteracted = true;
+    try {
+      const ctx = this.getContext();
+      if (!ctx) return false;
+      if (ctx.state === 'suspended') void ctx.resume();
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+      return true;
+    } catch (_err) {
+      return false;
+    }
   }
 
   init() {
-    if (!this.hasInteracted) return false; 
     try {
-      if (!this.ctx) {
-        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {}); 
-      }
+      const ctx = this.getContext();
+      if (!ctx) return false;
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       return true;
-    } catch (e) {
+    } catch (_err) {
       return false;
     }
   }
 
   playPop() {
-    // 🚀 HARDWARE FIX: If the app is in the background or screen is off, DO NOT play the web audio pop.
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     
     if (!this.init()) return; 

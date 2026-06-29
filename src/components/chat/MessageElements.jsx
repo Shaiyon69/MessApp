@@ -3,80 +3,178 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, Download, FileText, SmilePlus, Pen, Trash2, X, Check } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react' 
+import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
+import StatusAvatar from '../ui/StatusAvatar'
 
-export const StatusAvatar = ({ url, username, isOnline, showStatus = true, className = "" }) => {
-  const maskId = `mask-${crypto.randomUUID()}`;
-  const center = 50;
-  const statusOffset = 85; 
-  const statusRadius = 14; 
-  const cutoutRadius = 19; 
-  const statusColor = isOnline ? '#23a559' : '#80848e';
+const trimUrlToken = (value) => value.replace(/[),.!?;:'"\]]+$/g, '')
 
-  return (
-    <div className={`relative shrink-0 flex items-center justify-center ${className}`}>
-      <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
-        <defs>
-          <mask id={maskId}>
-            <circle cx={center} cy={center} r={center} fill="white" />
-            {showStatus && <circle cx={statusOffset} cy={statusOffset} r={cutoutRadius} fill="black" />}
-          </mask>
-        </defs>
-        <g mask={`url(#${maskId})`}>
-          {url ? (
-            <image href={url} width="100" height="100" preserveAspectRatio="xMidYMid slice" decoding="async" />
-          ) : (
-            <>
-              <circle cx={center} cy={center} r={center} fill="var(--border-subtle)" />
-              <text x="50%" y="50%" textAnchor="middle" dy=".35em" fill="white" fontSize="45" fontWeight="bold" fontFamily="sans-serif">
-                {username?.[0]?.toUpperCase() || '?'}
-              </text>
-            </>
-          )}
-        </g>
-        {showStatus && (
-          <circle cx={statusOffset} cy={statusOffset} r={statusRadius} fill={statusColor} />
-        )}
-      </svg>
-    </div>
-  )
+const extractPreviewLinks = (content) => {
+  if (!content || typeof content !== 'string') return []
+  const matches = content.match(/https?:\/\/[^\s<>"`]+/g) || []
+  return matches
+    .map(raw => {
+      const trimmed = trimUrlToken(raw)
+      const url = safeHttpUrl(trimmed)
+      if (!url) return null
+      return { raw, url }
+    })
+    .filter(Boolean)
+}
+
+const uniquePreviewLinks = (links) => {
+  const seen = new Set()
+  return links
+    .filter(link => {
+      if (seen.has(link.url)) return false
+      seen.add(link.url)
+      return true
+    })
+    .slice(0, 3)
+}
+
+const stripPreviewLinks = (content, links) => {
+  if (!links.length) return content
+  return links
+    .reduce((text, link) => text.split(link.raw).join(''), content)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
+
+const safeDownloadUrl = (value) => {
+  const mediaUrl = safeMediaUrl(value, { allowDataImages: false })
+  if (mediaUrl) return mediaUrl
+  if (typeof value === 'string' && /^data:application\/octet-stream;base64,[a-z0-9+/=\s]+$/i.test(value.trim())) return value.trim()
+  return ''
+}
+
+const resolveAttachmentUrl = (attachment) => {
+  const value = attachment?.file_url || ''
+  return attachment?.file_type?.startsWith('image/')
+    ? safeMediaUrl(value) || ''
+    : safeDownloadUrl(value)
+}
+
+const getYouTubeEmbedUrl = (value) => {
+  try {
+    const parsed = new URL(value)
+    const hostname = parsed.hostname.replace(/^www\./, '')
+    let videoId = null
+
+    if (hostname === 'youtu.be') {
+      videoId = parsed.pathname.split('/').filter(Boolean)[0]
+    }
+
+    if (hostname === 'youtube.com' || hostname === 'm.youtube.com') {
+      if (parsed.pathname === '/watch') videoId = parsed.searchParams.get('v')
+      if (parsed.pathname.startsWith('/shorts/')) videoId = parsed.pathname.split('/').filter(Boolean)[1]
+      if (parsed.pathname.startsWith('/embed/')) videoId = parsed.pathname.split('/').filter(Boolean)[1]
+    }
+
+    if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return null
+    return `https://www.youtube-nocookie.com/embed/${videoId}`
+  } catch (_err) {
+    return null
+  }
 }
 
 export const LinkPreview = ({ url }) => {
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(true)
+  const safeUrl = useMemo(() => safeHttpUrl(url), [url])
+  const youtubeEmbedUrl = useMemo(() => safeUrl ? getYouTubeEmbedUrl(safeUrl) : null, [safeUrl])
+  const fallbackHost = useMemo(() => {
+    if (!safeUrl) return ''
+    try {
+      return new URL(safeUrl).hostname.replace(/^www\./, '')
+    } catch (_err) {
+      return safeUrl
+    }
+  }, [safeUrl])
 
   useEffect(() => {
+    if (!safeUrl) {
+      setLoading(false)
+      return
+    }
+
+    if (youtubeEmbedUrl) {
+      setPreview(null)
+      setLoading(false)
+      return
+    }
+
+    let active = true
+    setPreview(null)
+    setLoading(true)
+
     const fetchPreview = async () => {
       try {
-        const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`)
+        const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(safeUrl)}`)
         const { data } = await res.json()
-        if (data && data.title) setPreview(data)
+        if (active && data && data.title) setPreview(data)
       } catch (e) {
         console.error("Failed to fetch link preview", e)
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
     fetchPreview()
-  }, [url])
+    return () => {
+      active = false
+    }
+  }, [safeUrl, youtubeEmbedUrl])
 
-  if (loading || !preview) return null
+  if (!safeUrl) return null
+
+  if (youtubeEmbedUrl) {
+    return (
+      <div className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm">
+        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="w-[240px] sm:w-[320px] md:w-96 aspect-video border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen loading="lazy"></iframe>
+        <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block px-2 py-1 text-[11px] font-bold text-current hover:underline truncate">{fallbackHost || safeUrl}</a>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm no-underline">
+        <div className="px-2 py-1">
+          <div className="h-3 w-36 rounded bg-current/20 animate-pulse mb-2"></div>
+          <div className="h-2 w-48 max-w-full rounded bg-current/10 animate-pulse"></div>
+          <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold truncate">{fallbackHost || safeUrl}</div>
+        </div>
+      </a>
+    )
+  }
+
+  if (!preview) {
+    return (
+      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm cursor-pointer no-underline">
+        <div className="px-2 py-1">
+          <h4 className="text-[13px] font-bold text-current truncate mb-1">{fallbackHost || safeUrl}</h4>
+          <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed break-words">{safeUrl}</p>
+        </div>
+      </a>
+    )
+  }
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden bg-[var(--bg-element)] border border-[var(--border-subtle)] hover:border-indigo-500 transition-colors shadow-sm group cursor-pointer no-underline">
-      {preview.image?.url && (
-        <div className="w-full h-32 bg-[#0d0f12] overflow-hidden border-b border-[var(--border-subtle)]">
-          <img src={preview.image.url} alt="Preview" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" fetchPriority="low" />
+    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm group cursor-pointer no-underline">
+      {safeHttpUrl(preview.image?.url) && (
+        <div className="w-full h-32 overflow-hidden border-b border-current">
+          <img src={safeHttpUrl(preview.image.url)} alt="Preview" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" fetchPriority="low" />
         </div>
       )}
-      <div className="p-3">
-        <h4 className="text-[13px] font-bold text-[var(--text-main)] truncate mb-1">{preview.title}</h4>
-        <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed">{preview.description}</p>
-        <div className="text-[10px] text-indigo-400 mt-2 uppercase tracking-widest font-bold flex items-center gap-1.5">
-          {preview.logo?.url && <img src={preview.logo.url} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
-          <span className="truncate">{preview.publisher || new URL(url).hostname}</span>
+      <div className="px-2 py-1">
+        <h4 className="text-[13px] font-bold text-current truncate mb-1">{preview.title}</h4>
+        <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed">{preview.description}</p>
+        <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-1.5">
+          {safeHttpUrl(preview.logo?.url) && <img src={safeHttpUrl(preview.logo.url)} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
+          <span className="truncate">{preview.publisher || fallbackHost}</span>
         </div>
       </div>
     </a>
@@ -87,17 +185,29 @@ export const MemoizedMessage = React.memo(({
   m, isMe, showHeader, alignRight, isHighlighted, currentUserId,
   isEditing, editContent, setEditContent, handleUpdateMessage, setEditingMessageId,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
-  toggleReaction, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage
+  toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus
 }) => {
-  
-  if (m.is_unreadable || (typeof m.content === 'string' && m.content.includes('[Encrypted Message]'))) {
-    return null;
-  }
-
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMobileActions, setShowMobileActions] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const touchTimer = useRef(null)
+  const message = m
+  const { previewLinks, renderedContent } = useMemo(() => {
+    if (!m.content || m.is_deleted || typeof m.content !== 'string') {
+      return { previewLinks: [], renderedContent: typeof m.content === 'string' ? m.content : '' }
+    }
+    const links = extractPreviewLinks(m.content)
+    const previews = uniquePreviewLinks(links)
+    const previewUrls = new Set(previews.map(link => link.url))
+    return {
+      previewLinks: previews,
+      renderedContent: stripPreviewLinks(m.content, links.filter(link => previewUrls.has(link.url)))
+    }
+  }, [m.content, m.is_deleted])
+
+  if (m.is_unreadable || (typeof m.content === 'string' && m.content.includes('[Encrypted Message]'))) {
+    return null
+  }
 
   const handleTouchStart = () => {
     touchTimer.current = setTimeout(() => {
@@ -116,28 +226,31 @@ export const MemoizedMessage = React.memo(({
 
   const exactTime = new Date(m.created_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-  const extractedUrls = useMemo(() => {
-    if (!m.content || m.is_deleted || typeof m.content !== 'string') return null;
-    const urls = m.content.match(/https?:\/\/[^\s]+/g);
-    return urls ? Array.from(new Set(urls)).slice(0, 3) : null;
-  }, [m.content, m.is_deleted]);
-
-  const isEmojiOnly = typeof m.content === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(m.content.trim());
+  const visibleContent = renderedContent ?? (typeof m.content === 'string' ? m.content : '')
+  const isEmojiOnly = typeof visibleContent === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(visibleContent.trim());
+  const hasVisibleContent = typeof visibleContent === 'string' && visibleContent.trim() !== ''
+  const hasAttachments = message.message_attachments && message.message_attachments.length > 0
+  const bubbleStyle = {
+    backgroundColor: isMe ? 'var(--theme-base)' : 'var(--chat-bg-element,var(--bg-element))',
+    borderColor: isMe ? 'var(--theme-base)' : 'var(--chat-border,var(--border-subtle))',
+    color: isMe ? '#ffffff' : 'var(--chat-text,var(--text-main))'
+  }
+  const attachmentBorderStyle = { borderColor: 'var(--theme-base)' }
 
   return (
-    <div id={`message-${m.id}`} className={`flex gap-2.5 md:gap-3 transition-all duration-500 ${showHeader ? 'mt-4 md:mt-5' : 'mt-1'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse' : ''}`} onMouseLeave={() => { setShowReactionPicker(false); setShowMobileActions(false); }}>
+    <div id={`message-${m.id}`} className={`flex gap-2 transition-all duration-300 ease-out transform ${showHeader ? 'mt-2.5 md:mt-3' : 'mt-0.5'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse ml-6 sm:ml-12 md:ml-20' : 'mr-6 sm:mr-12 md:mr-20'}`} onMouseLeave={() => { setShowReactionPicker(false); setShowMobileActions(false); }}>
       
       {showHeader ? (
-        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} showStatus={false} className="h-8 w-8 md:h-10 md:w-10 mt-1 shadow-md ghost-border rounded-full shrink-0" />
+        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-9 w-9 mt-1 shadow-md ghost-border rounded-full shrink-0" />
       ) : (
-        <div className={`w-8 md:w-10 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 text-[10px] text-gray-500 font-medium select-none`}></div>
+        <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 text-[10px] text-gray-500 font-medium select-none`}></div>
       )}
       
       <div className={`flex flex-col w-full min-w-0 ${alignRight ? 'items-end' : ''}`}>
         
         {showHeader && (
-          <div className={`flex items-baseline gap-2 mb-0.5 ${alignRight ? 'flex-row-reverse' : ''}`}>
-            <span className={`text-[13px] md:text-[14px] font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--text-main)]'}`}>{m.profiles?.username}</span>
+        <div className={`flex items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
+            <span className={`text-[14px] md:text-[15px] font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
             <span className="text-[10px] text-gray-500 font-medium">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         )}
@@ -148,10 +261,10 @@ export const MemoizedMessage = React.memo(({
             <span className={`text-[10px] text-gray-500 mt-1.5 block ${alignRight ? 'text-right' : ''}`}>Press Enter to save, Esc to cancel</span>
           </form>
         ) : (
-          <div className={`flex items-start gap-2 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} mt-0.5 relative group/bubble`}>
+          <div className={`flex items-start gap-1.5 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} relative group/bubble`}>
             
             <div 
-              className={`flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[82vw] md:max-w-[65vw] shrink-0 min-w-0 cursor-pointer md:cursor-default`}
+              className={`flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[min(72vw,36rem)] sm:max-w-[min(68vw,38rem)] shrink-0 min-w-0 cursor-pointer md:cursor-default`}
               onTouchStart={handleTouchStart} 
               onTouchEnd={handleTouchEndOrMove} 
               onTouchMove={handleTouchEndOrMove} 
@@ -175,90 +288,83 @@ export const MemoizedMessage = React.memo(({
                 </div>
               ) : (
                 <>
-                  {typeof m.content === 'string' && m.content.trim() !== '' && (
-                    isEmojiOnly ? (
-                      <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
-                        {m.content.trim()}
+                  {hasVisibleContent && isEmojiOnly && !hasAttachments ? (
+                    <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
+                      {visibleContent.trim()}
+                    </div>
+                  ) : hasVisibleContent && (
+                    <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
+                      <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ inline, className, children, ...props}) {
+                              const match = /language-(\w+)/.exec(className || '')
+                              return !inline && match ? (
+                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
+                              ) : <code className="bg-[var(--surface-section)] text-[var(--theme-base)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-[var(--border-subtle)]" {...props}>{children}</code>
+                            },
+                            a({href, ...props}) {
+                              const safeHref = safeHttpUrl(href)
+                              if (!safeHref) return <span {...props} />
+                              return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" href={safeHref} {...props} />
+                            },
+                            img() { return null }
+                          }}
+                        >
+                          {visibleContent}
+                        </ReactMarkdown>
                       </div>
-                    ) : (
-                      <div className={`px-3 py-2 md:px-4 md:py-2.5 rounded-[20px] border w-fit max-w-full ${alignRight ? 'rounded-tr-none bg-[var(--theme-10)] border-[var(--theme-20)] text-[var(--text-main)]' : 'rounded-tl-none bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-main)]'} shadow-sm backdrop-blur-md text-left transition-transform active:scale-[0.98] md:active:scale-100 break-words`}>
-                        <div className="leading-relaxed markdown-body text-[14.5px] whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-3">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              code({ inline, className, children, ...props}) {
-                                const match = /language-(\w+)/.exec(className || '')
-                                return !inline && match ? (
-                                  <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                                ) : <code className="bg-black/50 text-[var(--theme-base)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-white/5" {...props}>{children}</code>
-                              },
-                              a({...props}) { return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" {...props} /> }
-                            }}
-                          >
-                            {m.content}
-                          </ReactMarkdown>
-                        </div>
-                      </div>
-                    )
+                    </div>
                   )}
 
-                  {extractedUrls && extractedUrls.map((url, i) => (
-                    <div key={`link-prev-${m.id}-${i}`} className={`mt-1 ${alignRight ? 'flex justify-end' : 'flex justify-start'}`}>
-                      <LinkPreview url={url} />
+                  {hasAttachments && (
+                    <div className={`flex flex-col gap-1 ${hasVisibleContent ? 'mt-1' : ''} w-full ${alignRight ? 'items-end' : 'items-start'}`}>
+                      {message.message_attachments.map((attachment) => {
+                        const attachmentUrl = resolveAttachmentUrl(attachment, message)
+                        return (
+                        <div key={attachment.id || attachment.file_url || attachmentUrl} className="max-w-full text-[var(--theme-base)]">
+                          {!attachmentUrl ? (
+                            <div className="flex items-center gap-2 max-w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-section)] px-3 py-2 text-gray-500 shadow-sm">
+                              <FileText size={18} className="shrink-0" />
+                              <span className="text-sm truncate min-w-0">{attachment.file_name || 'Attachment unavailable'}</span>
+                            </div>
+                          ) : attachment.file_type?.startsWith('image/') ? (
+                              <img
+                                src={attachmentUrl}
+                                alt={attachment.file_name || 'Attachment'}
+                                className="w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border"
+                                style={attachmentBorderStyle}
+                                loading="lazy"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedImage({ url: attachmentUrl, user: message.profiles?.username, time: exactTime })
+                                }}
+                              />
+                          ) : (
+                            <a
+                              href={attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              download={attachment.file_name || true}
+                              className="flex items-center gap-2 max-w-full rounded-xl border shadow-sm transition-all duration-300 ease-out transform px-2 py-1"
+                              style={attachmentBorderStyle}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <FileText size={18} className="shrink-0 text-blue-400" />
+                              <span className="text-sm text-blue-400 underline truncate min-w-0">{attachment.file_name || 'Attachment'}</span>
+                            </a>
+                          )}
+                        </div>
+                      )})}
+                    </div>
+                  )}
+
+                  {previewLinks?.map((link, i) => (
+                    <div key={`link-prev-${m.id}-${i}`} className={`${visibleContent ? 'mt-1' : ''} ${alignRight ? 'flex justify-end' : 'flex justify-start'}`}>
+                      <LinkPreview url={link.url} />
                     </div>
                   ))}
-
-                  {m.image_url && (
-                    <div 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if (showMobileActions) {
-                          setShowMobileActions(false);
-                        } else {
-                          setSelectedImage({ url: m.image_url, user: m.profiles?.username, time: exactTime }); 
-                        }
-                      }}
-                      className={`block ${m.content ? 'mt-1.5' : ''} w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden ghost-border hover:opacity-90 transition-opacity shadow-lg cursor-pointer bg-black/20`}
-                    >
-                      <img 
-                        src={m.image_url} 
-                        alt="User attachment" 
-                        className="w-full h-auto max-h-[300px] object-cover" 
-                        loading="lazy" 
-                        decoding="async" 
-                        fetchPriority="low"
-                      />
-                    </div>
-                  )}
-
-                  {m.file_url && (
-                    <div 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if (showMobileActions) {
-                          setShowMobileActions(false);
-                        } else {
-                          const a = document.createElement('a');
-                          a.href = m.file_url;
-                          a.download = m.file_name || 'download';
-                          document.body.appendChild(a);
-                          a.click();
-                        }
-                      }}
-                      className={`flex items-center gap-3 p-3 mt-1.5 w-fit min-w-[200px] max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl border ${alignRight ? 'border-[var(--theme-20)] bg-[var(--theme-10)]' : 'border-[var(--border-subtle)] bg-[var(--bg-surface)]'} hover:opacity-90 transition-opacity shadow-sm cursor-pointer`}
-                    >
-                      <div className={`p-2 rounded-lg shrink-0 ${alignRight ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-main)]'}`}>
-                        <FileText size={20} />
-                      </div>
-                      <div className="flex flex-col min-w-0 flex-1 overflow-hidden">
-                        <span className={`font-bold text-sm truncate ${alignRight ? 'text-[var(--text-main)]' : 'text-[var(--text-main)]'}`}>{m.file_name || 'Attachment'}</span>
-                        <span className="text-[10px] text-gray-500">{m.file_size || 'Unknown Size'}</span>
-                      </div>
-                      <button className={`p-1.5 rounded-md shrink-0 transition-colors ${alignRight ? 'hover:bg-[var(--theme-20)] text-[var(--theme-base)]' : 'hover:bg-[var(--bg-element)] text-gray-400 hover:text-[var(--text-main)]'}`}>
-                        <Download size={16} />
-                      </button>
-                    </div>
-                  )}
 
                   {showDetails && (
                     <div className={`mt-1 mb-1 flex items-center gap-1.5 text-[10px] text-gray-400 animate-fade-in ${alignRight ? 'flex-row-reverse' : ''}`}>
@@ -289,16 +395,16 @@ export const MemoizedMessage = React.memo(({
             </div>
 
             {!m.is_deleted && (
-              <div className={`flex items-center gap-1 transition-all duration-200 shrink-0 absolute -top-10 ${alignRight ? 'right-0' : 'left-0'} md:relative md:top-auto md:right-auto md:left-auto bg-[var(--bg-surface)] md:bg-transparent border border-[var(--border-subtle)] md:border-transparent shadow-2xl md:shadow-none rounded-xl p-1.5 md:p-0 z-[60] md:z-auto ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'}`}>
+              <div className={`flex items-center gap-1 transition-all duration-300 ease-out transform shrink-0 absolute -top-10 ${alignRight ? 'right-0' : 'left-0'} md:relative md:top-auto md:right-auto md:left-auto premium-menu md:bg-transparent md:border-transparent md:shadow-none rounded-xl p-1.5 md:p-0 z-[60] md:z-auto ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'}`}>
                 
                 {showReactionPicker && (
                   <div 
-                    className={`fixed bottom-20 left-1/2 -translate-x-1/2 sm:absolute sm:translate-x-0 ${alignRight ? 'sm:right-8' : 'sm:left-8'} sm:bottom-full sm:mb-2 z-[100] animate-fade-in shadow-2xl bg-[var(--bg-surface)] rounded-xl overflow-hidden border border-[var(--border-subtle)]`}
-                    onTouchStartCapture={(e) => { if (document.activeElement) document.activeElement.blur(); }}
+                    className={`premium-menu fixed bottom-20 left-1/2 -translate-x-1/2 sm:absolute sm:translate-x-0 ${alignRight ? 'sm:right-8' : 'sm:left-8'} sm:bottom-full sm:mb-2 z-[100] animate-fade-in rounded-xl overflow-hidden`}
+                    onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
                     onMouseDown={(e) => { e.preventDefault(); }}
                   >
                     <div className="fixed inset-0 z-0 cursor-pointer sm:hidden" onClick={(e) => { e.stopPropagation(); setShowReactionPicker(false); }}></div>
-                    <div className="relative z-10 border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-2xl bg-[var(--bg-surface)]">
+                    <div className="relative z-10 rounded-xl overflow-hidden">
                       <EmojiPicker 
                         theme={document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'} 
                         emojiStyle="native"
@@ -354,7 +460,7 @@ export const MemoizedMessage = React.memo(({
                         if (document.activeElement) document.activeElement.blur();
                         setShowReactionPicker(!showReactionPicker); 
                       }} 
-                      onTouchStartCapture={(e) => { 
+                      onTouchStartCapture={() => { 
                         if (document.activeElement) document.activeElement.blur(); 
                       }}
                       onMouseDown={(e) => { e.preventDefault(); }}
@@ -366,6 +472,7 @@ export const MemoizedMessage = React.memo(({
                     {isMe && (
                       <button onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); setShowMobileActions(false); }} className="p-1.5 text-gray-500 hover:text-[var(--text-main)] bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" title="Edit"><Pen size={14} aria-hidden="true" /></button>
                     )}
+                    <button onClick={() => { togglePinnedMessage(m); setShowMobileActions(false); }} className={`p-1.5 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={14} aria-hidden="true" /></button>
                     <button onClick={() => { setInlineDeleteMessageId(m.id); setInlineDeleteStep('options'); }} className="p-1.5 text-gray-500 hover:text-red-400 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-red-500/10 rounded-full transition-colors cursor-pointer" title="Hide/Delete"><Trash2 size={14} aria-hidden="true" /></button>
                   </>
                 )}
