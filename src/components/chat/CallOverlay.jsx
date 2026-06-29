@@ -1,6 +1,6 @@
 import React from 'react'
-import { Minimize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff } from 'lucide-react'
-import { StatusAvatar } from './MessageElements'
+import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff } from 'lucide-react'
+import StatusAvatar from '../ui/StatusAvatar'
 
 export default function CallOverlay({
   callActive, callMinimized, setCallMinimized, callDirection, remoteCaller,
@@ -12,7 +12,6 @@ export default function CallOverlay({
   
   if (!callActive) return null;
 
-  // 🚀 ISLAND DOCKED UI (MINIMIZED)
   if (callMinimized) {
     return (
       <div className="mx-0 md:mx-2 mb-3 bg-[#111214]/90 backdrop-blur-xl border border-[var(--border-subtle)] rounded-2xl p-2.5 flex items-center justify-between shadow-2xl animate-fade-in z-40">
@@ -51,7 +50,6 @@ export default function CallOverlay({
     )
   }
 
-  // 🚀 FULL SCREEN CALL UI
   return (
     <div className={`fixed inset-0 z-[100] ${remoteVideoEnabled && callDirection === 'connected' ? 'bg-black' : 'bg-[var(--bg-base)]/90 backdrop-blur-2xl'} flex flex-col items-center justify-center p-4 animate-fade-in pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]`}>
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
@@ -62,14 +60,12 @@ export default function CallOverlay({
 
       <div className="relative w-full max-w-5xl flex flex-col items-center justify-center gap-4 mb-8 flex-1">
         
-        {/* Remote Feed or Avatar */}
         <div className={`relative flex items-center justify-center rounded-3xl overflow-hidden shadow-2xl transition-all duration-500 ${remoteVideoEnabled && callDirection === 'connected' ? 'w-full h-full' : 'w-40 h-40 shadow-[0_0_100px_var(--theme-20)]'}`}>
            <video 
              ref={remoteVideoRef} 
              autoPlay playsInline 
              className={`w-full h-full object-cover ${remoteVideoEnabled && callDirection === 'connected' ? 'block' : 'hidden'}`} 
            />
-           {/* Fallback to Avatar */}
            {(!remoteVideoEnabled || callDirection !== 'connected') && (
              <>
                {callDirection === 'connected' && <div className="absolute inset-0 rounded-full border-4 border-[var(--theme-base)] animate-ping opacity-30"></div>}
@@ -78,7 +74,6 @@ export default function CallOverlay({
            )}
         </div>
 
-        {/* Local Picture-in-Picture Feed */}
         <div className={`overflow-hidden shadow-2xl border border-white/10 bg-[#1c1e22] transition-all duration-500 ${videoEnabled ? 'block' : 'hidden'} ${remoteVideoEnabled && callDirection === 'connected' ? 'absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 rounded-2xl z-40' : 'w-40 h-40 rounded-3xl'}`}>
            <video 
              ref={localVideoRef} 
@@ -88,7 +83,6 @@ export default function CallOverlay({
            />
         </div>
 
-        {/* Status Text (Hidden if in full video mode) */}
         {(!remoteVideoEnabled || callDirection !== 'connected') && (
           <div className="absolute bottom-[10%] flex flex-col items-center">
             <h2 className="text-4xl font-bold text-white mb-2 tracking-tight drop-shadow-lg">{remoteCaller?.username}</h2>
@@ -98,7 +92,6 @@ export default function CallOverlay({
           </div>
         )}
         
-        {/* Incoming Video Request Modal */}
         {pendingVideoRequest && (
           <div className="absolute top-24 bg-[#1c1e22] border border-indigo-500 p-5 rounded-3xl shadow-[0_0_40px_rgba(99,102,241,0.4)] z-[200] flex flex-col items-center gap-4 animate-slide-up">
             <div className="bg-indigo-500/20 p-3 rounded-full text-indigo-400">

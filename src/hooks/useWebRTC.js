@@ -23,6 +23,12 @@ export function useWebRTC(session, activeDm) {
   const callChannelRef = useRef(null);
   const activeCallTargetRef = useRef(null);
 
+  // Using refs to keep signaling callback readouts up to date without cycling subscriptions
+  const callActiveRef = useRef(callActive);
+  useEffect(() => {
+    callActiveRef.current = callActive;
+  }, [callActive]);
+
   const myAvatar = session?.user?.user_metadata?.avatar_url;
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0];
 
@@ -41,7 +47,7 @@ export function useWebRTC(session, activeDm) {
       if (payload.targetId !== session.user.id) return;
 
       if (payload.type === 'offer') {
-        if (callActive) {
+        if (callActiveRef.current) {
           sendSignal(payload.callerId, 'busy', {});
           return;
         }
@@ -128,7 +134,7 @@ export function useWebRTC(session, activeDm) {
     });
 
     return () => { supabase.removeChannel(sigChannel); };
-  }, [session?.user?.id, callActive]);
+  }, [session?.user?.id]);
 
   const sendSignal = (targetId, type, data) => {
     if (callChannelRef.current && targetId) {
@@ -158,10 +164,23 @@ export function useWebRTC(session, activeDm) {
     setVideoEnabled(withVideo);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const constraints = {
         video: withVideo,
-        audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled } 
-      });
+        audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled }
+      };
+      
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        if (err.name === 'OverconstrainedError' || err.name === 'TypeError') {
+          console.warn("Retrying with fallback simple audio constraints due to structural error:", err);
+          stream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+        } else {
+          throw err;
+        }
+      }
+
       localStreamRef.current = stream;
       if (withVideo && localVideoRef.current) localVideoRef.current.srcObject = stream;
 
@@ -194,19 +213,37 @@ export function useWebRTC(session, activeDm) {
       sendSignal(activeCallTargetRef.current, 'offer', {
         offer, caller: { id: session.user.id, username: myUsername, avatar_url: myAvatar }, isVideo: withVideo
       });
-    } catch (_err) {
+    } catch (err) {
+      console.error("Call initiation structural error context:", err);
       endCallLocal();
-      toast.error("Camera or Microphone permission denied");
+      if (err.name === 'NotAllowedError') {
+        toast.error("Camera or Microphone permission denied");
+      } else {
+        toast.error(`Failed to access hardware devices: ${err.message || 'Unknown configuration error'}`);
+      }
     }
   };
 
   const acceptCall = async () => {
     if (!checkMediaAccess()) { endCallNetwork(); return; }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: videoEnabled, 
-        audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled } 
-      });
+      const constraints = {
+        video: videoEnabled,
+        audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled }
+      };
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        if (err.name === 'OverconstrainedError' || err.name === 'TypeError') {
+          console.warn("Retrying with fallback simple audio constraints on target device:", err);
+          stream = await navigator.mediaDevices.getUserMedia({ video: videoEnabled, audio: true });
+        } else {
+          throw err;
+        }
+      }
+
       localStreamRef.current = stream;
       if (videoEnabled && localVideoRef.current) localVideoRef.current.srcObject = stream;
       
@@ -217,10 +254,15 @@ export function useWebRTC(session, activeDm) {
       
       sendSignal(activeCallTargetRef.current, 'answer', { answer, isVideo: videoEnabled });
       setCallDirection('connected');
-    } catch (_err) {
+    } catch (err) {
+      console.error("Call answering structural error context:", err);
       endCallLocal();
       sendSignal(activeCallTargetRef.current, 'end', {});
-      toast.error("Camera or Microphone permission denied");
+      if (err.name === 'NotAllowedError') {
+        toast.error("Camera or Microphone permission denied");
+      } else {
+        toast.error(`Failed to answer hardware device stream: ${err.message || 'Device configuration error'}`);
+      }
     }
   };
 
@@ -283,15 +325,25 @@ export function useWebRTC(session, activeDm) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const newVidTrack = stream.getVideoTracks()[0];
+      
+      if (!localStreamRef.current) {
+        localStreamRef.current = new MediaStream();
+      }
+      
       localStreamRef.current.addTrack(newVidTrack);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setVideoEnabled(true);
 
-      pcRef.current.addTrack(newVidTrack, localStreamRef.current);
-      const offer = await pcRef.current.createOffer();
-      await pcRef.current.setLocalDescription(offer);
-      sendSignal(activeCallTargetRef.current, 'video-upgrade-offer', { offer });
-    } catch(e) { toast.error("Camera access failed during upgrade"); }
+      if (pcRef.current) {
+        pcRef.current.addTrack(newVidTrack, localStreamRef.current);
+        const offer = await pcRef.current.createOffer();
+        await pcRef.current.setLocalDescription(offer);
+        sendSignal(activeCallTargetRef.current, 'video-upgrade-offer', { offer });
+      }
+    } catch(e) { 
+      console.error(e);
+      toast.error("Camera access failed during upgrade"); 
+    }
   };
 
   const handleVideoUpgradeOffer = async (offer) => {
@@ -307,14 +359,22 @@ export function useWebRTC(session, activeDm) {
       if (!checkMediaAccess()) { declineVideoRequest(); return; }
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const newVidTrack = stream.getVideoTracks()[0];
+      
+      if (!localStreamRef.current) {
+        localStreamRef.current = new MediaStream();
+      }
+      
       localStreamRef.current.addTrack(newVidTrack);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       setVideoEnabled(true);
       
-      pcRef.current.addTrack(newVidTrack, localStreamRef.current);
+      if (pcRef.current) {
+        pcRef.current.addTrack(newVidTrack, localStreamRef.current);
+      }
       setPendingVideoRequest(false);
       sendSignal(activeCallTargetRef.current, 'video-request-accepted', {});
     } catch(e) {
+      console.error(e);
       toast.error("Could not access camera");
       declineVideoRequest();
     }
