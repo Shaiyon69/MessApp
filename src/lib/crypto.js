@@ -55,7 +55,12 @@ export async function deriveSharedAesKey(ownPrivateKey, peerPublicKeyJwk) {
 }
 
 export function toBase64(bytes) {
-  const bin = String.fromCharCode(...new Uint8Array(bytes))
+  let bin = ''
+  const data = new Uint8Array(bytes)
+  const chunkSize = 0x8000
+  for (let i = 0; i < data.length; i += chunkSize) {
+    bin += String.fromCharCode(...data.subarray(i, i + chunkSize))
+  }
   return btoa(bin)
 }
 
@@ -85,13 +90,13 @@ export async function decryptWithAesGcm(key, { iv, ciphertext }) {
     const decrypted = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: new Uint8Array(new Uint8Array(fromBase64(iv)))
+        iv: new Uint8Array(fromBase64(iv))
       },
       key,
       fromBase64(ciphertext)
     )
     return textDecoder.decode(decrypted)
-  } catch (e) {
+  } catch (_err) {
     return "[Encrypted Message - Unreadable]"
   }
 }
@@ -177,18 +182,16 @@ export function generateSecureRandomNumber(min, max) {
   return min + (array[0] % range)
 }
 
-// 🚀 6-DIGIT PIN SECURE STORAGE ENGINE (Messenger Style)
-export async function deriveKeyFromPin(pin) {
-  const enc = new TextEncoder();
+export async function deriveKeyFromPin(pin, saltBase64) {
+  const enc = new TextEncoder()
+  const salt = saltBase64 ? fromBase64(saltBase64) : enc.encode("MESSAPP_SECURE_STORAGE_SALT_V1")
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     enc.encode(pin),
     { name: "PBKDF2" },
     false,
     ["deriveKey"]
-  );
-  // A static salt guarantees the PIN maps to the exact same key every time
-  const salt = enc.encode("MESSAPP_SECURE_STORAGE_SALT_V1");
+  )
   
   return await crypto.subtle.deriveKey(
     { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
@@ -196,17 +199,19 @@ export async function deriveKeyFromPin(pin) {
     { name: "AES-GCM", length: 256 },
     true,
     ["encrypt", "decrypt"]
-  );
+  )
 }
 
 export async function encryptKeyWithPin(pin, privateKeyJwkStr) {
-  const key = await deriveKeyFromPin(pin);
-  const encrypted = await encryptWithAesGcm(key, privateKeyJwkStr);
-  return JSON.stringify(encrypted);
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16))
+  const salt = toBase64(saltBytes)
+  const key = await deriveKeyFromPin(pin, salt)
+  const encrypted = await encryptWithAesGcm(key, privateKeyJwkStr)
+  return JSON.stringify({ v: 2, salt, ...encrypted })
 }
 
 export async function decryptKeyWithPin(pin, encryptedKeyStr) {
-  const key = await deriveKeyFromPin(pin);
-  const encryptedData = JSON.parse(encryptedKeyStr);
-  return await decryptWithAesGcm(key, encryptedData);
+  const encryptedData = JSON.parse(encryptedKeyStr)
+  const key = await deriveKeyFromPin(pin, encryptedData.salt)
+  return await decryptWithAesGcm(key, encryptedData)
 }

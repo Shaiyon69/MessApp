@@ -19,7 +19,9 @@ import ServerSettingsModal from './modals/ServerSettings'
 import ChannelSettingsModal from './modals/ChannelSettings'
 import UserSettingsModal from './modals/UserSettings'
 
-import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey } from '../lib/crypto'
+import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
+import { normalizeProfileBaseName } from '../lib/security'
+import { applyThemeMode } from '../lib/theme'
 import StatusAvatar from './ui/StatusAvatar'
 import { CornerDownLeft } from 'lucide-react'
 
@@ -33,11 +35,39 @@ const THEME_COLORS = [
 ]
 
 const WALLPAPERS = [
-  { id: 'default', name: 'Clean Dark', css: 'none' },
-  { id: 'doodles', name: 'Doodles', css: 'url("https://www.transparenttextures.com/patterns/connected.png")' },
-  { id: 'galaxy', name: 'Galaxy', css: 'radial-gradient(circle at top right, rgba(76, 29, 149, 0.4) 0%, transparent 60%)' },
-  { id: 'emerald', name: 'Emerald', css: 'radial-gradient(circle at bottom left, rgba(6, 78, 59, 0.4) 0%, transparent 60%)' }
+  {
+    id: 'default',
+    name: 'Soft Bloom',
+    css: 'radial-gradient(circle at 18% 12%, var(--theme-10), transparent 28%), radial-gradient(circle at 86% 18%, rgba(45, 212, 191, 0.11), transparent 24%), radial-gradient(circle at 72% 88%, rgba(244, 114, 182, 0.10), transparent 30%), linear-gradient(135deg, rgba(148, 163, 184, 0.05), transparent 42%)',
+    size: 'auto',
+    repeat: 'no-repeat'
+  },
+  {
+    id: 'doodles',
+    name: 'Paper Lines',
+    css: 'linear-gradient(135deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px), radial-gradient(circle at 12% 18%, rgba(251, 191, 36, 0.10), transparent 26%), radial-gradient(circle at 86% 78%, rgba(14, 165, 233, 0.10), transparent 28%)',
+    size: '28px 28px, auto, auto',
+    repeat: 'repeat, no-repeat, no-repeat'
+  },
+  {
+    id: 'galaxy',
+    name: 'Aurora',
+    css: 'radial-gradient(ellipse at 12% 18%, rgba(56, 189, 248, 0.14), transparent 34%), radial-gradient(ellipse at 84% 20%, rgba(168, 85, 247, 0.12), transparent 32%), radial-gradient(ellipse at 56% 92%, rgba(16, 185, 129, 0.12), transparent 34%), linear-gradient(160deg, rgba(255, 255, 255, 0.03), transparent 48%)',
+    size: 'auto',
+    repeat: 'no-repeat'
+  },
+  {
+    id: 'emerald',
+    name: 'Terrace',
+    css: 'repeating-linear-gradient(0deg, rgba(148, 163, 184, 0.07) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.045) 0 1px, transparent 1px 22px), radial-gradient(circle at 20% 90%, rgba(251, 113, 133, 0.10), transparent 26%), radial-gradient(circle at 90% 12%, rgba(34, 197, 94, 0.10), transparent 28%)',
+    size: 'auto',
+    repeat: 'repeat, repeat, no-repeat, no-repeat'
+  }
 ]
+
+const sortDmsByLastMessage = (items) => {
+  return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
+}
 
 export default function Dashboard({ session }) {
   const [view, setView] = useState('home')
@@ -49,10 +79,13 @@ export default function Dashboard({ session }) {
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
   const [onlineUsers, setOnlineUsers] = useState([])
+  const [userPresence, setUserPresence] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
+  const [acceptedFriends, setAcceptedFriends] = useState([])
   const [blockedUsers, setBlockedUsers] = useState([]) 
+  const [blockedByUsers, setBlockedByUsers] = useState([])
   const [restrictedUsers, setRestrictedUsers] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch(e) { return [] }
+    try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch (_e) { return [] }
   })
   const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [rightTab, setRightTab] = useState('search')
@@ -61,6 +94,7 @@ export default function Dashboard({ session }) {
   const [showProfilePopout, setShowProfilePopout] = useState(false)
   
   const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account', showMenu: true })
+  const [userStatus, setUserStatus] = useState(() => localStorage.getItem(`user_status_${session.user.id}`) || 'online')
   
   const popoutRef = useRef(null)
   const [showServerSettings, setShowServerSettings] = useState(false)
@@ -80,53 +114,58 @@ export default function Dashboard({ session }) {
   const [serverSettingsName, setServerSettingsName] = useState('')
   const [newChannelName, setNewChannelName] = useState('')
   const [channelSettingsName, setChannelSettingsName] = useState('')
+  const profileCacheKey = `profile_cache_${session.user.id}`
+  const [profileOverride, setProfileOverride] = useState(() => {
+    try {
+      return { ...(session.user.user_metadata || {}), ...(JSON.parse(localStorage.getItem(profileCacheKey)) || {}) }
+    } catch (_err) {
+      return session.user.user_metadata || {}
+    }
+  })
 
-  const myAvatar = session.user.user_metadata?.avatar_url
-  const myBanner = session.user.user_metadata?.banner_url
-  const myBio = session.user.user_metadata?.bio
-  const myPronouns = session.user.user_metadata?.pronouns
-  const myUsername = session.user.user_metadata?.username || session.user.email.split('@')[0]
-  const myTag = session.user.user_metadata?.unique_tag || `${myUsername}#0000`
+  const profileData = { ...(session.user.user_metadata || {}), ...profileOverride }
+  const myAvatar = profileData.avatar_url
+  const myBanner = profileData.banner_url
+  const myBio = profileData.bio
+  const myPronouns = profileData.pronouns
+  const myUsername = profileData.username || session.user.email.split('@')[0]
+  const myTag = profileData.unique_tag || `${myUsername}#0000`
 
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms)
   const webRTCProps = useWebRTC(session, activeDm)
 
   const stateRef = useRef({});
+  const activeDmRef = useRef(null);
+  const presenceChannelRef = useRef(null);
   const lastHomeClickRef = useRef(0);
   const acceptingRefs = useRef(new Set());
   const exitTimerRef = useRef(null);
 
-  // MOBILE AUDIO UNLOCKER: Forces hardware to initialize on first screen tap so pop sounds work.
+  useEffect(() => {
+    try {
+      setProfileOverride({ ...(session.user.user_metadata || {}), ...(JSON.parse(localStorage.getItem(profileCacheKey)) || {}) })
+    } catch (_err) {
+      setProfileOverride(session.user.user_metadata || {})
+    }
+  }, [session.user.user_metadata, profileCacheKey])
+
   useEffect(() => {
     const unlockAudio = () => {
-      try {
-        const silent = new Audio("data:audio/mp3;base64,//MkxAA");
-        silent.play().catch(()=>{});
-
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          const ctx = new AudioContext();
-          const buffer = ctx.createBuffer(1, 1, 22050);
-          const source = ctx.createBufferSource();
-          source.buffer = buffer;
-          source.connect(ctx.destination);
-          source.start(0);
-          ctx.resume();
-        }
-      } catch(e) {}
-      document.removeEventListener('touchstart', unlockAudio, true);
-      document.removeEventListener('click', unlockAudio, true);
+      void audioSys.unlock();
+      document.removeEventListener('pointerdown', unlockAudio, true);
+      document.removeEventListener('keydown', unlockAudio, true);
     };
     
-    document.addEventListener('touchstart', unlockAudio, { once: true, capture: true });
-    document.addEventListener('click', unlockAudio, { once: true, capture: true });
+    document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
+    document.addEventListener('keydown', unlockAudio, { once: true, capture: true });
     return () => {
-      document.removeEventListener('touchstart', unlockAudio, true);
-      document.removeEventListener('click', unlockAudio, true);
+      document.removeEventListener('pointerdown', unlockAudio, true);
+      document.removeEventListener('keydown', unlockAudio, true);
     }
   }, []);
 
   useEffect(() => {
+    activeDmRef.current = activeDm;
     stateRef.current = { 
       mobileMenuOpen, 
       showRightSidebar, 
@@ -197,27 +236,52 @@ export default function Dashboard({ session }) {
   }, []);
 
   useEffect(() => {
-    const theme = localStorage.getItem('appTheme') || 'dark';
-    document.documentElement.setAttribute('data-theme', theme);
-    if (theme === 'light') document.documentElement.classList.remove('dark');
-    else document.documentElement.classList.add('dark');
+    applyThemeMode(localStorage.getItem('appTheme') || 'dark');
+
+    const storedDensity = localStorage.getItem('uiDensity') || localStorage.getItem('chatMessageScale') || 'default';
+    const uiDensity = storedDensity === 'comfortable' || storedDensity === 'normal' ? 'default' : storedDensity === 'large' ? 'spacious' : storedDensity;
+    const chatMessageSize = uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px';
+    document.documentElement.setAttribute('data-ui-density', uiDensity);
+    document.documentElement.style.setProperty('--chat-message-font-size', chatMessageSize);
   }, []);
 
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
+  useEffect(() => { localStorage.setItem(`user_status_${session.user.id}`, userStatus) }, [userStatus, session.user.id])
 
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
     setMobileMenuOpen(false)
-    if (dm) localStorage.setItem(`last_dm_${session.user.id}`, dm.dm_room_id)
-    else localStorage.removeItem(`last_dm_${session.user.id}`)
+    if (dm) {
+      const readAt = new Date().toISOString()
+      localStorage.setItem(`last_dm_${session.user.id}`, dm.dm_room_id)
+      setDms(current => current.map(item => item.dm_room_id === dm.dm_room_id ? { ...item, last_read_at: readAt, is_unread: false } : item))
+      void supabase.from('dm_reads').upsert({ profile_id: session.user.id, dm_room_id: dm.dm_room_id, last_read_at: readAt })
+    } else {
+      localStorage.removeItem(`last_dm_${session.user.id}`)
+    }
   }, [session.user.id])
+
+  const updateProfileBio = useCallback(async (newStatus) => {
+    const nextBio = newStatus.trim()
+    setProfileOverride(prev => {
+      const next = { ...prev, bio: nextBio }
+      localStorage.setItem(profileCacheKey, JSON.stringify(next))
+      return next
+    })
+    const { error } = await supabase.from('profiles').update({ bio: nextBio }).eq('id', session.user.id)
+    if (error) throw error
+  }, [profileCacheKey, session.user.id])
 
   useEffect(() => {
     if (!session?.user?.id) return; 
 
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
-        const { data: existingProfile } = await supabase.from('profiles').select('public_key, encrypted_private_key').eq('id', session.user.id).maybeSingle()
+        const { data: existingProfile, error: profileFetchError } = await supabase.from('profiles').select('public_key, encrypted_private_key, username, unique_tag, avatar_url, banner_url, bio, pronouns').eq('id', session.user.id).maybeSingle()
+        if (profileFetchError) {
+          console.warn('Profile sync lookup failed', profileFetchError.message)
+          return
+        }
 
         let pubKeyStr = existingProfile?.public_key || null;
         let encryptedPrivKey = existingProfile?.encrypted_private_key || null;
@@ -236,7 +300,7 @@ export default function Dashboard({ session }) {
              const reconstructedPub = { kty: parsedPriv.kty, crv: parsedPriv.crv, x: parsedPriv.x, y: parsedPriv.y, ext: true };
              pubKeyJwkStr = JSON.stringify(reconstructedPub);
              localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
-           } catch(e) {
+           } catch (_e) {
              if (pubKeyStr) {
                pubKeyJwkStr = pubKeyStr;
                localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyStr);
@@ -254,7 +318,7 @@ export default function Dashboard({ session }) {
             pubKeyJwkStr = JSON.stringify(pubJwk);
             localStorage.setItem(`e2ee_private_key_${session.user.id}`, privKeyJwkStr);
             localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
-          } catch(err) {}
+          } catch (_err) {}
         }
         pubKeyStr = pubKeyJwkStr || pubKeyStr;
 
@@ -262,43 +326,67 @@ export default function Dashboard({ session }) {
             setShowPinSetupPrompt(true);
         }
 
-        const { username, unique_tag, avatar_url, banner_url, bio, pronouns } = session.user.user_metadata
-        await supabase.from('profiles').upsert({ 
-          id: session.user.id, 
-          username: username || session.user.email.split('@')[0], 
-          unique_tag: unique_tag, 
-          avatar_url: avatar_url || null, 
-          banner_url: banner_url || null, 
-          bio: bio || null, 
-          pronouns: pronouns || null,
-          public_key: pubKeyStr 
-        }, { onConflict: 'id' }) 
+        const metadata = session.user.user_metadata || {}
+        const fallbackUsername = metadata.username || session.user.email.split('@')[0]
+        const fallbackTag = `${normalizeProfileBaseName(fallbackUsername) || 'user'}#${generateSecureRandomNumber(1000, 9999)}`
+        const profilePayload = {
+          username: existingProfile?.username || fallbackUsername,
+          unique_tag: existingProfile?.unique_tag || metadata.unique_tag || fallbackTag,
+          avatar_url: existingProfile?.avatar_url || metadata.avatar_url || null,
+          banner_url: existingProfile?.banner_url || metadata.banner_url || null,
+          bio: existingProfile?.bio || metadata.bio || null,
+          pronouns: existingProfile?.pronouns || metadata.pronouns || null
+        }
+        setProfileOverride(prev => ({ ...prev, ...profilePayload }))
+        localStorage.setItem(profileCacheKey, JSON.stringify(profilePayload))
+        if (existingProfile) {
+          const { error: updateProfileError } = await supabase.from('profiles').update({ public_key: pubKeyStr }).eq('id', session.user.id)
+          if (updateProfileError) console.warn('Profile key sync failed', updateProfileError.message)
+        } else {
+          const { error: insertProfileError } = await supabase.from('profiles').insert({ id: session.user.id, ...profilePayload, public_key: pubKeyStr })
+          if (insertProfileError) console.warn('Profile creation failed', insertProfileError.message)
+        }
       }
     }
     
-    const fetchBlockedUsers = async () => {
-      const { data } = await supabase.from('user_relationships').select('blocked_id').eq('blocker_id', session.user.id)
-      if (data) setBlockedUsers(data.map(r => r.blocked_id))
+    const fetchRelationships = async () => {
+      const [{ data: outboundBlocks }, { data: inboundBlocks }] = await Promise.all([
+        supabase.from('user_relationships').select('blocked_id').eq('blocker_id', session.user.id),
+        supabase.from('user_relationships').select('blocker_id').eq('blocked_id', session.user.id)
+      ])
+      if (outboundBlocks) setBlockedUsers(outboundBlocks.map(r => r.blocked_id))
+      if (inboundBlocks) setBlockedByUsers(inboundBlocks.map(r => r.blocker_id))
     }
 
     syncProfile()
-    fetchBlockedUsers()
+    fetchRelationships()
     fetchServers()
     fetchDms()
     fetchFriendRequests()
+    fetchAcceptedFriends()
     
     const presenceChannel = supabase.channel('global-presence')
+    presenceChannelRef.current = presenceChannel
     
     presenceChannel.on('presence', { event: 'sync' }, () => {
       const state = presenceChannel.presenceState()
-      const activeUserIds = Object.values(state).flatMap(presences => presences.map(p => p.user_id))
+      const presences = Object.values(state).flatMap(presenceList => presenceList)
+      const activeUserIds = presences.map(presence => presence.user_id).filter(Boolean)
+      const nextPresence = {}
+      for (const presence of presences) {
+        if (!presence.user_id) continue
+        const status = ['online', 'idle', 'dnd'].includes(presence.status) ? presence.status : 'online'
+        nextPresence[presence.user_id] = { status, online_at: presence.online_at || null }
+      }
       setOnlineUsers([...new Set(activeUserIds)])
-    }).subscribe(async (status) => { 
-      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id }) 
+      setUserPresence(nextPresence)
+    }).subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id, status: userStatus, online_at: new Date().toISOString() })
     })
     
     const requestsSub = supabase.channel('public:friendships').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
          fetchFriendRequests();
+         fetchAcceptedFriends();
          fetchDms();
     }).subscribe();
 
@@ -306,12 +394,45 @@ export default function Dashboard({ session }) {
          fetchDms();
     }).subscribe();
 
+    const relationshipsSub = supabase.channel('public:user_relationships').on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships' }, (payload) => {
+      const row = payload.new?.id ? payload.new : payload.old;
+      if (row?.blocker_id === session.user.id || row?.blocked_id === session.user.id) fetchRelationships();
+    }).subscribe();
+
+    const dmMessagesSub = supabase.channel('public:dm-messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+      const roomId = payload.new?.dm_room_id;
+      if (!roomId) return;
+      const messageAt = payload.new.created_at || new Date().toISOString();
+      const isOwnMessage = payload.new.profile_id === session.user.id;
+      const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
+      if (isOpenRoom) {
+        void supabase.from('dm_reads').upsert({ profile_id: session.user.id, dm_room_id: roomId, last_read_at: messageAt })
+      }
+      setDms(current => {
+        const next = current.map(dm => dm.dm_room_id === roomId ? {
+          ...dm,
+          last_message_at: messageAt,
+          last_read_at: isOpenRoom ? messageAt : dm.last_read_at,
+          is_unread: !isOwnMessage && !isOpenRoom
+        } : dm)
+        return sortDmsByLastMessage(next)
+      })
+    }).subscribe();
+
     return () => { 
+      presenceChannelRef.current = null;
       supabase.removeChannel(presenceChannel); 
       supabase.removeChannel(requestsSub);
       supabase.removeChannel(dmMembersSub);
+      supabase.removeChannel(relationshipsSub);
+      supabase.removeChannel(dmMessagesSub);
     }
   }, [session]) 
+
+  useEffect(() => {
+    if (!presenceChannelRef.current) return
+    void presenceChannelRef.current.track({ user_id: session.user.id, status: userStatus, online_at: new Date().toISOString() })
+  }, [session.user.id, userStatus])
 
   useEffect(() => {
     const roomSub = supabase.channel('dm-rooms-updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_rooms' }, (payload) => {
@@ -324,6 +445,18 @@ export default function Dashboard({ session }) {
   const fetchFriendRequests = async () => {
     const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
     if (data) setFriendRequests(data)
+  }
+
+  const fetchAcceptedFriends = async () => {
+    const { data } = await supabase
+      .from('friendships')
+      .select('id, sender_id, receiver_id, sender:profiles!fk_sender(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key), receiver:profiles!fk_receiver(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)')
+      .or(`sender_id.eq.${session.user.id},receiver_id.eq.${session.user.id}`)
+      .eq('status', 'accepted')
+
+    if (data) {
+      setAcceptedFriends(data.map(item => item.sender_id === session.user.id ? item.receiver : item.sender).filter(Boolean))
+    }
   }
 
   const handleAcceptRequest = async (request) => {
@@ -342,6 +475,7 @@ export default function Dashboard({ session }) {
         ])
       }
       fetchFriendRequests()
+      fetchAcceptedFriends()
       fetchDms()
       toast.success("Friend request accepted!")
     } catch { toast.error("Failed to accept request.") }
@@ -431,18 +565,16 @@ export default function Dashboard({ session }) {
         toast.success(`Unrestricted ${profile.username}`); 
       }
       else if (type === 'delete_dm') {
-        const { error } = await supabase.from('dm_rooms').delete().eq('id', confirmAction.dm_room_id);
+        const { error } = await supabase.from('dm_members').delete().match({ dm_room_id: confirmAction.dm_room_id, profile_id: session.user.id });
         if (error) throw error;
-        
-        await supabase.from('friendships').delete().or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${profile.id}),and(sender_id.eq.${profile.id},receiver_id.eq.${session.user.id})`);
-        
+
         setDms(prev => prev.filter(dm => dm.dm_room_id !== confirmAction.dm_room_id));
         if (activeDm?.dm_room_id === confirmAction.dm_room_id) {
           setActiveDm(null);
           setView('home');
           setShowRightSidebar(false);
         }
-        toast.success("Conversation and friend link permanently deleted");
+        toast.success("Conversation removed from your list");
       }
     } catch (_err) {
       toast.error("Failed to update user status or delete chat")
@@ -459,11 +591,102 @@ export default function Dashboard({ session }) {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
     if (!myRooms || myRooms.length === 0) { setDms([]); return }
     const roomIds = myRooms.map(r => r.dm_room_id)
-    const { data: otherMembers } = await supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id)
+    const [otherMembersRes, latestMessagesRes, readsRes] = await Promise.all([
+      supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id),
+      supabase.from('messages').select('dm_room_id, profile_id, created_at').in('dm_room_id', roomIds).order('created_at', { ascending: false }).limit(Math.max(roomIds.length * 5, 50)),
+      supabase.from('dm_reads').select('dm_room_id, last_read_at').eq('profile_id', session.user.id).in('dm_room_id', roomIds)
+    ])
+    const otherMembers = otherMembersRes.data
       
     if (otherMembers) {
-      const uniqueDms = Array.from(new Map(otherMembers.map(item => [item.dm_room_id, item])).values())
-      setDms(uniqueDms)
+      const latestByRoom = new Map()
+      const readByRoom = new Map((readsRes.data || []).map(item => [item.dm_room_id, item.last_read_at]))
+      for (const message of latestMessagesRes.data || []) {
+        if (message.dm_room_id && !latestByRoom.has(message.dm_room_id)) latestByRoom.set(message.dm_room_id, message)
+      }
+      const uniqueDms = Array.from(new Map(otherMembers.map(item => {
+        const latestMessage = latestByRoom.get(item.dm_room_id)
+        const lastReadAt = readByRoom.get(item.dm_room_id) || null
+        const lastMessageAt = latestMessage?.created_at || null
+        const isUnread = Boolean(lastMessageAt && latestMessage?.profile_id !== session.user.id && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt)))
+        return [item.dm_room_id, { ...item, last_message_at: lastMessageAt, last_read_at: lastReadAt, is_unread: isUnread }]
+      })).values())
+      setDms(sortDmsByLastMessage(uniqueDms))
+    }
+  }
+
+  const createOrOpenDm = async (entry) => {
+    try {
+      const targetProfile = entry.profiles
+      if (!targetProfile?.id) throw new Error('Missing target user')
+
+      const { data: myRooms, error: myRoomsError } = await supabase
+        .from('dm_members')
+        .select('dm_room_id')
+        .eq('profile_id', session.user.id)
+      if (myRoomsError) throw myRoomsError
+
+      const roomIds = Array.from(new Set((myRooms || []).map(room => room.dm_room_id).filter(Boolean)))
+      if (roomIds.length > 0) {
+        const { data: roomMembers, error: membersError } = await supabase
+          .from('dm_members')
+          .select('dm_room_id, profile_id')
+          .in('dm_room_id', roomIds)
+        if (membersError) throw membersError
+
+        const membersByRoom = new Map()
+        for (const member of roomMembers || []) {
+          const members = membersByRoom.get(member.dm_room_id) || []
+          members.push(member.profile_id)
+          membersByRoom.set(member.dm_room_id, members)
+        }
+
+        const existingRoomId = roomIds.find(roomId => {
+          const members = membersByRoom.get(roomId) || []
+          return members.length === 2 && members.includes(session.user.id) && members.includes(targetProfile.id)
+        })
+
+        if (existingRoomId) {
+          const existingDm = dms.find(dm => dm.dm_room_id === existingRoomId) || {
+            dm_room_id: existingRoomId,
+            dm_rooms: entry.dm_rooms || { theme_color: '#6366f1', wallpaper: 'default' },
+            profiles: targetProfile,
+            last_message_at: entry.last_message_at || null,
+            last_read_at: entry.last_read_at || null,
+            is_unread: false
+          }
+          setDms(current => sortDmsByLastMessage([existingDm, ...current.filter(dm => dm.dm_room_id !== existingRoomId)]))
+          setView('home')
+          selectDm(existingDm)
+          setShowQuickSwitcher(false)
+          setQuickSwitcherQuery('')
+          return
+        }
+      }
+
+      const { data: newRoom, error: roomError } = await supabase.from('dm_rooms').insert([{}]).select().single()
+      if (roomError) throw roomError
+      const { error: selfMemberError } = await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }])
+      if (selfMemberError) throw selfMemberError
+      const { error: peerMemberError } = await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: targetProfile.id }])
+      if (peerMemberError) throw peerMemberError
+
+      const newDm = {
+        dm_room_id: newRoom.id,
+        dm_rooms: { theme_color: newRoom.theme_color, wallpaper: newRoom.wallpaper },
+        profiles: targetProfile,
+        last_message_at: null,
+        last_read_at: null,
+        is_unread: false
+      }
+      setDms(current => sortDmsByLastMessage([newDm, ...current.filter(dm => dm.profiles.id !== targetProfile.id)]))
+      setView('home')
+      selectDm(newDm)
+      setShowQuickSwitcher(false)
+      setQuickSwitcherQuery('')
+      toast.success(`Started chat with ${targetProfile.username}`)
+    } catch (_err) {
+      toast.error('Could not start this chat.')
     }
   }
 
@@ -483,35 +706,65 @@ export default function Dashboard({ session }) {
   const searchResults = searchQuery ? chatManagerProps.validMessages.filter(m => !m.is_deleted && (m.content?.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
+  const getPresenceStatus = useCallback((profileId) => {
+    if (!profileId) return 'offline'
+    return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) ? 'online' : 'offline')
+  }, [onlineUsersSet, userPresence])
+  const getPresenceLabel = useCallback((profileId) => {
+    const status = getPresenceStatus(profileId)
+    if (status === 'dnd') return 'Do Not Disturb'
+    if (status === 'idle') return 'Idle'
+    if (status === 'online') return 'Online'
+    return 'Offline'
+  }, [getPresenceStatus])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
+  const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => dms.filter(dm => !restrictedUsersSet.has(dm.profiles.id)), [dms, restrictedUsersSet]);
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
 
-  const isBlocked = activeDm && blockedUsersSet.has(activeDm.profiles.id)
+  const quickSwitcherBase = useMemo(() => {
+    const existingIds = new Set(dms.map(dm => dm.profiles.id))
+    const friendEntries = acceptedFriends
+      .filter(profile => !existingIds.has(profile.id) && !restrictedUsersSet.has(profile.id))
+      .map(profile => ({ dm_room_id: null, profiles: profile, is_new_chat: true }))
+    return [...allFriends, ...friendEntries]
+  }, [acceptedFriends, allFriends, dms, restrictedUsersSet])
+
+  const activeDmPeerId = activeDm?.profiles?.id
+  const isBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
+  const blockReason = activeDmPeerId && blockedByUsersSet.has(activeDmPeerId) ? 'This user has blocked you.' : 'You blocked this user.'
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
 
-  const quickSwitcherResults = quickSwitcherQuery ? allFriends.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : allFriends
+  const quickSwitcherResults = quickSwitcherQuery ? quickSwitcherBase.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) || dm.profiles.unique_tag?.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : quickSwitcherBase
   const currentThemeHex = (activeDm?.dm_rooms?.theme_color || '#6366f1')
   const currentWallpaper = activeDm?.dm_rooms?.wallpaper || 'default'
-  const wallpaperCSS = WALLPAPERS.find(w => w.id === currentWallpaper)?.css || 'none'
+  const currentWallpaperConfig = WALLPAPERS.find(w => w.id === currentWallpaper) || WALLPAPERS[0]
+  const wallpaperCSS = currentWallpaperConfig.css || 'none'
 
   const scopedChatStyle = isChatActive ? { 
     '--theme-base': currentThemeHex,
     '--theme-10': currentThemeHex + '1a',
     '--theme-20': currentThemeHex + '33',
     '--theme-50': currentThemeHex + '80',
+    '--chat-bg-base': 'var(--bg-base)',
+    '--chat-bg-surface': 'var(--bg-surface)',
+    '--chat-bg-element': 'var(--bg-element)',
+    '--chat-border': 'var(--border-subtle)',
+    '--chat-text': 'var(--text-main)',
   } : {
     '--theme-base': '#6366f1',
     '--theme-10': '#6366f11a',
     '--theme-20': '#6366f133',
     '--theme-50': '#6366f180',
+    '--chat-bg-base': 'var(--bg-base)',
+    '--chat-bg-surface': 'var(--bg-surface)',
+    '--chat-bg-element': 'var(--bg-element)',
+    '--chat-border': 'var(--border-subtle)',
+    '--chat-text': 'var(--text-main)',
   }
 
   return (
-    <div className="flex h-[100dvh] w-full bg-[var(--bg-base)] text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
-      <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
-      <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
-
+    <div className="ambient-shell flex h-[100dvh] w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
       <CallOverlay 
         {...webRTCProps}
         acceptCall={webRTCProps.acceptCall}
@@ -542,6 +795,9 @@ export default function Dashboard({ session }) {
         activeDm={activeDm}
         selectDm={selectDm}
         onlineUsersSet={onlineUsersSet}
+        userPresence={userPresence}
+        getPresenceStatus={getPresenceStatus}
+        getPresenceLabel={getPresenceLabel}
         friendRequests={friendRequests}
         handleAcceptRequest={handleAcceptRequest}
         handleDeclineRequest={handleDeclineRequest}
@@ -561,6 +817,10 @@ export default function Dashboard({ session }) {
         myTag={myTag}
         myBio={myBio}
         myPronouns={myPronouns}
+        myBanner={myBanner}
+        userStatus={userStatus}
+        setUserStatus={setUserStatus}
+        updateProfileBio={updateProfileBio}
         popoutRef={popoutRef}
         setShowQuickSwitcher={setShowQuickSwitcher}
         allFriends={allFriends}
@@ -587,8 +847,13 @@ export default function Dashboard({ session }) {
         rightTab={rightTab}
         showRightSidebar={showRightSidebar}
         currentWallpaper={currentWallpaper}
+        currentThemeHex={currentThemeHex}
         wallpaperCSS={wallpaperCSS}
+        wallpaperSize={currentWallpaperConfig.size}
+        wallpaperRepeat={currentWallpaperConfig.repeat}
+        wallpaperPosition={currentWallpaperConfig.position}
         isBlocked={isBlocked}
+        blockReason={blockReason}
         blockedUsersSet={blockedUsersSet}
         scopedChatStyle={scopedChatStyle}
         isChatActive={isChatActive}
@@ -599,6 +864,9 @@ export default function Dashboard({ session }) {
         setConfirmAction={setConfirmAction}
         restrictedUsersSet={restrictedUsersSet}
         onlineUsersSet={onlineUsersSet}
+        userPresence={userPresence}
+        getPresenceStatus={getPresenceStatus}
+        getPresenceLabel={getPresenceLabel}
         {...chatManagerProps}
       />
 
@@ -608,6 +876,9 @@ export default function Dashboard({ session }) {
           closeRightSidebar={closeRightSidebar}
           rightTab={rightTab}
           onlineUsersSet={onlineUsersSet}
+          userPresence={userPresence}
+          getPresenceStatus={getPresenceStatus}
+          getPresenceLabel={getPresenceLabel}
           handleThemeChange={handleThemeChange}
           currentThemeHex={currentThemeHex}
           handleWallpaperChange={handleWallpaperChange}
@@ -622,19 +893,23 @@ export default function Dashboard({ session }) {
           THEME_COLORS={THEME_COLORS}
           WALLPAPERS={WALLPAPERS}
           scopedChatStyle={scopedChatStyle}
+          messages={chatManagerProps.validMessages}
+          pinnedMessages={chatManagerProps.pinnedMessages}
+          togglePinnedMessage={chatManagerProps.togglePinnedMessage}
+          setSelectedImage={chatManagerProps.setSelectedImage}
         />
       )}
 
       {showQuickSwitcher && (
-        <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] bg-black/50 backdrop-blur-md animate-fade-in" onClick={() => setShowQuickSwitcher(false)}>
-          <div className="bg-[var(--bg-surface)]/95 w-full max-w-2xl rounded-2xl border border-[var(--border-subtle)] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-5 flex items-center gap-4 bg-[var(--bg-base)]/50 border-b border-[var(--border-subtle)]">
-              <Search size={24} className="text-indigo-400 shrink-0" />
-              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full bg-transparent text-[var(--text-main)] outline-none text-xl font-display placeholder-gray-500" />
-              <div className="text-[10px] font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
+        <div className="premium-backdrop fixed inset-0 z-[200] flex items-start justify-center pt-[10vh] sm:pt-[15vh] animate-fade-in px-4" onClick={() => setShowQuickSwitcher(false)}>
+          <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
+            <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
+              <Search size={22} className="text-indigo-400 shrink-0" />
+              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none text-base sm:text-xl font-display placeholder-gray-500" />
+              <div className="hidden sm:block text-[10px] font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
             </div>
             
-            <div className="max-h-[400px] overflow-y-auto p-3 custom-scrollbar">
+            <div className="relative z-10 max-h-[60vh] sm:max-h-[400px] overflow-y-auto p-2 sm:p-3 custom-scrollbar">
               {quickSwitcherQuery && quickSwitcherResults.length === 0 ? (
                  <div className="text-center py-12 flex flex-col items-center">
                     <span className="material-symbols-outlined text-4xl text-gray-600 mb-2">search_off</span>
@@ -642,22 +917,22 @@ export default function Dashboard({ session }) {
                  </div>
               ) : (
                 <>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Previous Conversations</div>
+                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Friends & Conversations</div>
                   {quickSwitcherResults.map((dm, idx) => (
                     <button 
                       key={dm.dm_room_id ? `qs-${dm.dm_room_id}` : `qs-fallback-${idx}`} 
-                      onClick={() => { setView('home'); selectDm(dm); setShowQuickSwitcher(false); setQuickSwitcherQuery('') }} 
+                      onClick={() => createOrOpenDm(dm)} 
                       className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent ${idx === 0 ? 'bg-indigo-500/10 border-indigo-500/20' : 'hover:bg-[var(--bg-base)] hover:border-[var(--border-subtle)]'}`}
                     >
-                      <div className="flex items-center gap-4">
-                        <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} isOnline={onlineUsersSet.has(dm.profiles.id)} className="w-10 h-10" />
-                        <div className="flex flex-col">
+                      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={getPresenceStatus(dm.profiles.id)} className="w-10 h-10" />
+                        <div className="flex flex-col min-w-0">
                           <span className={`font-bold text-[15px] transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-[var(--text-main)] group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
                           <span className="text-[11px] text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
                         </div>
                       </div>
-                      <div className={`opacity-0 transition-opacity flex items-center gap-1 text-[10px] font-bold uppercase text-gray-500 ${idx === 0 ? 'opacity-100' : 'group-hover:opacity-100'}`}>
-                        Jump To <CornerDownLeft size={12} className="text-indigo-400 ml-1" />
+                      <div className={`hidden sm:flex opacity-0 transition-opacity items-center gap-1 text-[10px] font-bold uppercase text-gray-500 ${idx === 0 ? 'opacity-100' : 'group-hover:opacity-100'}`}>
+                        {dm.is_new_chat ? 'Start' : 'Jump To'} <CornerDownLeft size={12} className="text-indigo-400 ml-1" />
                       </div>
                     </button>
                   ))}
@@ -669,25 +944,25 @@ export default function Dashboard({ session }) {
       )}
 
       {confirmAction && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in" style={scopedChatStyle}>
-          <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-2xl border border-[var(--border-subtle)] shadow-2xl p-6">
-            <h3 className="text-xl font-bold text-[var(--text-main)] mb-2">
+        <div className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in" style={scopedChatStyle}>
+          <div className="premium-modal w-full max-w-md rounded-2xl p-6">
+            <h3 className="gradient-text relative z-10 text-xl font-semibold mb-2">
               {confirmAction.type === 'block' && `Block ${confirmAction.profile.username}?`}
               {confirmAction.type === 'unblock' && `Unblock ${confirmAction.profile.username}?`}
               {confirmAction.type === 'restrict' && `Restrict ${confirmAction.profile.username}?`}
               {confirmAction.type === 'unrestrict' && `Unrestrict ${confirmAction.profile.username}?`}
               {confirmAction.type === 'delete_dm' && `Delete conversation with ${confirmAction.profile.username}?`}
             </h3>
-            <p className="text-gray-400 text-sm mb-8">
+            <p className="relative z-10 text-gray-400 text-sm mb-8">
               {confirmAction.type === 'block' && "They won't be able to message you or see your online status."}
               {confirmAction.type === 'unblock' && "They will be able to message you again."}
               {confirmAction.type === 'restrict' && "We'll move the chat out of your main list."}
               {confirmAction.type === 'unrestrict' && "This chat will return to your main list."}
-              {confirmAction.type === 'delete_dm' && "This will permanently vaporize all messages in this chat for both users. This action cannot be undone."}
+              {confirmAction.type === 'delete_dm' && "This removes the conversation from your list. Your friendship will remain intact."}
             </p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmAction(null)} className="flex-1 py-3 rounded-xl font-bold text-gray-300 hover:text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-all focus-visible:ring-2 focus-visible:ring-white cursor-pointer">Cancel</button>
-              <button onClick={executeConfirmAction} className={`flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg focus-visible:ring-2 focus-visible:ring-white cursor-pointer ${confirmAction.type.includes('un') ? 'bg-green-500 hover:bg-green-600 shadow-green-500/20' : 'bg-red-500 hover:bg-red-600 shadow-red-500/20'}`}>
+            <div className="relative z-10 flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="premium-secondary-button flex-1 py-3 rounded-xl font-bold cursor-pointer">Cancel</button>
+              <button onClick={executeConfirmAction} className={`flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg focus-visible:ring-2 focus-visible:ring-white cursor-pointer ${confirmAction.type.includes('un') ? 'bg-green-500 hover:bg-green-600 shadow-green-500/20' : 'premium-danger-button'}`}>
                 Confirm
               </button>
             </div>
@@ -697,7 +972,7 @@ export default function Dashboard({ session }) {
 
       {chatManagerProps.selectedImage && (
         <div 
-          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in"
+          className="premium-backdrop fixed inset-0 z-[400] flex flex-col items-center justify-center p-4 animate-fade-in"
           onClick={() => chatManagerProps.setSelectedImage(null)}
         >
           <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pt-4">
@@ -716,7 +991,7 @@ export default function Dashboard({ session }) {
             <img 
               src={chatManagerProps.selectedImage.url} 
               alt="Expanded view" 
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl cursor-default animate-slide-up"
+              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-[0_22px_70px_rgba(0,0,0,0.55)] cursor-default animate-slide-up"
               onClick={e => e.stopPropagation()} 
               decoding="async"
               fetchPriority="high"
@@ -726,21 +1001,14 @@ export default function Dashboard({ session }) {
             className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg mb-4"
             onClick={(e) => { 
               e.stopPropagation();
-              toast('Saving image...', { icon: '⬇️', id: 'save-toast' })
-              fetch(chatManagerProps.selectedImage.url)
-                .then(response => response.blob())
-                .then(blob => {
-                  const blobUrl = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.style.display = 'none';
-                  a.href = blobUrl;
-                  a.download = `messapp_image_${crypto.randomUUID().substring(0, 8)}.jpg`;
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(blobUrl);
-                  toast.success('Image saved!', { id: 'save-toast' })
-                })
-                .catch(() => toast.error('Failed to download image', { id: 'save-toast' }));
+              const a = document.createElement('a');
+              a.style.display = 'none';
+              a.href = chatManagerProps.selectedImage.url;
+              a.download = `messapp_image_${crypto.randomUUID().substring(0, 8)}.jpg`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              toast.success('Image download started')
             }}
           >
             <Download size={18} /> Save Image
@@ -749,13 +1017,13 @@ export default function Dashboard({ session }) {
       )}
 
       {showPinSetupPrompt && !showRecoveryPrompt && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in text-[var(--text-main)]">
-          <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-3xl border border-indigo-500/50 shadow-[0_0_50px_rgba(99,102,241,0.15)] p-6 md:p-8 text-center">
-            <div className="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mb-6 mx-auto">
+        <div className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
+          <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
                <Key size={32} />
             </div>
-            <h3 className="text-2xl font-bold mb-2 font-display">Secure Your Messages</h3>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+            <h3 className="gradient-text relative z-10 text-2xl font-semibold mb-2 font-display">Secure Your Messages</h3>
+            <p className="relative z-10 text-gray-400 text-sm mb-6 leading-relaxed">
               MessApp uses <strong>End-to-End Encryption</strong>. Before you can chat, create a 6-Digit PIN to securely back up your keys so you don't lose your messages if you clear your browser.
             </p>
             
@@ -765,7 +1033,7 @@ export default function Dashboard({ session }) {
               value={setupPinInput}
               onChange={(e) => setSetupPinInput(e.target.value)}
               placeholder="••••••"
-              className="w-48 bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 transition-all mx-auto block"
+              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none transition-all mx-auto block"
             />
             
             <button
@@ -788,11 +1056,11 @@ export default function Dashboard({ session }) {
                   
                   toast.success('Security setup complete!', { id: toastId });
                   setShowPinSetupPrompt(false);
-                } catch (e) {
+                } catch (_e) {
                   toast.error('Failed to secure keys.', { id: toastId });
                 }
               }}
-              className="w-full py-4 rounded-xl font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-all shadow-lg cursor-pointer"
+              className="premium-button relative z-10 w-full py-4 rounded-xl font-bold cursor-pointer"
             >
               Set PIN & Continue
             </button>
@@ -801,13 +1069,13 @@ export default function Dashboard({ session }) {
       )}
 
       {showRecoveryPrompt && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-fade-in text-[var(--text-main)]">
-          <div className="bg-[var(--bg-surface)] w-full max-w-md rounded-3xl border border-[var(--border-subtle)] shadow-2xl p-6 md:p-8 text-center">
-            <div className="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mb-6 mx-auto shadow-[0_0_30px_rgba(99,102,241,0.3)]">
+        <div className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
+          <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
                <Shield size={32} />
             </div>
-            <h3 className="text-2xl font-bold mb-2 font-display">Enter Your PIN</h3>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+            <h3 className="gradient-text relative z-10 text-2xl font-semibold mb-2 font-display">Enter Your PIN</h3>
+            <p className="relative z-10 text-gray-400 text-sm mb-6 leading-relaxed">
               You are logging in from a new device. Enter your <strong>6-Digit PIN</strong> to unlock your Secure Storage and restore your messages.
             </p>
             
@@ -817,10 +1085,10 @@ export default function Dashboard({ session }) {
               value={recoveryCodeInput}
               onChange={(e) => setRecoveryCodeInput(e.target.value)}
               placeholder="••••••"
-              className="w-48 bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 transition-all mx-auto block"
+              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none transition-all mx-auto block"
             />
             
-            <div className="flex flex-col gap-3">
+            <div className="relative z-10 flex flex-col gap-3">
               <button
                 onClick={async () => {
                   try {
@@ -838,7 +1106,7 @@ export default function Dashboard({ session }) {
                       parsedKey = JSON.parse(decryptedKeyStr);
                       if (!parsedKey.kty) throw new Error();
                       await importPrivateKey(parsedKey); 
-                    } catch (err) {
+                    } catch (_err) {
                       throw new Error("Incorrect PIN");
                     }
                     
@@ -855,11 +1123,11 @@ export default function Dashboard({ session }) {
 
                     toast.success('Keys restored! Reloading system...');
                     setTimeout(() => window.location.reload(), 1000);
-                  } catch (e) {
+                  } catch (_e) {
                     toast.error('Incorrect PIN. Please try again.');
                   }
                 }}
-                className="w-full py-4 rounded-xl font-bold text-white bg-indigo-500 hover:bg-indigo-600 transition-all shadow-lg cursor-pointer"
+                className="premium-button w-full py-4 rounded-xl font-bold cursor-pointer"
               >
                 Unlock & Enter
               </button>
@@ -869,7 +1137,7 @@ export default function Dashboard({ session }) {
                   toast('Generating new keys...', { icon: '⚠️' });
                   setTimeout(() => window.location.reload(), 1000);
                 }}
-                className="w-full py-4 rounded-xl font-bold text-gray-400 hover:text-white bg-[var(--bg-element)] hover:bg-[var(--border-subtle)] transition-all cursor-pointer"
+                className="premium-secondary-button w-full py-4 rounded-xl font-bold cursor-pointer"
               >
                 Skip (Lose old messages)
               </button>
@@ -878,7 +1146,13 @@ export default function Dashboard({ session }) {
         </div>
       )}
 
-      {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })} />}
+      {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onProfileUpdated={(updates) => {
+        setProfileOverride(prev => {
+          const next = { ...prev, ...updates }
+          localStorage.setItem(profileCacheKey, JSON.stringify(next))
+          return next
+        })
+      }} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
       {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
