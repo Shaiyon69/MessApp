@@ -22,7 +22,7 @@
     "@capacitor/ios": "^7.6.0",
     "@capacitor/push-notifications": "^7.0.6",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@supabase/supabase-js": "^2.100.1",
+    "@supabase/supabase-js": "^2.108.2",
     "@tailwindcss/vite": "^4.0.9",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-shell": "^2.3.5",

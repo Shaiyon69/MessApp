@@ -22,9 +22,9 @@ export default function LinkPreview({ url }) {
   if (loading || !preview) return null
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden bg-[var(--bg-element)] border border-[var(--border-subtle)] hover:border-indigo-500 transition-colors shadow-sm group cursor-pointer no-underline">
+    <a href={url} target="_blank" rel="noopener noreferrer" className="premium-section block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden hover:border-[var(--theme-base)] transition-colors group cursor-pointer no-underline">
       {preview.image?.url && (
-        <div className="w-full h-32 bg-[#0d0f12] overflow-hidden border-b border-[var(--border-subtle)]">
+        <div className="w-full h-32 bg-[var(--bg-base)] overflow-hidden border-b border-[var(--border-subtle)]">
           <img src={preview.image.url} alt="Preview" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" fetchPriority="low" />
         </div>
       )}
