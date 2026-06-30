@@ -89,7 +89,7 @@ export default function Register({ switchToLogin, onRegistrationComplete }) {
   }
 
   return (
-    <div onMouseMove={trackSpotlight} className="glass-panel premium-card rounded-none md:rounded-[32px] w-full min-h-[100dvh] md:min-h-0 md:h-[650px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)] animate-slide-up pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div onMouseMove={trackSpotlight} className="glass-panel premium-card auth-card rounded-2xl md:rounded-[32px] w-full md:h-[650px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)] animate-slide-up">
       
       <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
         <div>

@@ -36,7 +36,7 @@ export default function ServerSettingsModal({ session, activeServer, handleUpdat
   }
 
   return (
-    <div className="premium-backdrop fixed inset-0 flex flex-col justify-end md:justify-center items-center z-[100] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div data-ui-overlay-owner="ServerSettings:modal" className="premium-backdrop fixed inset-0 flex flex-col justify-end md:justify-center items-center z-[100] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <div onMouseMove={trackSpotlight} className="premium-modal premium-card text-white p-6 md:p-8 rounded-t-3xl md:rounded-3xl w-full max-w-md animate-slide-up md:animate-fade-in pb-10 md:pb-8 flex flex-col max-h-[90vh]">
         
         <div className="flex justify-between items-center mb-6 md:mb-8">

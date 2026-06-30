@@ -69,6 +69,52 @@ const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
 }
 
+const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
+
+const describeDebugTarget = (target) => {
+  if (!target || target === window) return 'window'
+  if (target === document) return 'document'
+  const element = target.nodeType === 3 ? target.parentElement : target
+  if (!element?.tagName) return 'unknown'
+  const id = element.id ? `#${element.id}` : ''
+  const classes = typeof element.className === 'string'
+    ? `.${element.className.split(/\s+/).filter(Boolean).slice(0, 4).join('.')}`
+    : ''
+  return `${element.tagName.toLowerCase()}${id}${classes}`
+}
+
+const serializeDebugError = (value) => {
+  if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack }
+  if (typeof value === 'object' && value !== null) return value
+  return String(value)
+}
+
+const logMenuDebug = (event, payload = {}) => {
+  try {
+    if (localStorage.getItem('messappDebugMenus') !== 'true') return
+  } catch (_err) {
+    return
+  }
+  console.debug('[MENU_DEBUG]', event, {
+    componentPath: 'src/components/Dashboard.jsx',
+    ...payload,
+    stack: debugStack()
+  })
+}
+
+const logUiFreezeDebug = (event, payload = {}) => {
+  try {
+    if (localStorage.getItem('messappDebugUiFreeze') !== 'true') return
+  } catch (_err) {
+    return
+  }
+  console.debug('[UI_FREEZE_DEBUG]', event, {
+    componentPath: 'src/components/Dashboard.jsx',
+    ...payload,
+    stack: debugStack()
+  })
+}
+
 export default function Dashboard({ session }) {
   const [view, setView] = useState('home')
   const [homeTab, setHomeTab] = useState('online') 
@@ -109,6 +155,9 @@ export default function Dashboard({ session }) {
   const [setupPinInput, setSetupPinInput] = useState('')
 
   const [dmActionMenuId, setDmActionMenuId] = useState(null) 
+  const [messageActionMenuId, setMessageActionMenuId] = useState(null)
+  const [messageActionMenuPosition, setMessageActionMenuPosition] = useState(null)
+  const [composerTrayOpen, setComposerTrayOpen] = useState(false)
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
   const [serverSettingsName, setServerSettingsName] = useState('')
@@ -131,8 +180,17 @@ export default function Dashboard({ session }) {
   const myUsername = profileData.username || session.user.email.split('@')[0]
   const myTag = profileData.unique_tag || `${myUsername}#0000`
 
+  const closeUserSettings = useCallback(() => {
+    setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })
+    setView('home')
+    setHomeTab('online')
+    if (window.innerWidth < 768) setMobileMenuOpen(true)
+  }, [])
+
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms)
   const webRTCProps = useWebRTC(session, activeDm)
+  const hasConfirmAction = Boolean(confirmAction)
+  const hasSelectedImage = Boolean(chatManagerProps.selectedImage)
 
   const stateRef = useRef({});
   const activeDmRef = useRef(null);
@@ -140,6 +198,7 @@ export default function Dashboard({ session }) {
   const lastHomeClickRef = useRef(0);
   const acceptingRefs = useRef(new Set());
   const exitTimerRef = useRef(null);
+  const dmMenuScopeRef = useRef('');
 
   useEffect(() => {
     try {
@@ -153,13 +212,19 @@ export default function Dashboard({ session }) {
     const unlockAudio = () => {
       void audioSys.unlock();
       document.removeEventListener('pointerdown', unlockAudio, true);
+      document.removeEventListener('touchstart', unlockAudio, true);
+      document.removeEventListener('click', unlockAudio, true);
       document.removeEventListener('keydown', unlockAudio, true);
     };
     
     document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true, capture: true });
+    document.addEventListener('click', unlockAudio, { once: true, capture: true });
     document.addEventListener('keydown', unlockAudio, { once: true, capture: true });
     return () => {
       document.removeEventListener('pointerdown', unlockAudio, true);
+      document.removeEventListener('touchstart', unlockAudio, true);
+      document.removeEventListener('click', unlockAudio, true);
       document.removeEventListener('keydown', unlockAudio, true);
     }
   }, []);
@@ -173,21 +238,32 @@ export default function Dashboard({ session }) {
       selectedImage: chatManagerProps.selectedImage,
       showProfilePopout,
       showQuickSwitcher,
-      confirmAction,
-      showServerSettings,
-      showChannelModal,
-      showChannelSettings,
-      activeDm,
-      view
-    };
-  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, activeDm, view]);
+	      confirmAction,
+	      showServerSettings,
+	      showChannelModal,
+	      showChannelSettings,
+	      dmActionMenuId,
+	      messageActionMenuId,
+	      activeDm,
+	      view
+	    };
+	  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
     const setupBackButton = async () => {
       await CapacitorApp.addListener('backButton', () => {
         const state = stateRef.current;
         
-        if (state.selectedImage) chatManagerProps.setSelectedImage(null);
+	        if (state.messageActionMenuId) {
+	          logMenuDebug('menu closed', { reason: 'android_back', messageId: state.messageActionMenuId })
+	          setMessageActionMenuId(null)
+	          setMessageActionMenuPosition(null)
+	        }
+	        else if (state.dmActionMenuId) {
+	          logUiFreezeDebug('dm action menu closed', { reason: 'android_back', dmActionMenuId: state.dmActionMenuId })
+	          setDmActionMenuId(null)
+	        }
+	        else if (state.selectedImage) chatManagerProps.setSelectedImage(null);
         else if (state.confirmAction) setConfirmAction(null);
         else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
         else if (state.showProfilePopout) setShowProfilePopout(false);
@@ -198,7 +274,7 @@ export default function Dashboard({ session }) {
             if (!state.settingsModalConfig.showMenu && window.innerWidth < 768) {
                 setSettingsModalConfig(prev => ({ ...prev, showMenu: true }));
             } else {
-                setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true });
+                closeUserSettings();
             }
         }
         else if (state.showRightSidebar) { setShowRightSidebar(false); setSearchQuery(''); }
@@ -216,7 +292,118 @@ export default function Dashboard({ session }) {
     };
     setupBackButton();
     return () => { CapacitorApp.removeAllListeners('backButton'); };
-  }, []);
+	  }, [closeUserSettings]);
+
+  useEffect(() => {
+    const handleUnhandledRejection = (event) => {
+      logUiFreezeDebug('unhandledrejection', { reason: serializeDebugError(event.reason) })
+    }
+
+    const handleWindowError = (event) => {
+      logUiFreezeDebug('window error', {
+        message: event.message,
+        source: event.filename,
+        line: event.lineno,
+        column: event.colno,
+        error: serializeDebugError(event.error)
+      })
+    }
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+    window.addEventListener('error', handleWindowError)
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+      window.removeEventListener('error', handleWindowError)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!dmActionMenuId) return undefined
+
+    const closeDmActionMenu = (reason, payload = {}) => {
+      logUiFreezeDebug('dm action menu closed', { reason, dmActionMenuId, ...payload })
+      setDmActionMenuId(null)
+    }
+
+    const handlePointerDown = (event) => {
+      if (event.target?.closest?.('[data-dm-action-menu]')) return
+      closeDmActionMenu('document_pointerdown', {
+        pointerType: event.pointerType,
+        target: describeDebugTarget(event.target)
+      })
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') closeDmActionMenu('escape_key')
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [dmActionMenuId])
+
+  useEffect(() => {
+    const nextScope = `${view}:${activeDm?.dm_room_id || 'none'}:${mobileMenuOpen ? 'mobile-open' : 'mobile-closed'}`
+    if (dmMenuScopeRef.current && dmMenuScopeRef.current !== nextScope && dmActionMenuId) {
+      logUiFreezeDebug('dm action menu closed', {
+        reason: 'scope_changed',
+        dmActionMenuId,
+        from: dmMenuScopeRef.current,
+        to: nextScope
+      })
+      setDmActionMenuId(null)
+    }
+    dmMenuScopeRef.current = nextScope
+  }, [activeDm?.dm_room_id, dmActionMenuId, mobileMenuOpen, view])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const overlays = Array.from(document.querySelectorAll('[data-ui-overlay-owner]')).map((element) => {
+        const rect = element.getBoundingClientRect()
+        const style = window.getComputedStyle(element)
+        const coversViewport = rect.width >= window.innerWidth * 0.85 && rect.height >= window.innerHeight * 0.85
+        return {
+          owner: element.getAttribute('data-ui-overlay-owner'),
+          pointerEvents: style.pointerEvents,
+          opacity: style.opacity,
+          visibility: style.visibility,
+          display: style.display,
+          rect: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          },
+          blocksInteraction: coversViewport && style.pointerEvents !== 'none' && style.visibility !== 'hidden' && style.display !== 'none'
+        }
+      })
+
+      if (overlays.length > 0) {
+        logUiFreezeDebug('overlay scan', { overlays })
+      }
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [
+    mobileMenuOpen,
+    showRightSidebar,
+    settingsModalConfig.isOpen,
+    showQuickSwitcher,
+    hasConfirmAction,
+    showServerSettings,
+    showChannelModal,
+    showChannelSettings,
+    hasSelectedImage,
+    showPinSetupPrompt,
+    showRecoveryPrompt,
+    webRTCProps.callActive,
+    webRTCProps.callMinimized,
+    dmActionMenuId,
+    messageActionMenuId
+  ])
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
@@ -764,7 +951,7 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="ambient-shell flex h-[100dvh] w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
+    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
       <CallOverlay 
         {...webRTCProps}
         acceptCall={webRTCProps.acceptCall}
@@ -774,9 +961,14 @@ export default function Dashboard({ session }) {
         toggleNoiseCancellation={webRTCProps.toggleNoiseCancellation}
         acceptVideoRequest={webRTCProps.acceptVideoRequest}
         declineVideoRequest={webRTCProps.declineVideoRequest}
+        composerTrayOpen={composerTrayOpen}
       />
 
-      <Toaster position="top-center" toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }} />
+      <Toaster
+        position="top-center"
+        containerStyle={{ top: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}
+        toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
+      />
       
       <LeftSidebar 
         session={session}
@@ -854,6 +1046,7 @@ export default function Dashboard({ session }) {
         wallpaperPosition={currentWallpaperConfig.position}
         isBlocked={isBlocked}
         blockReason={blockReason}
+        isCallMinimized={webRTCProps.callActive && webRTCProps.callMinimized}
         blockedUsersSet={blockedUsersSet}
         scopedChatStyle={scopedChatStyle}
         isChatActive={isChatActive}
@@ -861,6 +1054,11 @@ export default function Dashboard({ session }) {
         handleDeclineRequest={handleDeclineRequest}
         dmActionMenuId={dmActionMenuId}
         setDmActionMenuId={setDmActionMenuId}
+        messageActionMenuId={messageActionMenuId}
+        setMessageActionMenuId={setMessageActionMenuId}
+        messageActionMenuPosition={messageActionMenuPosition}
+        setMessageActionMenuPosition={setMessageActionMenuPosition}
+        setComposerTrayOpen={setComposerTrayOpen}
         setConfirmAction={setConfirmAction}
         restrictedUsersSet={restrictedUsersSet}
         onlineUsersSet={onlineUsersSet}
@@ -901,7 +1099,7 @@ export default function Dashboard({ session }) {
       )}
 
       {showQuickSwitcher && (
-        <div className="premium-backdrop fixed inset-0 z-[200] flex items-start justify-center pt-[10vh] sm:pt-[15vh] animate-fade-in px-4" onClick={() => setShowQuickSwitcher(false)}>
+        <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-start justify-center pt-[10vh] sm:pt-[15vh] animate-fade-in px-4" onClick={() => setShowQuickSwitcher(false)}>
           <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
@@ -944,7 +1142,7 @@ export default function Dashboard({ session }) {
       )}
 
       {confirmAction && (
-        <div className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in" style={scopedChatStyle}>
+        <div data-ui-overlay-owner="Dashboard:confirm-action" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in" style={scopedChatStyle}>
           <div className="premium-modal w-full max-w-md rounded-2xl p-6">
             <h3 className="gradient-text relative z-10 text-xl font-semibold mb-2">
               {confirmAction.type === 'block' && `Block ${confirmAction.profile.username}?`}
@@ -972,10 +1170,11 @@ export default function Dashboard({ session }) {
 
       {chatManagerProps.selectedImage && (
         <div 
-          className="premium-backdrop fixed inset-0 z-[400] flex flex-col items-center justify-center p-4 animate-fade-in"
+          data-ui-overlay-owner="Dashboard:image-lightbox"
+          className="premium-backdrop fixed inset-0 z-[400] flex flex-col items-center justify-center px-[max(1rem,env(safe-area-inset-left))] py-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] animate-fade-in"
           onClick={() => chatManagerProps.setSelectedImage(null)}
         >
-          <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-10 pt-4">
+          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-3 bg-gradient-to-b from-black/80 to-transparent px-[max(1rem,env(safe-area-inset-left))] pb-6 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))]">
             <div className="flex flex-col">
               <span className="text-white font-bold">{chatManagerProps.selectedImage.user}</span>
               <span className="text-gray-400 text-xs">{chatManagerProps.selectedImage.time}</span>
@@ -991,14 +1190,14 @@ export default function Dashboard({ session }) {
             <img 
               src={chatManagerProps.selectedImage.url} 
               alt="Expanded view" 
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-[0_22px_70px_rgba(0,0,0,0.55)] cursor-default animate-slide-up"
+              className="max-w-full max-h-[calc(100dvh-max(8rem,env(safe-area-inset-top))-max(6rem,env(safe-area-inset-bottom)))] object-contain rounded-lg shadow-[0_22px_70px_rgba(0,0,0,0.55)] cursor-default animate-slide-up"
               onClick={e => e.stopPropagation()} 
               decoding="async"
               fetchPriority="high"
             />
           
           <button 
-            className="absolute bottom-8 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg mb-4"
+            className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg"
             onClick={(e) => { 
               e.stopPropagation();
               const a = document.createElement('a');
@@ -1017,7 +1216,7 @@ export default function Dashboard({ session }) {
       )}
 
       {showPinSetupPrompt && !showRecoveryPrompt && (
-        <div className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
+        <div data-ui-overlay-owner="Dashboard:pin-setup" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
           <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
             <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
                <Key size={32} />
@@ -1069,7 +1268,7 @@ export default function Dashboard({ session }) {
       )}
 
       {showRecoveryPrompt && (
-        <div className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
+        <div data-ui-overlay-owner="Dashboard:pin-recovery" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
           <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
             <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
                <Shield size={32} />
@@ -1152,7 +1351,7 @@ export default function Dashboard({ session }) {
           localStorage.setItem(profileCacheKey, JSON.stringify(next))
           return next
         })
-      }} onClose={() => setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })} />}
+      }} onClose={closeUserSettings} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
       {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}

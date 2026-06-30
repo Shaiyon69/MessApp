@@ -11,5 +11,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-  }
+  },
+  server: {
+    watch: {
+      ignored: [
+        '**/android/**',
+        '**/ios/**',
+        '**/src-tauri/**',
+        '**/.git/**',
+      ],
+    },
+  },
 })
