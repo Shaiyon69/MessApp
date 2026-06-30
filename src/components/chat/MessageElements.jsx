@@ -1,9 +1,9 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react'
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw } from 'lucide-react'
 import EmojiPicker from 'emoji-picker-react' 
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import StatusAvatar from '../ui/StatusAvatar'
@@ -51,11 +51,74 @@ const safeDownloadUrl = (value) => {
   return ''
 }
 
+const formatAttachmentSize = (value) => {
+  if (typeof value === 'string' && value.trim()) return value
+  if (!Number.isFinite(value) || value <= 0) return ''
+  const units = ['B', 'KB', 'MB', 'GB']
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  return `${(value / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
 const resolveAttachmentUrl = (attachment) => {
   const value = attachment?.file_url || ''
   return attachment?.file_type?.startsWith('image/')
     ? safeMediaUrl(value) || ''
     : safeDownloadUrl(value)
+}
+
+const getDeliveryStatus = (message, peerReadAt) => {
+  if (message.__delivery_status === 'failed') return 'failed'
+  if (message.__delivery_status === 'sending') return 'sending'
+  if (message.seen_at || message.read_at) return 'seen'
+  if (peerReadAt && message.created_at && new Date(peerReadAt) >= new Date(message.created_at)) return 'seen'
+  return 'sent'
+}
+
+const deliveryStatusMeta = {
+  sending: { label: 'Sending', icon: Clock3, className: 'text-gray-400' },
+  sent: { label: 'Sent', icon: Check, className: 'text-gray-400' },
+  seen: { label: 'Seen', icon: CheckCheck, className: 'text-[var(--theme-base)]' },
+  failed: { label: 'Failed', icon: AlertCircle, className: 'text-red-400' }
+}
+
+const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
+
+const logMenuDebug = (event, payload = {}) => {
+  try {
+    if (localStorage.getItem('messappDebugMenus') !== 'true') return
+  } catch (_err) {
+    return
+  }
+  console.debug('[MENU_DEBUG]', event, {
+    componentPath: 'src/components/chat/MessageElements.jsx',
+    ...payload,
+    stack: debugStack()
+  })
+}
+
+const describeTarget = (target) => {
+  if (!target || target === window) return 'window'
+  if (target === document) return 'document'
+  const element = target.nodeType === Node.TEXT_NODE ? target.parentElement : target
+  if (!element?.tagName) return 'unknown'
+  const id = element.id ? `#${element.id}` : ''
+  const classes = typeof element.className === 'string'
+    ? `.${element.className.split(/\s+/).filter(Boolean).slice(0, 4).join('.')}`
+    : ''
+  return `${element.tagName.toLowerCase()}${id}${classes}`
+}
+
+const formatReceiptTime = (value) => {
+  if (!value) return 'Not recorded'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Not recorded'
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const getSeenTimestamp = (message, peerReadAt) => {
+  if (message.seen_at || message.read_at) return message.seen_at || message.read_at
+  if (peerReadAt && message.created_at && new Date(peerReadAt) >= new Date(message.created_at)) return peerReadAt
+  return null
 }
 
 const getYouTubeEmbedUrl = (value) => {
@@ -172,7 +235,7 @@ export const LinkPreview = ({ url }) => {
       <div className="px-2 py-1">
         <h4 className="text-[13px] font-bold text-current truncate mb-1">{preview.title}</h4>
         <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed">{preview.description}</p>
-        <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-1.5">
+        <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-0.5">
           {safeHttpUrl(preview.logo?.url) && <img src={safeHttpUrl(preview.logo.url)} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
           <span className="truncate">{preview.publisher || fallbackHost}</span>
         </div>
@@ -185,13 +248,30 @@ export const MemoizedMessage = React.memo(({
   m, isMe, showHeader, alignRight, isHighlighted, currentUserId,
   isEditing, editContent, setEditContent, handleUpdateMessage, setEditingMessageId,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
-  toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus
+  toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
+  peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
+  messageActionMenuPosition, setMessageActionMenuPosition, closeMessageInteraction
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
-  const [showMobileActions, setShowMobileActions] = useState(false)
-  const [showDetails, setShowDetails] = useState(false)
+  const [showInlineTime, setShowInlineTime] = useState(false)
+  const [showReceiptDetails, setShowReceiptDetails] = useState(false)
   const touchTimer = useRef(null)
+  const lastReactionTouchRef = useRef(0)
+  const lastReactionPickerTouchRef = useRef(0)
+  const suppressBubbleClickUntilRef = useRef(0)
+  const suppressNextBubbleClickRef = useRef(false)
+  const bubbleRef = useRef(null)
+  const actionMenuRef = useRef(null)
+  const gestureRef = useRef(null)
+  const [actionMenuPosition, setActionMenuPosition] = useState(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
   const message = m
+  const hasAttachments = message.message_attachments && message.message_attachments.length > 0
+  const attachments = message.message_attachments || []
+  const imageAttachments = attachments.filter(attachment => attachment.file_type?.startsWith('image/'))
+  const hasImageAttachments = imageAttachments.length > 0
+  const selectedMenuAnchor = messageActionMenuPosition?.messageId === m.id ? messageActionMenuPosition : null
+  const isActionMenuOpen = messageActionMenuId === m.id
   const { previewLinks, renderedContent } = useMemo(() => {
     if (!m.content || m.is_deleted || typeof m.content !== 'string') {
       return { previewLinks: [], renderedContent: typeof m.content === 'string' ? m.content : '' }
@@ -205,19 +285,236 @@ export const MemoizedMessage = React.memo(({
     }
   }, [m.content, m.is_deleted])
 
-  if (m.is_unreadable || (typeof m.content === 'string' && m.content.includes('[Encrypted Message]'))) {
-    return null
+  const closeActionMenu = useCallback((reason, payload = {}) => {
+    if (bubbleRef.current?.hasPointerCapture && payload.pointerId !== undefined) {
+      try {
+        if (bubbleRef.current.hasPointerCapture(payload.pointerId)) bubbleRef.current.releasePointerCapture(payload.pointerId)
+      } catch (_err) {}
+    }
+    if (messageActionMenuId === m.id) {
+      logMenuDebug('menu closed', { reason, messageId: m.id, ...payload })
+      closeMessageInteraction?.(reason, { messageId: m.id, ...payload })
+    }
+    setShowReactionPicker(false)
+    setShowReceiptDetails(false)
+    if (inlineDeleteMessageId === m.id) {
+      setInlineDeleteMessageId(null)
+      setInlineDeleteStep('options')
+    }
+  }, [closeMessageInteraction, inlineDeleteMessageId, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep])
+
+  const captureBubbleAnchor = useCallback(() => {
+    const rect = bubbleRef.current?.getBoundingClientRect?.()
+    if (!rect) return null
+    return {
+      messageId: m.id,
+      rect: {
+        top: rect.top,
+        left: rect.left,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      },
+      alignRight
+    }
+  }, [alignRight, m.id])
+
+  const calculateActionMenuPositionFromAnchor = useCallback((anchor, menuSize = {}) => {
+    const rect = anchor?.rect
+    if (!rect) return null
+    const isMobileViewport = window.innerWidth < 768
+    const width = menuSize.width || (isMobileViewport ? (hasImageAttachments ? 292 : isMe ? 244 : 200) : hasImageAttachments ? 232 : 210)
+    const height = menuSize.height || (isMobileViewport ? 52 : 44)
+    const gap = 8
+    const margin = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const anchorAlignRight = Boolean(anchor.alignRight)
+    const preferredLeft = anchorAlignRight ? rect.left - width - gap : rect.right + gap
+    const flippedLeft = anchorAlignRight ? rect.right + gap : rect.left - width - gap
+    const hasPreferredSpace = preferredLeft >= margin && preferredLeft + width <= viewportWidth - margin
+    const hasFlippedSpace = flippedLeft >= margin && flippedLeft + width <= viewportWidth - margin
+    const useAbove = !hasPreferredSpace && !hasFlippedSpace
+    const rawLeft = useAbove ? rect.left + ((rect.width - width) / 2) : hasPreferredSpace ? preferredLeft : flippedLeft
+    const maxLeft = Math.max(margin, viewportWidth - width - margin)
+    const left = Math.min(Math.max(rawLeft, margin), maxLeft)
+    const preferredTop = useAbove ? rect.top - height - gap : rect.top + ((rect.height - height) / 2)
+    const fallbackTop = rect.bottom + gap
+    const rawTop = useAbove && preferredTop < margin ? fallbackTop : preferredTop
+    const maxTop = Math.max(margin, viewportHeight - height - margin)
+    const top = Math.min(Math.max(rawTop, margin), maxTop)
+    return {
+      messageId: anchor.messageId,
+      left,
+      top,
+      alignRight: anchorAlignRight,
+      placement: useAbove ? 'above' : hasPreferredSpace ? 'preferred' : 'flipped',
+      rect: {
+        top: Math.round(rect.top),
+        right: Math.round(rect.right),
+        bottom: Math.round(rect.bottom),
+        left: Math.round(rect.left),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      }
+    }
+  }, [hasImageAttachments, isMe])
+
+  const openMobileActions = useCallback((event, reason = 'long_press') => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    suppressBubbleClickUntilRef.current = Date.now() + 1200
+    suppressNextBubbleClickRef.current = true
+    setShowInlineTime(false)
+    setShowReceiptDetails(false)
+    setInlineDeleteMessageId(null)
+    setInlineDeleteStep('options')
+    if (messageActionMenuId && messageActionMenuId !== m.id) {
+      closeMessageInteraction?.(reason, { messageId: messageActionMenuId, nextMessageId: m.id, pointerId: event?.pointerId })
+    }
+    const nextAnchor = captureBubbleAnchor()
+    if (!nextAnchor?.rect) return
+    const nextPosition = calculateActionMenuPositionFromAnchor(nextAnchor)
+    if (!nextPosition) return
+    setActionMenuPosition(nextPosition)
+    setMessageActionMenuPosition?.(nextPosition)
+    setMessageActionMenuId(m.id)
+    logMenuDebug('menu opened', {
+      reason,
+      messageId: m.id,
+      isMe,
+      pointerType: event?.pointerType,
+      eventType: event?.type,
+      target: describeTarget(event?.target),
+      bubbleRect: nextAnchor.rect
+    })
+    if (navigator.vibrate) navigator.vibrate(50)
+  }, [calculateActionMenuPositionFromAnchor, captureBubbleAnchor, closeMessageInteraction, isMe, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition])
+
+  const handlePointerDown = (event) => {
+    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
+    if (event.target?.closest?.('a, button, textarea, input, select, [contenteditable="true"]')) return
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      mode: 'pending',
+      offset: 0,
+      triggeredReply: false
+    }
+    touchTimer.current = setTimeout(() => openMobileActions(event, 'pointer_long_press'), 420)
   }
 
-  const handleTouchStart = () => {
-    touchTimer.current = setTimeout(() => {
-      setShowMobileActions(true)
-      if (navigator.vibrate) navigator.vibrate(50)
-    }, 400)
+  const clearLongPressTimer = useCallback(() => {
+    if (touchTimer.current) {
+      clearTimeout(touchTimer.current)
+      touchTimer.current = null
+    }
+  }, [])
+
+  const resetSwipe = useCallback(() => {
+    gestureRef.current = null
+    setSwipeOffset(0)
+  }, [])
+
+  const handlePointerMove = (event) => {
+    const gesture = gestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    if (isActionMenuOpen) {
+      clearLongPressTimer()
+      resetSwipe()
+      return
+    }
+    const dx = event.clientX - gesture.startX
+    const dy = event.clientY - gesture.startY
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    if (gesture.mode === 'pending' && absY > 10 && absY > absX) {
+      clearLongPressTimer()
+      gesture.mode = 'scroll'
+      setSwipeOffset(0)
+      return
+    }
+    if (gesture.mode === 'scroll') return
+    if (absX > 8 && absX > absY * 1.2) {
+      clearLongPressTimer()
+      gesture.mode = 'swipe'
+      gesture.offset = dx
+      event.preventDefault()
+      setSwipeOffset(Math.max(-88, Math.min(88, dx)))
+    }
   }
 
-  const handleTouchEndOrMove = () => { if (touchTimer.current) clearTimeout(touchTimer.current) }
-  const handleBubbleClick = () => { showMobileActions ? setShowMobileActions(false) : setShowDetails(!showDetails) }
+  const handlePointerEndOrCancel = (event) => {
+    const gesture = gestureRef.current
+    clearLongPressTimer()
+    if (gesture?.mode === 'swipe' && Math.abs(gesture.offset || swipeOffset) >= 64 && !isActionMenuOpen) {
+      suppressBubbleClickUntilRef.current = Date.now() + 500
+      suppressNextBubbleClickRef.current = true
+      setReplyingTo(m)
+      gesture.triggeredReply = true
+      if (navigator.vibrate) navigator.vibrate(20)
+    }
+    if (event?.currentTarget?.hasPointerCapture && event.pointerId !== undefined) {
+      try {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch (_err) {}
+    }
+    resetSwipe()
+  }
+
+  const handleBubbleClick = (event) => {
+    if (suppressNextBubbleClickRef.current || Date.now() < suppressBubbleClickUntilRef.current) {
+      suppressNextBubbleClickRef.current = false
+      event?.preventDefault()
+      event?.stopPropagation()
+      logMenuDebug('suppressed bubble click after long press', { messageId: m.id, target: describeTarget(event?.target) })
+      return
+    }
+    if (isActionMenuOpen) {
+      event?.stopPropagation()
+      closeActionMenu('bubble_click', { target: describeTarget(event?.target) })
+      return
+    }
+    setShowInlineTime(!showInlineTime)
+  }
+  const openReactionPicker = (event) => {
+    event.stopPropagation()
+    event.preventDefault()
+    if (touchTimer.current) clearTimeout(touchTimer.current)
+    if (Date.now() - lastReactionPickerTouchRef.current < 120) return
+    lastReactionPickerTouchRef.current = Date.now()
+    setInlineDeleteMessageId(null)
+    setShowReceiptDetails(false)
+    if (!isActionMenuOpen) {
+      const nextAnchor = captureBubbleAnchor()
+      if (!nextAnchor?.rect) return
+    const nextPosition = calculateActionMenuPositionFromAnchor(nextAnchor)
+    if (!nextPosition) return
+
+    setActionMenuPosition(nextPosition)
+    setMessageActionMenuPosition?.(nextPosition)
+    setMessageActionMenuId(m.id)
+      logMenuDebug('menu opened', { reason: 'reaction_picker', messageId: m.id, eventType: event.type, target: describeTarget(event.target) })
+    }
+    setShowReactionPicker(true)
+  }
+  const handleReactionButtonClick = (event, emoji, hasReacted) => {
+    event.stopPropagation()
+    if (Date.now() - lastReactionTouchRef.current < 500) return
+    toggleReaction(m.id, emoji, hasReacted)
+    setShowReactionPicker(false)
+    closeActionMenu('action_react')
+  }
+  const handleReactionButtonTouchEnd = (event, emoji, hasReacted) => {
+    event.stopPropagation()
+    event.preventDefault()
+    lastReactionTouchRef.current = Date.now()
+    toggleReaction(m.id, emoji, hasReacted)
+    setShowReactionPicker(false)
+    closeActionMenu('action_react_touch')
+  }
 
   const groupedReactions = m.message_reactions?.reduce((acc, r) => {
     acc[r.emoji] = [...(acc[r.emoji] || []), r]
@@ -229,7 +526,20 @@ export const MemoizedMessage = React.memo(({
   const visibleContent = renderedContent ?? (typeof m.content === 'string' ? m.content : '')
   const isEmojiOnly = typeof visibleContent === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(visibleContent.trim());
   const hasVisibleContent = typeof visibleContent === 'string' && visibleContent.trim() !== ''
-  const hasAttachments = message.message_attachments && message.message_attachments.length > 0
+  const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
+  const isEditingCaption = isEditing && hasImageAttachments
+  const showCaptionBelowMedia = hasImageAttachments && hasVisibleContent
+  const deliveryStatus = isMe ? getDeliveryStatus(m, peerReadAt) : null
+  const deliveryMeta = deliveryStatus ? deliveryStatusMeta[deliveryStatus] : null
+  const DeliveryIcon = deliveryMeta?.icon
+  const shouldShowDeliveryStatus = isMe && deliveryMeta && (showDeliveryStatus || deliveryStatus === 'failed')
+  const seenTimestamp = getSeenTimestamp(m, peerReadAt)
+  const receiptRows = isMe ? [
+    { label: 'Sent', value: formatReceiptTime(m.created_at) },
+    { label: 'Seen', value: formatReceiptTime(seenTimestamp) }
+  ] : [
+    { label: 'Sent', value: formatReceiptTime(m.created_at) }
+  ]
   const bubbleStyle = {
     backgroundColor: isMe ? 'var(--theme-base)' : 'var(--chat-bg-element,var(--bg-element))',
     borderColor: isMe ? 'var(--theme-base)' : 'var(--chat-border,var(--border-subtle))',
@@ -237,11 +547,74 @@ export const MemoizedMessage = React.memo(({
   }
   const attachmentBorderStyle = { borderColor: 'var(--theme-base)' }
 
+  useEffect(() => {
+    const handleCloseMessageInteraction = (event) => {
+      const detail = event.detail || {}
+      if (detail.messageId && detail.messageId !== m.id) return
+      clearLongPressTimer()
+      gestureRef.current = null
+      setSwipeOffset(0)
+      setShowReactionPicker(false)
+      setShowReceiptDetails(false)
+      if (bubbleRef.current?.hasPointerCapture && detail.pointerId !== undefined) {
+        try {
+          if (bubbleRef.current.hasPointerCapture(detail.pointerId)) bubbleRef.current.releasePointerCapture(detail.pointerId)
+        } catch (_err) {}
+      }
+    }
+
+    window.addEventListener('messapp:close-message-interaction', handleCloseMessageInteraction)
+    return () => window.removeEventListener('messapp:close-message-interaction', handleCloseMessageInteraction)
+  }, [clearLongPressTimer, m.id])
+
+  useEffect(() => {
+    if (!isActionMenuOpen) {
+      setShowReactionPicker(false)
+      setShowReceiptDetails(false)
+    }
+  }, [isActionMenuOpen])
+
+  useEffect(() => {
+    if (!isActionMenuOpen) return undefined
+
+    const handlePointerDownOutside = (event) => {
+      if (actionMenuRef.current?.contains(event.target)) return
+      if (bubbleRef.current?.contains(event.target)) return
+      closeActionMenu('click_away', {
+        pointerType: event.pointerType,
+        target: describeTarget(event.target)
+      })
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') closeActionMenu('escape_key')
+    }
+
+    document.addEventListener('pointerdown', handlePointerDownOutside, true)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDownOutside, true)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [closeActionMenu, isActionMenuOpen])
+
+  useEffect(() => () => {
+    clearLongPressTimer()
+    gestureRef.current = null
+    if (messageActionMenuId === m.id) {
+      logMenuDebug('menu closed', { reason: 'message_unmounted', messageId: m.id })
+    }
+  }, [clearLongPressTimer, m.id, messageActionMenuId])
+
+  if (m.is_unreadable || (typeof m.content === 'string' && m.content.includes('[Encrypted Message]'))) {
+    return null
+  }
+
   return (
-    <div id={`message-${m.id}`} className={`flex gap-2 transition-all duration-300 ease-out transform ${showHeader ? 'mt-2.5 md:mt-3' : 'mt-0.5'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse ml-6 sm:ml-12 md:ml-20' : 'mr-6 sm:mr-12 md:mr-20'}`} onMouseLeave={() => { setShowReactionPicker(false); setShowMobileActions(false); }}>
+    <div id={`message-${m.id}`} className={`flex gap-2 transition-all duration-300 ease-out transform ${showHeader ? 'mt-2.5 md:mt-3' : 'mt-0.5'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse ml-6 sm:ml-12 md:ml-20' : 'mr-6 sm:mr-12 md:mr-20'}`}>
       
       {showHeader ? (
-        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-9 w-9 mt-1 shadow-md ghost-border rounded-full shrink-0" />
+        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-8 w-8 mt-1 shadow-md ghost-border rounded-full shrink-0" />
       ) : (
         <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 text-[10px] text-gray-500 font-medium select-none`}></div>
       )}
@@ -255,25 +628,33 @@ export const MemoizedMessage = React.memo(({
           </div>
         )}
         
-        {isEditing ? (
+        {isEditing && !isEditingCaption && window.innerWidth >= 768 ? (
           <form onSubmit={(e) => handleUpdateMessage(e, m.id)} className="mt-1 w-full max-w-3xl">
             <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className={`w-full bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-2.5 rounded-xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`} autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
             <span className={`text-[10px] text-gray-500 mt-1.5 block ${alignRight ? 'text-right' : ''}`}>Press Enter to save, Esc to cancel</span>
           </form>
         ) : (
-          <div className={`flex items-start gap-1.5 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} relative group/bubble`}>
+          <div className={`flex items-start gap-0.5 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} relative group/bubble`}>
             
             <div 
-              className={`flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[min(72vw,36rem)] sm:max-w-[min(68vw,38rem)] shrink-0 min-w-0 cursor-pointer md:cursor-default`}
-              onTouchStart={handleTouchStart} 
-              onTouchEnd={handleTouchEndOrMove} 
-              onTouchMove={handleTouchEndOrMove} 
+              ref={bubbleRef}
+              className={`message-touch-target relative flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[min(72vw,36rem)] sm:max-w-[min(68vw,38rem)] shrink-0 min-w-0 cursor-pointer md:cursor-default ${isActionMenuOpen ? 'message-action-selected' : ''}`}
+              style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined }}
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerEndOrCancel}
+              onPointerCancel={handlePointerEndOrCancel}
+              onPointerMove={handlePointerMove}
               onClick={handleBubbleClick}
-              onContextMenu={(e) => { if (window.innerWidth < 768) e.preventDefault(); }} 
+              onContextMenu={(e) => openMobileActions(e, 'context_menu')}
             >
+              {swipeOffset !== 0 && (
+                <div className={`message-reply-swipe-affordance ${swipeOffset > 0 ? 'is-left' : 'is-right'}`}>
+                  <CornerDownLeft size={16} aria-hidden="true" />
+                </div>
+              )}
               
               {m.reply_to_message_id && repliedMsg && !m.is_deleted && (
-                <div onClick={(e) => { e.stopPropagation(); scrollToMessage(repliedMsg); }} className={`flex items-center gap-1.5 mb-1 opacity-70 text-[11px] text-gray-400 select-none cursor-pointer hover:opacity-100 transition-opacity ${alignRight ? 'flex-row-reverse text-right' : 'text-left'}`}>
+                <div onClick={(e) => { e.stopPropagation(); scrollToMessage(repliedMsg); }} className={`flex items-center gap-0.5 mb-1 opacity-70 text-[11px] text-gray-400 select-none cursor-pointer hover:opacity-100 transition-opacity ${alignRight ? 'flex-row-reverse text-right' : 'text-left'}`}>
                   <CornerDownLeft size={12} className="shrink-0" />
                   <StatusAvatar url={repliedMsg.profiles?.avatar_url} username={repliedMsg.profiles?.username} showStatus={false} className="w-3 h-3 rounded-full shrink-0" />
                   <span className="font-bold truncate max-w-[80px]">{repliedMsg.profiles?.username}</span>
@@ -292,7 +673,7 @@ export const MemoizedMessage = React.memo(({
                     <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
                       {visibleContent.trim()}
                     </div>
-                  ) : hasVisibleContent && (
+                  ) : hasVisibleContent && !showCaptionBelowMedia && (
                     <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
                       <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
                         <ReactMarkdown
@@ -319,15 +700,21 @@ export const MemoizedMessage = React.memo(({
                   )}
 
                   {hasAttachments && (
-                    <div className={`flex flex-col gap-1 ${hasVisibleContent ? 'mt-1' : ''} w-full ${alignRight ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex flex-col gap-0.5 ${hasVisibleContent ? 'mt-1' : ''} w-full ${alignRight ? 'items-end' : 'items-start'}`}>
                       {message.message_attachments.map((attachment) => {
                         const attachmentUrl = resolveAttachmentUrl(attachment, message)
+                        const attachmentSize = formatAttachmentSize(attachment.file_size || message.file_size)
                         return (
                         <div key={attachment.id || attachment.file_url || attachmentUrl} className="max-w-full text-[var(--theme-base)]">
                           {!attachmentUrl ? (
-                            <div className="flex items-center gap-2 max-w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-section)] px-3 py-2 text-gray-500 shadow-sm">
-                              <FileText size={18} className="shrink-0" />
-                              <span className="text-sm truncate min-w-0">{attachment.file_name || 'Attachment unavailable'}</span>
+                            <div className="file-message-card flex min-w-[220px] max-w-[min(76vw,360px)] items-center gap-3 rounded-2xl border px-4 py-3.5 text-gray-500">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)]">
+                                <FileText size={24} className="text-[var(--theme-base)]" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className="block text-sm font-bold text-[var(--chat-text,var(--text-main))] truncate">{attachment.file_name || 'Attachment unavailable'}</span>
+                                <span className="block text-[11px] font-semibold text-gray-500">Unavailable{attachmentSize ? ` • ${attachmentSize}` : ''}</span>
+                              </div>
                             </div>
                           ) : attachment.file_type?.startsWith('image/') ? (
                               <img
@@ -347,17 +734,68 @@ export const MemoizedMessage = React.memo(({
                               target="_blank"
                               rel="noopener noreferrer"
                               download={attachment.file_name || true}
-                              className="flex items-center gap-2 max-w-full rounded-xl border shadow-sm transition-all duration-300 ease-out transform px-2 py-1"
-                              style={attachmentBorderStyle}
+                              className="file-message-card flex min-w-[220px] max-w-[calc(100vw-2rem)] overflow-hidden items-center gap-3 rounded-2xl border px-4 py-3.5 text-[var(--chat-text,var(--text-main))] transition-all duration-300 ease-out transform hover:-translate-y-0.5 hover:border-[var(--theme-50)]"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <FileText size={18} className="shrink-0 text-blue-400" />
-                              <span className="text-sm text-blue-400 underline truncate min-w-0">{attachment.file_name || 'Attachment'}</span>
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--theme-20)] border border-[var(--theme-50)]">
+                                <FileText size={25} className="text-[var(--theme-base)]" />
+                              </div>
+                              <div className="min-w-0 flex-1 text-left">
+                                <span className="block text-sm font-bold leading-tight truncate">{attachment.file_name || 'Attachment'}</span>
+                                <span className="mt-1 block text-[11px] font-semibold text-gray-500">{attachmentSize || 'File attachment'}</span>
+                              </div>
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--theme-base)] text-white shadow-lg shadow-[var(--theme-20)]">
+                                <Download size={16} aria-hidden="true" />
+                              </span>
                             </a>
                           )}
                         </div>
                       )})}
                     </div>
+                  )}
+
+                  {hasImageAttachments && (
+                    isEditingCaption && window.innerWidth >= 768 ? (
+                      <form onSubmit={(e) => handleUpdateMessage(e, m.id, { allowEmpty: true })} className={`mt-2 w-full max-w-[min(72vw,32rem)] ${alignRight ? 'text-right' : 'text-left'}`}>
+                        <textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className={`w-full resize-none bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-3 rounded-2xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`}
+                          autoFocus
+                          rows={2}
+                          placeholder="Add a caption"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') setEditingMessageId(null)
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault()
+                              handleUpdateMessage(e, m.id, { allowEmpty: true })
+                            }
+                          }}
+                        />
+                        <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                          <span>Enter to save, Shift+Enter for newline</span>
+                          <button type="button" onClick={() => setEditingMessageId(null)} className="font-bold text-gray-400 hover:text-[var(--text-main)] cursor-pointer">Cancel</button>
+                        </div>
+                      </form>
+                    ) : showCaptionBelowMedia ? (
+                      <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
+                        <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              a({href, ...props}) {
+                                const safeHref = safeHttpUrl(href)
+                                if (!safeHref) return <span {...props} />
+                                return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" href={safeHref} {...props} />
+                              },
+                              img() { return null }
+                            }}
+                          >
+                            {visibleContent}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    ) : null
                   )}
 
                   {previewLinks?.map((link, i) => (
@@ -366,24 +804,44 @@ export const MemoizedMessage = React.memo(({
                     </div>
                   ))}
 
-                  {showDetails && (
-                    <div className={`mt-1 mb-1 flex items-center gap-1.5 text-[10px] text-gray-400 animate-fade-in ${alignRight ? 'flex-row-reverse' : ''}`}>
-                      <span>{exactTime}</span>
-                      {isMe && (
-                        <>
-                          <span className="w-1 h-1 rounded-full bg-gray-600"></span>
-                          <span className="text-[var(--theme-base)] font-bold">Delivered</span>
-                        </>
+                  {showInlineTime && (
+                    <div className={`mt-1 mb-1 rounded-lg border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-element,var(--bg-element))]/80 px-2.5 py-2 text-[10px] text-gray-400 shadow-inner animate-fade-in ${alignRight ? 'text-right' : 'text-left'}`}>
+                      <div className="font-semibold text-[var(--chat-text,var(--text-main))]">{exactTime}</div>
+                      {isMe && receiptRows.slice(1).map(row => (
+                        <div key={row.label} className={`mt-0.5 flex items-center gap-2 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                          <span className="font-bold text-gray-500">{row.label}</span>
+                          <span>{row.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {shouldShowDeliveryStatus && (
+                    <div className={`mt-1 flex items-center gap-0.5 text-[10px] font-bold ${deliveryMeta.className} ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                      {DeliveryIcon && <DeliveryIcon size={12} strokeWidth={2.4} aria-hidden="true" />}
+                      <span>{deliveryMeta.label}</span>
+                      {deliveryStatus === 'failed' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            retryFailedMessage?.(m)
+                          }}
+                          className="ml-1 inline-flex items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold text-red-300 transition-colors hover:bg-red-500/20 cursor-pointer"
+                        >
+                          <RotateCcw size={11} aria-hidden="true" />
+                          Retry
+                        </button>
                       )}
                     </div>
                   )}
 
                   {Object.keys(groupedReactions).length > 0 && (
-                    <div className={`flex flex-wrap gap-1 mt-1.5 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`flex flex-wrap gap-0.5 mt-1.5 ${alignRight ? 'justify-end' : 'justify-start'}`}>
                       {Object.entries(groupedReactions).map(([emoji, reactions], idx) => {
                         const hasReacted = reactions.some(r => r.profile_id === currentUserId)
                         return (
-                          <button key={`react-${m.id}-${idx}`} onClick={(e) => { e.stopPropagation(); toggleReaction(m.id, emoji, hasReacted); setShowReactionPicker(false); }} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-1 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
+                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji, hasReacted)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji, hasReacted)} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
                             <span>{emoji}</span> <span className={`font-bold ${hasReacted ? 'text-[var(--text-main)]' : 'text-gray-400'}`}>{reactions.length}</span>
                           </button>
                         )
@@ -394,8 +852,19 @@ export const MemoizedMessage = React.memo(({
               )}
             </div>
 
-            {!m.is_deleted && (
-              <div className={`flex items-center gap-1 transition-all duration-300 ease-out transform shrink-0 absolute -top-10 ${alignRight ? 'right-0' : 'left-0'} md:relative md:top-auto md:right-auto md:left-auto premium-menu md:bg-transparent md:border-transparent md:shadow-none rounded-xl p-1.5 md:p-0 z-[60] md:z-auto ${showMobileActions || showReactionPicker || inlineDeleteMessageId === m.id ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'}`}>
+            {!m.is_deleted && !m.__local && (
+              <div
+                ref={actionMenuRef}
+                className={`message-action-toolbar absolute top-1/2 -translate-y-1/2 transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 z-[80]
+                  ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}
+                  ${hasImageAttachments ? 'flex-col h-auto w-10 py-1 gap-0.5' : 'flex-row h-9 px-1 gap-0.5'}
+                  ${isActionMenuOpen || showReactionPicker || inlineDeleteMessageId === m.id
+                    ? 'flex items-center opacity-100 pointer-events-auto scale-100'
+                    : 'flex items-center opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'
+                  }`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
                 
                 {showReactionPicker && (
                   <div 
@@ -403,7 +872,6 @@ export const MemoizedMessage = React.memo(({
                     onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
                     onMouseDown={(e) => { e.preventDefault(); }}
                   >
-                    <div className="fixed inset-0 z-0 cursor-pointer sm:hidden" onClick={(e) => { e.stopPropagation(); setShowReactionPicker(false); }}></div>
                     <div className="relative z-10 rounded-xl overflow-hidden">
                       <EmojiPicker 
                         theme={document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'} 
@@ -416,64 +884,79 @@ export const MemoizedMessage = React.memo(({
                         previewConfig={{ showPreview: false }} 
                         onEmojiClick={(emojiData) => {
                           const hasReacted = groupedReactions[emojiData.emoji]?.some(r => r.profile_id === currentUserId);
-                          toggleReaction(m.id, emojiData.emoji, hasReacted);
-                          setShowReactionPicker(false);
-                          setShowMobileActions(false);
-                        }} 
+	                          toggleReaction(m.id, emojiData.emoji, hasReacted);
+	                          setShowReactionPicker(false);
+	                          closeActionMenu('action_react_picker');
+	                        }} 
                       />
                     </div>
                   </div>
                 )}
 
                 {inlineDeleteMessageId === m.id ? (
-                  <div className="flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-2 py-1 rounded-full shadow-sm animate-fade-in">
+                  <div className="flex items-center gap-0.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-2 py-1 rounded-full shadow-sm animate-fade-in">
                     {inlineDeleteStep === 'options' && (
                       <>
                         {isMe && <button onClick={() => setInlineDeleteStep('confirm_everyone')} className="text-[10px] font-bold text-red-400 hover:text-red-300 px-2 py-1 rounded transition-colors cursor-pointer">Unsend</button>}
                         <button onClick={() => setInlineDeleteStep('confirm_me')} className="text-[10px] font-bold text-gray-400 hover:text-[var(--text-main)] px-2 py-1 rounded transition-colors cursor-pointer whitespace-nowrap">Hide</button>
                         <div className="w-[1px] h-3 bg-[var(--border-subtle)] mx-1"></div>
-                        <button onClick={() => { setInlineDeleteMessageId(null); setShowMobileActions(false); }} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
+	                        <button onClick={() => closeActionMenu('delete_cancel')} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
                       </>
                     )}
                     {inlineDeleteStep === 'confirm_everyone' && (
                       <div className="flex items-center gap-2 px-1">
                         <span className="text-[10px] font-bold text-red-400 whitespace-nowrap">Unsend?</span>
-                        <button onClick={() => { executeInlineDelete(m, 'everyone'); setShowMobileActions(false); }} className="bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><Check size={12}/></button>
+	                        <button onClick={() => { executeInlineDelete(m, 'everyone'); closeActionMenu('action_delete_everyone'); }} className="bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><Check size={12}/></button>
                         <button onClick={() => setInlineDeleteStep('options')} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
                       </div>
                     )}
                     {inlineDeleteStep === 'confirm_me' && (
                       <div className="flex items-center gap-2 px-1">
                         <span className="text-[10px] font-bold text-gray-400 whitespace-nowrap">Hide?</span>
-                        <button onClick={() => { executeInlineDelete(m, 'me'); setShowMobileActions(false); }} className="bg-[var(--text-main)]/10 text-[var(--text-main)] hover:bg-[var(--text-main)]/20 p-1 rounded-full transition-colors cursor-pointer"><Check size={12}/></button>
+	                        <button onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="bg-[var(--text-main)]/10 text-[var(--text-main)] hover:bg-[var(--text-main)]/20 p-1 rounded-full transition-colors cursor-pointer"><Check size={12}/></button>
                         <button onClick={() => setInlineDeleteStep('options')} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
                       </div>
                     )}
                   </div>
                 ) : (
                   <>
-                    <button onClick={() => { setReplyingTo(m); setShowMobileActions(false); }} className="p-1.5 text-gray-500 hover:text-[var(--theme-base)] bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" title="Reply"><CornerDownLeft size={14} aria-hidden="true" /></button>
+	                    <button onClick={() => { setReplyingTo(m); closeActionMenu('action_reply'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Reply" aria-label="Reply"><CornerDownLeft size={15} aria-hidden="true" /></button>
                     <button 
-                      onClick={(e) => { 
-                        e.preventDefault(); 
-                        e.stopPropagation(); 
-                        if (document.activeElement) document.activeElement.blur();
-                        setShowReactionPicker(!showReactionPicker); 
-                      }} 
+                      onPointerDown={openReactionPicker}
+                      onClick={openReactionPicker}
                       onTouchStartCapture={() => { 
                         if (document.activeElement) document.activeElement.blur(); 
                       }}
                       onMouseDown={(e) => { e.preventDefault(); }}
-                      className="p-1.5 text-gray-500 hover:text-yellow-400 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" 
+                      className="message-action-button text-gray-500 hover:text-yellow-400 md:hover:bg-[var(--border-subtle)]" 
                       title="React"
+                      aria-label="React"
                     >
-                      <SmilePlus size={14} aria-hidden="true" />
+                      <SmilePlus size={15} aria-hidden="true" />
                     </button>
-                    {isMe && (
-                      <button onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); setShowMobileActions(false); }} className="p-1.5 text-gray-500 hover:text-[var(--text-main)] bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer" title="Edit"><Pen size={14} aria-hidden="true" /></button>
-                    )}
-                    <button onClick={() => { togglePinnedMessage(m); setShowMobileActions(false); }} className={`p-1.5 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-[var(--border-subtle)] rounded-full transition-colors cursor-pointer ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={14} aria-hidden="true" /></button>
-                    <button onClick={() => { setInlineDeleteMessageId(m.id); setInlineDeleteStep('options'); }} className="p-1.5 text-gray-500 hover:text-red-400 bg-[var(--bg-surface)] md:bg-transparent md:hover:bg-red-500/10 rounded-full transition-colors cursor-pointer" title="Hide/Delete"><Trash2 size={14} aria-hidden="true" /></button>
+	                    {isMe && !hasAttachments && (
+	                      <button onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
+	                    )}
+	                    {isMe && hasImageAttachments && (
+	                      <button onClick={() => { setEditingMessageId(m.id); setEditContent(visibleContent || ''); closeActionMenu('action_edit_caption'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title={hasVisibleContent ? 'Edit Caption' : 'Add Caption'} aria-label={hasVisibleContent ? 'Edit Caption' : 'Add Caption'}><Pen size={15} aria-hidden="true" /></button>
+	                    )}
+	                    <button onClick={() => { togglePinnedMessage(m); closeActionMenu('action_pin'); }} className={`message-action-button md:hover:bg-[var(--border-subtle)] ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'} aria-label={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={15} aria-hidden="true" /></button>
+	                    {firstImageUrl && (
+	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.stopPropagation(); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
+	                        <Download size={15} aria-hidden="true" />
+	                      </a>
+	                    )}
+	                    <button onClick={() => { setShowReceiptDetails(false); setInlineDeleteMessageId(m.id); setInlineDeleteStep('options'); }} className="message-action-button text-gray-500 hover:text-red-400 md:hover:bg-red-500/10" title="Hide/Delete" aria-label="Hide or Delete"><Trash2 size={15} aria-hidden="true" /></button>
+	                    {showReceiptDetails && (
+	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 text-[11px] text-gray-400 shadow-inner md:col-span-full">
+	                        {receiptRows.map(row => (
+	                          <div key={row.label} className="flex items-center justify-between gap-4 py-0.5">
+	                            <span className="font-bold text-gray-500">{row.label}</span>
+	                            <span className="text-right text-[var(--text-main)]">{row.value}</span>
+	                          </div>
+	                        ))}
+	                      </div>
+	                    )}
                   </>
                 )}
               </div>

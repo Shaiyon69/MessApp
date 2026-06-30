@@ -71,9 +71,9 @@ export default function RightSidebar({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform" onClick={closeRightSidebar}></div>
+      <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform" onClick={closeRightSidebar}></div>
       
-      <aside className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] md:w-96 md:max-w-none bg-[var(--bg-surface)]/95 border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform" style={scopedChatStyle}>
+      <aside className="fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-80 max-w-[85vw] md:w-96 md:max-w-none bg-[var(--bg-surface)]/95 border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform" style={scopedChatStyle}>
         
         {rightTab === 'info' && (
           <div className="flex flex-col h-full overflow-hidden relative">

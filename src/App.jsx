@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect } from 'react'
 import { supabase, supabaseConfigError } from './supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
+import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
 import Register from './components/Register'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
@@ -28,6 +29,10 @@ export default function App() {
 
   useLayoutEffect(() => {
     setThemeMode(applyThemeMode(localStorage.getItem('appTheme') || 'dark'))
+  }, [])
+
+  useEffect(() => {
+    Keyboard.setResizeMode({ mode: KeyboardResize.BODY }).catch(() => {})
   }, [])
 
   const toggleThemeMode = () => {
@@ -83,7 +88,7 @@ export default function App() {
 
   if (supabaseConfigError) {
     return (
-      <div className="ambient-shell min-h-screen w-full text-[var(--text-main)] flex items-center justify-center p-6 font-sans">
+      <div className="ambient-shell min-h-screen h-full w-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-[var(--text-main)] flex items-center justify-center px-6 font-sans">
         <div className="glass-panel premium-card w-full max-w-xl rounded-2xl p-6">
           <div className="text-xs font-bold uppercase tracking-widest text-red-300 mb-3">Configuration Required</div>
           <h1 className="text-2xl font-bold mb-3">Supabase is not configured</h1>
@@ -98,13 +103,16 @@ export default function App() {
     )
   }
 
+  const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password'
+
   return (
-    <div className="ambient-shell flex flex-col items-center justify-center min-h-screen w-full font-sans">
+    <div className={`ambient-shell flex flex-col items-center justify-center h-full w-full font-sans ${isAuthSurface ? 'auth-shell' : 'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'}`}>
       {!session && (
         <button
           type="button"
           onClick={toggleThemeMode}
-          className="premium-icon-button fixed right-4 top-4 z-[100] flex h-11 w-11 items-center justify-center rounded-full cursor-pointer"
+          className="premium-icon-button fixed right-4 z-[100] flex h-11 w-11 items-center justify-center rounded-full cursor-pointer"
+          style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
           aria-label={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark OLED mode'}
           title={themeMode === 'dark' ? 'Light mode' : 'Dark OLED mode'}
         >
