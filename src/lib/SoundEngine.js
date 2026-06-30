@@ -3,6 +3,25 @@ export class SoundEngine {
     this.ctx = null;
     this.ringInterval = null;
     this.hasInteracted = false;
+    this.resumePending = false;
+    this.warned = new Set();
+  }
+
+  getSetting(key, fallback = true) {
+    if (typeof localStorage === 'undefined') return fallback;
+    return localStorage.getItem(key) !== 'false';
+  }
+
+  isMessageSoundEnabled() {
+    return this.getSetting('messageSoundsEnabled', this.getSetting('soundEnabled', true));
+  }
+
+  isCallSoundEnabled() {
+    return this.getSetting('callSoundsEnabled', true);
+  }
+
+  isRingtoneEnabled() {
+    return this.getSetting('ringtoneSoundsEnabled', true);
   }
 
   getContext() {
@@ -18,15 +37,19 @@ export class SoundEngine {
     this.hasInteracted = true;
     try {
       const ctx = this.getContext();
-      if (!ctx) return false;
-      if (ctx.state === 'suspended') void ctx.resume();
+      if (!ctx) {
+        this.warnOnce('unlock-no-context', '[SOUND_DEBUG] Audio unlock could not create an AudioContext.');
+        return false;
+      }
+      if (ctx.state === 'suspended') await ctx.resume();
       const buffer = ctx.createBuffer(1, 1, 22050);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
       source.start(0);
       return true;
-    } catch (_err) {
+    } catch (err) {
+      this.warnOnce('unlock-failed', '[SOUND_DEBUG] Audio unlock failed.', err);
       return false;
     }
   }
@@ -34,44 +57,118 @@ export class SoundEngine {
   init() {
     try {
       const ctx = this.getContext();
-      if (!ctx) return false;
+      if (!ctx) {
+        this.warnOnce('init-no-interaction', '[SOUND_DEBUG] Audio playback skipped until the first user gesture unlocks audio.');
+        return false;
+      }
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       return true;
-    } catch (_err) {
+    } catch (err) {
+      this.warnOnce('init-failed', '[SOUND_DEBUG] Audio initialization failed.', err);
       return false;
     }
   }
 
-  playPop() {
+  warnOnce(key, ...args) {
+    if (this.warned.has(key)) return;
+    this.warned.add(key);
+    console.warn(...args);
+  }
+
+  playTone(sequence, volume = 0.04) {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-    
-    if (!this.init()) return; 
+
+    if (!this.init()) return;
     try {
-      if (this.ctx.state !== 'running') return; 
+      if (this.ctx.state !== 'running') {
+        if (!this.resumePending && this.ctx.state === 'suspended') {
+          this.resumePending = true;
+          this.ctx.resume()
+            .then(() => { this.resumePending = false; this.playTone(sequence, volume); })
+            .catch((err) => {
+              this.resumePending = false;
+              this.warnOnce('resume-blocked', '[SOUND_DEBUG] Sound playback was blocked by the browser.', err);
+            });
+        }
+        return;
+      }
       const t = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.connect(gain); 
-      gain.connect(this.ctx.destination);
-      
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(800, t);
-      osc.frequency.exponentialRampToValueAtTime(1200, t + 0.05); 
-      
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.05, t + 0.01); 
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-      
-      osc.start(t); 
-      osc.stop(t + 0.1);
-    } catch(_err) {}
+      sequence.forEach(({ frequency, at = 0, duration = 0.1 }) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, t + at);
+
+        gain.gain.setValueAtTime(0, t + at);
+        gain.gain.linearRampToValueAtTime(volume, t + at + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + at + duration);
+
+        osc.start(t + at);
+        osc.stop(t + at + duration + 0.02);
+      });
+    } catch(err) {
+      this.warnOnce('playback-failed', '[SOUND_DEBUG] Sound playback failed.', err);
+    }
+  }
+
+  playPop() {
+    this.playMessageReceived();
+  }
+
+  playMessageReceived() {
+    if (!this.isMessageSoundEnabled()) return;
+    this.playTone([
+      { frequency: 800, duration: 0.08 },
+      { frequency: 1200, at: 0.04, duration: 0.1 }
+    ], 0.035);
+  }
+
+  playMessageSent() {
+    if (!this.isMessageSoundEnabled()) return;
+    this.playTone([
+      { frequency: 660, duration: 0.07 },
+      { frequency: 980, at: 0.05, duration: 0.08 }
+    ], 0.025);
+  }
+
+  playCallConnected() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([
+      { frequency: 440, duration: 0.08 },
+      { frequency: 660, at: 0.09, duration: 0.1 }
+    ], 0.035);
+  }
+
+  playCallEnded() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([
+      { frequency: 520, duration: 0.08 },
+      { frequency: 320, at: 0.08, duration: 0.13 }
+    ], 0.03);
+  }
+
+  playCallFailed() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([
+      { frequency: 260, duration: 0.12 },
+      { frequency: 220, at: 0.14, duration: 0.14 }
+    ], 0.035);
+  }
+
+  playReactionAdded() {
+    if (!this.isMessageSoundEnabled()) return;
+    this.playTone([{ frequency: 1400, duration: 0.06 }], 0.018);
   }
 
   startRing(isOutgoing) {
+    this.stopRing();
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-    if (!this.init()) return; 
+    if (!this.isRingtoneEnabled()) return;
+    if (!this.init()) return;
     try {
-      this.stopRing();
       const vol = isOutgoing ? 0.01 : 0.05; 
       
       const ring = () => {
@@ -104,6 +201,14 @@ export class SoundEngine {
       this.ringInterval = null;
     }
   }
+
+  async test() {
+    await this.unlock();
+    this.playMessageSent();
+    setTimeout(() => this.playMessageReceived(), 220);
+    return true;
+  }
 }
 
 export const audioSys = new SoundEngine();
+if (typeof window !== 'undefined') window.MessAppSoundEngine = audioSys;

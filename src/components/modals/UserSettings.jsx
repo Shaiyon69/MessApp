@@ -1,9 +1,10 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
 import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { THEME_MODES, applyThemeMode, normalizeThemeMode } from '../../lib/theme'
+import { audioSys } from '../../lib/SoundEngine'
 
 const BANNER_OPTIONS = [
   { id: 'indigo', value: 'linear-gradient(to right, #4f46e5, #9333ea)' },
@@ -17,6 +18,10 @@ const BANNER_OPTIONS = [
 
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024
+const getLocalBoolean = (key, fallback = true) => {
+  const value = localStorage.getItem(key)
+  return value === null ? fallback : value !== 'false'
+}
 
 const ToggleSwitch = ({ label, description, checked, onChange }) => (
   <div className="premium-section flex items-center justify-between p-4 rounded-xl mb-4">
@@ -59,7 +64,9 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     if (stored === 'large') return 'spacious'
     return stored
   })
-  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('soundEnabled') !== 'false')
+  const [messageSoundsEnabled, setMessageSoundsEnabled] = useState(() => getLocalBoolean('messageSoundsEnabled', getLocalBoolean('soundEnabled', true)))
+  const [callSoundsEnabled, setCallSoundsEnabled] = useState(() => getLocalBoolean('callSoundsEnabled', true))
+  const [ringtoneSoundsEnabled, setRingtoneSoundsEnabled] = useState(() => getLocalBoolean('ringtoneSoundsEnabled', true))
   const [desktopNotifs, setDesktopNotifs] = useState(() => localStorage.getItem('notificationsEnabled') === 'true')
   const [voiceAutoGain, setVoiceAutoGain] = useState(() => localStorage.getItem('voiceAutoGain') !== 'false')
   const [voiceEchoCancel, setVoiceEchoCancel] = useState(() => localStorage.getItem('voiceEchoCancel') !== 'false')
@@ -142,7 +149,15 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     document.documentElement.style.setProperty('--chat-message-font-size', size)
   }, [uiDensity])
 
-  useEffect(() => { localStorage.setItem('soundEnabled', soundEnabled) }, [soundEnabled])
+  useEffect(() => {
+    localStorage.setItem('messageSoundsEnabled', String(messageSoundsEnabled))
+    localStorage.setItem('soundEnabled', String(messageSoundsEnabled))
+  }, [messageSoundsEnabled])
+  useEffect(() => { localStorage.setItem('callSoundsEnabled', String(callSoundsEnabled)) }, [callSoundsEnabled])
+  useEffect(() => {
+    localStorage.setItem('ringtoneSoundsEnabled', String(ringtoneSoundsEnabled))
+    if (!ringtoneSoundsEnabled) audioSys.stopRing()
+  }, [ringtoneSoundsEnabled])
   useEffect(() => { localStorage.setItem('voiceAutoGain', String(voiceAutoGain)) }, [voiceAutoGain])
   useEffect(() => { localStorage.setItem('voiceEchoCancel', String(voiceEchoCancel)) }, [voiceEchoCancel])
   useEffect(() => { localStorage.setItem('videoPreviewEnabled', String(videoPreviewEnabled)) }, [videoPreviewEnabled])
@@ -152,10 +167,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     return savedProfile.username !== username || savedProfile.bio !== bio || savedProfile.pronouns !== pronouns || savedProfile.bannerUrl !== bannerUrl
   }, [savedProfile, username, bio, pronouns, bannerUrl])
 
-  const closeWithUnsavedGuard = () => {
+  const closeWithUnsavedGuard = useCallback(() => {
     if (hasUnsavedProfileChanges && !window.confirm('Discard unsaved profile changes?')) return
     onClose()
-  }
+  }, [hasUnsavedProfileChanges, onClose])
 
   const handlePrivacyToggle = async (field, value, setter) => {
     setter(value);
@@ -324,7 +339,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const keysToKeep = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled' || key === 'notificationsEnabled')) {
+        if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'notificationsEnabled')) {
           keysToKeep[key] = localStorage.getItem(key);
         }
       }
@@ -380,10 +395,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     ]
 
   return (
-    <div className="premium-backdrop fixed inset-0 flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden">
+    <div data-ui-overlay-owner="UserSettings:settings-modal" className="premium-backdrop fixed inset-0 flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       
       {showLogoutConfirm && (
-        <div className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
+        <div data-ui-overlay-owner="UserSettings:logout-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
           <div className="premium-modal w-full max-w-sm rounded-3xl p-6 text-center animate-slide-up md:animate-fade-in">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
               <LogOut size={32} className="text-red-400" />
@@ -399,7 +414,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       )}
 
       {showDeleteConfirm && (
-        <div className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
+        <div data-ui-overlay-owner="UserSettings:delete-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
           <div className="premium-modal w-full max-w-sm rounded-3xl p-6 text-center animate-slide-up md:animate-fade-in">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
               <AlertTriangle size={32} className="text-red-500" />
@@ -857,7 +872,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Notifications</h2>
                   <div className="space-y-2">
                     <ToggleSwitch label="Enable Device Notifications" description="Receive push notifications when you are pinged or receive a DM." checked={desktopNotifs} onChange={requestDesktopNotifs} />
-                    <ToggleSwitch label="In-App Sounds" description="Play a subtle sound when a new message arrives while the app is open." checked={soundEnabled} onChange={setSoundEnabled} />
+                    <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-8 mb-2">Communication Sounds</h4>
+                    <ToggleSwitch label="Message sounds" description="Play subtle sent and received sounds while the app is open." checked={messageSoundsEnabled} onChange={setMessageSoundsEnabled} />
+                    <ToggleSwitch label="Call sounds" description="Play short tones when calls connect, end, or fail." checked={callSoundsEnabled} onChange={setCallSoundsEnabled} />
+                    <ToggleSwitch label="Ringtones" description="Play incoming and outgoing call rings while calls are waiting." checked={ringtoneSoundsEnabled} onChange={setRingtoneSoundsEnabled} />
                   </div>
                 </div>
               )}

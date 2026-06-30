@@ -14,7 +14,7 @@ export default function ServerActionPopout({ onClose, action }) {
   }, [onClose])
 
   return (
-    <div className="premium-backdrop fixed inset-0 z-[150] flex flex-col justify-end md:justify-center items-center md:items-start md:static md:bg-transparent md:backdrop-blur-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div data-ui-overlay-owner="ServerActionPopout:mobile-backdrop" className="premium-backdrop fixed inset-0 z-[150] flex flex-col justify-end md:justify-center items-center md:items-start md:static md:bg-transparent md:backdrop-blur-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       
       <div ref={popoutRef} onMouseMove={trackSpotlight} className="premium-modal premium-card w-full max-w-sm md:absolute md:left-24 md:bottom-6 md:w-[280px] rounded-[32px] md:rounded-2xl animate-slide-up md:animate-slide-right flex flex-col p-8 md:p-6 text-center items-center pb-12 md:pb-6">
         <button onClick={onClose} className="absolute top-4 md:top-3 right-4 md:right-3 text-gray-500 hover:text-white transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-full md:rounded-md p-2 md:p-1 bg-white/5 md:bg-transparent">

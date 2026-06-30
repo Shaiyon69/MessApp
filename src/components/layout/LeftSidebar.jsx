@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Home, Search, Copy, Settings, MoreVertical, Trash2 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import toast from 'react-hot-toast'
@@ -20,6 +20,19 @@ export default function LeftSidebar(props) {
     props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: false })
     props.setMobileMenuOpen(false)
   }
+
+  useEffect(() => {
+    if (!props.showProfilePopout) return undefined
+
+    const handlePointerDown = (event) => {
+      if (props.popoutRef.current?.contains(event.target)) return
+      if (event.target?.closest?.('[data-profile-popout-trigger]')) return
+      props.setShowProfilePopout(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [props.popoutRef, props.setShowProfilePopout, props.showProfilePopout])
 
   const getBannerStyle = () => {
     const banner = props.myBanner
@@ -77,14 +90,10 @@ export default function LeftSidebar(props) {
   return (
     <>
       {props.mobileMenuOpen && (
-        <div className="premium-backdrop fixed inset-0 z-40 md:hidden" onClick={() => props.setMobileMenuOpen(false)} />
+        <div data-ui-overlay-owner="LeftSidebar:mobile-menu-backdrop" className="premium-backdrop fixed inset-0 z-40 md:hidden" onClick={() => props.setMobileMenuOpen(false)} />
       )}
 
-      {props.showProfilePopout && (
-        <div className="fixed inset-0 z-[45]" onClick={() => props.setShowProfilePopout(false)}></div>
-      )}
-
-      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed left-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <nav className="flex flex-col h-full w-20 bg-[var(--surface-strong)] border-r border-[var(--border-subtle)] py-4 items-center shrink-0 relative z-20 backdrop-blur-xl">
           <div className="flex-1"></div>
           <div className="w-8 h-[2px] bg-[var(--border-subtle)] mb-4 rounded-full shrink-0"></div>
@@ -95,7 +104,7 @@ export default function LeftSidebar(props) {
           </div>
         </nav>
 
-        <aside className="app-left-panel w-80 h-full bg-[var(--bg-surface)]/95 flex flex-col border-r border-[var(--border-subtle)] shrink-0 z-10 relative backdrop-blur-xl" style={props.scopedChatStyle}>
+        <aside className="app-left-panel w-[min(20rem,calc(100vw-1rem))] h-full bg-[var(--bg-surface)]/95 flex flex-col border-r border-[var(--border-subtle)] shrink-0 z-10 relative backdrop-blur-xl" style={props.scopedChatStyle}>
           <header className="h-14 md:h-16 px-6 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0 bg-[var(--bg-base)]/80 backdrop-blur-xl">
             <h2 className="font-headline font-bold text-[var(--text-main)] tracking-tight truncate">MESSAPP</h2>
           </header>
@@ -128,6 +137,7 @@ export default function LeftSidebar(props) {
                           </button>
                           
                           <button 
+                            data-dm-action-menu="sidebar-trigger"
                             onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `sidebar-${dm.dm_room_id}`); }}
                             className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors focus-visible:opacity-100 opacity-100`}
                           >
@@ -135,16 +145,13 @@ export default function LeftSidebar(props) {
                           </button>
 
                           {isMenuOpen && (
-                            <>
-                              <div className="fixed inset-0 z-[60]" onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); }}></div>
-                              <div className="premium-menu absolute right-8 top-10 w-48 rounded-xl z-[70] py-1 animate-fade-in origin-top-right">
+                              <div data-dm-action-menu="sidebar-panel" className="premium-menu absolute right-8 top-10 w-48 rounded-xl z-[70] py-1 animate-fade-in origin-top-right">
                                 <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setView('home'); props.selectDm(dm); }} className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors">Open Chat</button>
                                 <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.restrictedUsersSet.has(dm.profiles.id) ? 'unrestrict' : 'restrict', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors">{props.restrictedUsersSet.has(dm.profiles.id) ? 'Unrestrict' : 'Mute (Restrict)'}</button>
                                 <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.blockedUsersSet.has(dm.profiles.id) ? 'unblock' : 'block', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">{props.blockedUsersSet.has(dm.profiles.id) ? 'Unblock' : 'Block User'}</button>
                                 <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
                                 <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: 'delete_dm', profile: dm.profiles, dm_room_id: dm.dm_room_id }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-between group"><span>Delete Chat</span><Trash2 size={14} className="opacity-50 group-hover:opacity-100"/></button>
                               </div>
-                            </>
                           )}
                         </div>
                       )
@@ -237,7 +244,7 @@ export default function LeftSidebar(props) {
           )}
 
           <div className="p-3 bg-[var(--bg-base)] border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0 relative z-50">
-            <button onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className={`flex items-center gap-3 min-w-0 p-2 rounded-xl transition-all text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2 ${props.showProfilePopout ? 'bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xl -translate-y-1 rounded-2xl' : 'hover:bg-[var(--bg-surface)] border border-transparent'}`}>
+            <button data-profile-popout-trigger onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className={`flex items-center gap-3 min-w-0 p-2 rounded-xl transition-all text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2 ${props.showProfilePopout ? 'bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xl -translate-y-1 rounded-2xl' : 'hover:bg-[var(--bg-surface)] border border-transparent'}`}>
               <StatusAvatar url={props.myAvatar} username={props.myUsername} status={currentStatus} className="w-11 h-11" />
               <div className="flex flex-col truncate">
                 <span className="text-[15px] font-bold text-[var(--text-main)] truncate group-hover:text-[var(--color-primary)] transition-colors">{props.myUsername}</span>
