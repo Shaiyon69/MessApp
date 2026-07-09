@@ -1,12 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Home, Search, Copy, Settings, MoreVertical, Trash2 } from 'lucide-react'
+import { Hash, Home, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, Volume2 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import toast from 'react-hot-toast'
 import { safeMediaUrl } from '../../lib/security'
+import { supabase } from '../../supabaseClient'
 
 export default function LeftSidebar(props) {
   const [isEditingStatus, setIsEditingStatus] = useState(false)
   const [statusDraft, setStatusDraft] = useState(props.myBio || '')
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false)
+  const [serverName, setServerName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [channelModalCategoryId, setChannelModalCategoryId] = useState(null)
+  const [channelName, setChannelName] = useState('')
+  const [channelType, setChannelType] = useState('text')
+  const [isCreatingChannel, setIsCreatingChannel] = useState(false)
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [categoryName, setCategoryName] = useState('')
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false)
+  const [isServerMenuOpen, setIsServerMenuOpen] = useState(false)
+  const [serverItemMenuId, setServerItemMenuId] = useState(null)
+  const [editingServerItem, setEditingServerItem] = useState(null)
+  const [editingServerItemName, setEditingServerItemName] = useState('')
+  const [isSavingServerItem, setIsSavingServerItem] = useState(false)
   const cancelStatusCommitRef = useRef(false)
   const statusOptions = [
     { id: 'online', label: 'Online', color: '#23a559' },
@@ -15,10 +32,201 @@ export default function LeftSidebar(props) {
   ]
   const currentStatus = props.userStatus || 'online'
   const currentStatusLabel = statusOptions.find(option => option.id === currentStatus)?.label || 'Online'
+  const canManageServer = Boolean(props.canManageActiveServer)
   const openProfileSettings = () => {
     props.setShowProfilePopout(false)
     props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: false })
     props.setMobileMenuOpen(false)
+  }
+  const closeCreateModal = () => {
+    setServerName('')
+    setIsCreateModalOpen(false)
+  }
+  const closeJoinModal = () => {
+    setInviteCode('')
+    setIsJoinModalOpen(false)
+  }
+  const closeChannelModal = () => {
+    setChannelModalCategoryId(null)
+    setChannelName('')
+    setChannelType('text')
+    setIsCreatingChannel(false)
+  }
+  const closeCategoryModal = () => {
+    setIsCategoryModalOpen(false)
+    setCategoryName('')
+    setIsCreatingCategory(false)
+  }
+  const closeEditServerItemModal = () => {
+    setEditingServerItem(null)
+    setEditingServerItemName('')
+    setIsSavingServerItem(false)
+  }
+  const openEditServerItemModal = (type, item) => {
+    if (!canManageServer) return toast.error('Only server admins can manage channels.')
+    setServerItemMenuId(null)
+    setEditingServerItem({ type, item })
+    setEditingServerItemName(item.name || '')
+  }
+  const openChannelModal = (categoryId) => {
+    if (!canManageServer) return toast.error('Only server admins can add channels.')
+    setChannelModalCategoryId(categoryId)
+    setChannelName('')
+    setChannelType('text')
+  }
+  const refreshServers = async (server) => {
+    await props.fetchServers?.()
+    if (server) {
+      props.setView('server')
+      props.setActiveServer(server)
+      props.setActiveChannel(null)
+      props.selectDm(null)
+      props.setMobileMenuOpen(false)
+    }
+  }
+  const handleCreateServer = async (e) => {
+    e.preventDefault()
+    const name = serverName.trim()
+    if (!name) return toast.error('Enter a server name')
+    try {
+      const invite_code = Math.random().toString(36).slice(2, 8).toUpperCase()
+      const { data: server, error: serverError } = await supabase
+        .from('servers')
+        .insert({ name, owner_id: props.session.user.id, invite_code })
+        .select()
+        .single()
+      if (serverError) throw serverError
+
+      const { error: memberError } = await supabase
+        .from('server_members')
+        .insert({ server_id: server.id, profile_id: props.session.user.id, role: 'owner' })
+      if (memberError) throw memberError
+
+      const { data: category, error: categoryError } = await supabase
+        .from('categories')
+        .insert({ server_id: server.id, name: 'General' })
+        .select()
+        .single()
+      if (categoryError) throw categoryError
+
+      const { error: channelError } = await supabase
+        .from('channels')
+        .insert({ server_id: server.id, category_id: category.id, name: 'general', type: 'text' })
+      if (channelError) throw channelError
+
+      closeCreateModal()
+      await refreshServers(server)
+      toast.success('Server created')
+    } catch (_err) {
+      toast.error('Could not create server')
+    }
+  }
+  const handleJoinServer = async (e) => {
+    e.preventDefault()
+    const code = inviteCode.trim().toUpperCase()
+    if (!code) return toast.error('Enter an invite code')
+    try {
+      const { data: server, error: serverError } = await supabase
+        .from('servers')
+        .select()
+        .eq('invite_code', code)
+        .maybeSingle()
+      if (serverError) throw serverError
+      if (!server) throw new Error('Server not found')
+
+      const { error: memberError } = await supabase
+        .from('server_members')
+        .insert({ server_id: server.id, profile_id: props.session.user.id, role: 'member' })
+      if (memberError) throw memberError
+
+      closeJoinModal()
+      await refreshServers(server)
+      toast.success('Server joined')
+    } catch (_err) {
+      toast.error('Could not join server')
+    }
+  }
+  const handleCreateChannelSubmit = async (e) => {
+    e.preventDefault()
+    if (!canManageServer) return toast.error('Only server admins can add channels.')
+    if (!channelName.trim()) return toast.error('Enter a channel name')
+    setIsCreatingChannel(true)
+    try {
+      const channel = await props.handleCreateChannel?.({ name: channelName, type: channelType, category_id: channelModalCategoryId, server_id: props.activeServer?.id })
+      if (!channel) throw new Error('Channel was not created')
+      closeChannelModal()
+      toast.success('Channel created')
+    } catch (_err) {
+      setIsCreatingChannel(false)
+      toast.error('Could not create channel')
+    }
+  }
+  const handleCreateCategorySubmit = async (e) => {
+    e.preventDefault()
+    if (!canManageServer) return toast.error('Only server admins can add categories.')
+    if (!categoryName.trim()) return toast.error('Enter a category name')
+    setIsCreatingCategory(true)
+    try {
+      const category = await props.handleCreateCategory?.(categoryName)
+      if (!category) throw new Error('Category was not created')
+      closeCategoryModal()
+      toast.success('Category created')
+    } catch (_err) {
+      setIsCreatingCategory(false)
+      toast.error('Could not create category')
+    }
+  }
+  const handleEditServerItemSubmit = async (e) => {
+    e.preventDefault()
+    if (!canManageServer) return toast.error('Only server admins can manage channels.')
+    const name = editingServerItemName.trim()
+    if (!editingServerItem || !name) return toast.error('Enter a name')
+    setIsSavingServerItem(true)
+    try {
+      if (editingServerItem.type === 'category') {
+        await props.handleUpdateCategory?.(editingServerItem.item.id, name)
+        toast.success('Category updated')
+      } else {
+        await props.handleUpdateChannel?.(editingServerItem.item.id, name)
+        toast.success('Channel updated')
+      }
+      closeEditServerItemModal()
+    } catch (_err) {
+      setIsSavingServerItem(false)
+      toast.error(editingServerItem.type === 'category' ? 'Could not update category' : 'Could not update channel')
+    }
+  }
+  const deleteServerItem = async (type, item) => {
+    setServerItemMenuId(null)
+    if (!canManageServer) return toast.error('Only server admins can manage channels.')
+    if (!window.confirm(`Delete ${item.name}?`)) return
+    try {
+      if (type === 'category') {
+        await props.handleDeleteCategory?.(item.id)
+        toast.success('Category deleted')
+      } else {
+        await props.handleDeleteChannel?.(item.id)
+        toast.success('Channel deleted')
+      }
+    } catch (_err) {
+      toast.error(type === 'category' ? 'Could not delete category' : 'Could not delete channel')
+    }
+  }
+  const copyInviteCode = async () => {
+    if (!props.activeServer?.invite_code) return
+    await navigator.clipboard.writeText(props.activeServer.invite_code)
+    toast.success('Invite code copied')
+  }
+  const runServerAction = async (action) => {
+    if (action === 'delete' && !canManageServer) return toast.error('Only server admins can delete this server.')
+    try {
+      if (action === 'delete') await props.handleDeleteServer?.()
+      else await props.handleLeaveServer?.()
+      setIsServerMenuOpen(false)
+      toast.success(action === 'delete' ? 'Server deleted' : 'Server left')
+    } catch (_err) {
+      toast.error(action === 'delete' ? 'Could not delete server' : 'Could not leave server')
+    }
   }
 
   useEffect(() => {
@@ -94,11 +302,36 @@ export default function LeftSidebar(props) {
       )}
 
       <div className={`fixed left-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <nav className="flex flex-col h-full w-20 bg-[var(--surface-strong)] border-r border-[var(--border-subtle)] py-4 items-center shrink-0 relative z-20 backdrop-blur-xl">
-          <div className="flex-1"></div>
-          <div className="w-8 h-[2px] bg-[var(--border-subtle)] mb-4 rounded-full shrink-0"></div>
-          <div className="group">
-            <button onClick={props.handleHomeClick} className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-300 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none cursor-pointer ${props.view === 'home' || props.view === 'notifications' ? 'text-white shadow-lg' : 'bg-[var(--bg-surface)] text-indigo-500 hover:bg-[var(--bg-element)]'}`} style={props.view === 'home' || props.view === 'notifications' ? { backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' } : {}} aria-label="Home" title="Home">
+        <nav className="flex h-full w-16 flex-col items-center border-r border-[var(--border-subtle)] bg-[#0f1117] py-3 shrink-0 relative z-20">
+          <div className="flex flex-1 flex-col gap-2 overflow-y-auto custom-scrollbar px-2">
+            {props.servers.map((server, i) => {
+              const isActive = props.activeServer?.id === server.id && props.view === 'server'
+              const iconUrl = safeMediaUrl(server.icon_url)
+
+              return (
+                <button
+                  key={server.id || `server-${i}`}
+                  type="button"
+                  onClick={() => { props.setView('server'); props.setActiveServer(server); props.setActiveChannel(null); props.selectDm(null); props.setMobileMenuOpen(false) }}
+                  className={`flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl text-sm font-black uppercase transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer ${isActive ? 'bg-indigo-500 text-white shadow-lg' : 'bg-[var(--bg-surface)] text-gray-300 hover:bg-[var(--bg-element)] hover:text-white'}`}
+                  title={server.name}
+                  aria-label={server.name}
+                >
+                  {iconUrl ? <img src={iconUrl} alt="" className="h-full w-full object-cover" /> : server.name?.slice(0, 2)}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="mt-auto flex flex-col items-center gap-2 px-2">
+            <button type="button" onClick={() => setIsJoinModalOpen(true)} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--bg-surface)] text-green-400 transition-all hover:bg-green-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 cursor-pointer" aria-label="Join Server" title="Join Server">
+              <LogIn size={22} aria-hidden="true" />
+            </button>
+            <button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--bg-surface)] text-green-400 transition-all hover:bg-green-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 cursor-pointer" aria-label="Create Server" title="Create Server">
+              <Plus size={24} aria-hidden="true" />
+            </button>
+            <hr className="w-8 border-gray-700 mx-auto my-2" />
+            <button onClick={props.handleHomeClick} className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500 text-white transition-all focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:outline-none cursor-pointer ${props.view === 'home' || props.view === 'notifications' ? 'shadow-lg shadow-indigo-500/25' : 'hover:bg-indigo-400'}`} aria-label="Home" title="Home">
               <Home size={22} aria-hidden="true" />
             </button>
           </div>
@@ -157,6 +390,93 @@ export default function LeftSidebar(props) {
                       )
                     })}
                   </div>
+                </div>
+              </div>
+            ) : null}
+
+            {props.view === 'server' ? (
+              <div className="space-y-5">
+                <div className="relative flex items-center justify-between gap-2 px-2">
+                  <h3 className="font-headline text-lg font-bold text-[var(--text-main)] truncate">{props.activeServer?.name || 'Server'}</h3>
+                  <button type="button" onClick={() => setIsServerMenuOpen(open => !open)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500" aria-label="Server menu" title="Server menu">
+                    <MoreVertical size={18} aria-hidden="true" />
+                  </button>
+                  {isServerMenuOpen && (
+                    <div className="absolute right-2 top-11 z-[80] w-64 rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-2xl">
+                      <div className="mb-2 rounded-lg border border-gray-700 bg-gray-800 p-2">
+                        <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">Invite Code</p>
+                        <button type="button" onClick={copyInviteCode} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono text-sm text-white hover:bg-gray-700">
+                          <span className="truncate">{props.activeServer?.invite_code || 'No code'}</span>
+                          <Copy size={14} aria-hidden="true" />
+                        </button>
+                      </div>
+                      {canManageServer ? (
+                        <button type="button" onClick={() => runServerAction('delete')} className="w-full rounded-md px-3 py-2 text-left text-sm font-bold text-red-400 hover:bg-red-500/10">Delete Server</button>
+                      ) : (
+                        <button type="button" onClick={() => runServerAction('leave')} className="w-full rounded-md px-3 py-2 text-left text-sm font-bold text-red-400 hover:bg-red-500/10">Leave Server</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {canManageServer && (
+                  <div className="px-2">
+                    <button type="button" onClick={() => setIsCategoryModalOpen(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-bold text-gray-200 transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                      <Plus size={16} aria-hidden="true" />
+                      Create Category
+                    </button>
+                  </div>
+                )}
+                <div className="space-y-5">
+                  {(props.serverCategories || []).map(category => (
+                    <div key={category.id} className="space-y-1">
+                      <div className="relative flex items-center justify-between gap-2 px-2">
+                        <span className="min-w-0 truncate text-[10px] font-bold uppercase tracking-widest text-gray-500">{category.name}</span>
+                        {canManageServer && (
+                          <div className="flex items-center gap-1">
+                            <button type="button" onClick={() => openChannelModal(category.id)} className="rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`Create channel in ${category.name}`} title="Create Channel">
+                              <Plus size={14} aria-hidden="true" />
+                            </button>
+                            <button type="button" onClick={() => setServerItemMenuId(serverItemMenuId === `category-${category.id}` ? null : `category-${category.id}`)} className="rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${category.name} menu`} title="Category menu">
+                              <MoreVertical size={14} aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+                        {serverItemMenuId === `category-${category.id}` && (
+                          <div className="absolute right-2 top-7 z-[80] w-44 rounded-lg border border-gray-700 bg-gray-900 p-1 shadow-2xl">
+                            <button type="button" onClick={() => openEditServerItemModal('category', category)} className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800">Edit Category</button>
+                            <button type="button" onClick={() => deleteServerItem('category', category)} className="w-full rounded-md px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10">Delete Category</button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        {(category.channels || []).map(channel => {
+                          const isActive = props.activeChannel?.id === channel.id
+                          return (
+                            <div key={channel.id} className="relative group">
+                              <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 pr-9 text-left text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
+                                <span className="flex w-4 shrink-0 justify-center text-gray-500">{channel.type === 'voice' ? <Volume2 size={15} aria-hidden="true" /> : <Hash size={15} aria-hidden="true" />}</span>
+                                <span className="truncate">{channel.name}</span>
+                              </button>
+                              {canManageServer && (
+                                <button type="button" onClick={(e) => { e.stopPropagation(); setServerItemMenuId(serverItemMenuId === `channel-${channel.id}` ? null : `channel-${channel.id}`) }} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${channel.name} menu`} title="Channel menu">
+                                  <MoreVertical size={14} aria-hidden="true" />
+                                </button>
+                              )}
+                              {serverItemMenuId === `channel-${channel.id}` && (
+                                <div className="absolute right-2 top-9 z-[80] w-44 rounded-lg border border-gray-700 bg-gray-900 p-1 shadow-2xl">
+                                  <button type="button" onClick={() => openEditServerItemModal('channel', channel)} className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800">Edit Channel</button>
+                                  <button type="button" onClick={() => deleteServerItem('channel', channel)} className="w-full rounded-md px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10">Delete Channel</button>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {(props.serverCategories || []).length === 0 && (
+                    <p className="px-2 text-sm text-gray-500">No categories yet.</p>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -258,6 +578,79 @@ export default function LeftSidebar(props) {
           </div>
         </aside>
       </div>
+
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+          <form onSubmit={handleCreateServer} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
+            <h2 className="text-xl font-bold text-white mb-4">Create Server</h2>
+            <input value={serverName} onChange={(e) => setServerName(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white outline-none focus:border-indigo-500" placeholder="Server name" autoFocus />
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={closeCreateModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
+              <button type="submit" className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400">Submit</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isJoinModalOpen && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+          <form onSubmit={handleJoinServer} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
+            <h2 className="text-xl font-bold text-white mb-4">Join Server</h2>
+            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white uppercase outline-none focus:border-indigo-500" placeholder="Invite code" autoFocus />
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={closeJoinModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
+              <button type="submit" className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400">Submit</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {channelModalCategoryId && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+          <form onSubmit={handleCreateChannelSubmit} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
+            <h2 className="text-xl font-bold text-white mb-4">Create Channel</h2>
+            <input value={channelName} onChange={(e) => setChannelName(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white outline-none focus:border-indigo-500" placeholder="Channel name" autoFocus />
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {['text', 'voice'].map(type => (
+                <label key={type} className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold capitalize cursor-pointer ${channelType === type ? 'border-indigo-500 bg-indigo-500/20 text-white' : 'border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                  <input type="radio" name="channel-type" value={type} checked={channelType === type} onChange={(e) => setChannelType(e.target.value)} className="sr-only" />
+                  {type}
+                </label>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={closeChannelModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
+              <button type="submit" disabled={isCreatingChannel} className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400 disabled:opacity-60">Create</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+          <form onSubmit={handleCreateCategorySubmit} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
+            <h2 className="text-xl font-bold text-white mb-4">Create Category</h2>
+            <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white outline-none focus:border-indigo-500" placeholder="Category name" autoFocus />
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={closeCategoryModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
+              <button type="submit" disabled={isCreatingCategory} className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400 disabled:opacity-60">Create</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {editingServerItem && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+          <form onSubmit={handleEditServerItemSubmit} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
+            <h2 className="text-xl font-bold text-white mb-4">{editingServerItem.type === 'category' ? 'Edit Category' : 'Edit Channel'}</h2>
+            <input value={editingServerItemName} onChange={(e) => setEditingServerItemName(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white outline-none focus:border-indigo-500" placeholder="Name" autoFocus />
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={closeEditServerItemModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
+              <button type="submit" disabled={isSavingServerItem} className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400 disabled:opacity-60">Save</button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   )
 }
