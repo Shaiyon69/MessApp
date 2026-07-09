@@ -69,6 +69,17 @@ const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
 }
 
+const getMyServerRole = (server, userId) => {
+  if (!server || !userId) return 'member'
+  if (server.owner_id === userId) return 'owner'
+  const member = Array.isArray(server.server_members)
+    ? server.server_members.find(item => item.profile_id === userId)
+    : server.server_members
+  return member?.role || 'member'
+}
+
+const canManageServer = (server, userId) => ['owner', 'admin'].includes(getMyServerRole(server, userId))
+
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
 const describeDebugTarget = (target) => {
@@ -122,6 +133,12 @@ export default function Dashboard({ session }) {
   const [servers, setServers] = useState([])
   const [activeServer, setActiveServer] = useState(null)
   const [activeChannel, setActiveChannel] = useState(null)
+  const [activeVoiceSession, setActiveVoiceSession] = useState(null)
+  const [voiceSessionState, setVoiceSessionState] = useState({ status: 'idle', isSharing: false, remoteCount: 0 })
+  const [voiceMuted, setVoiceMuted] = useState(false)
+  const [voiceDeafened, setVoiceDeafened] = useState(false)
+  const [serverCategories, setServerCategories] = useState([])
+  const [serverMembers, setServerMembers] = useState([])
   const [dms, setDms] = useState([])
   const [activeDm, setActiveDm] = useState(null)
   const [onlineUsers, setOnlineUsers] = useState([])
@@ -143,6 +160,7 @@ export default function Dashboard({ session }) {
   const [userStatus, setUserStatus] = useState(() => localStorage.getItem(`user_status_${session.user.id}`) || 'online')
   
   const popoutRef = useRef(null)
+  const serverMembersCacheRef = useRef(new Map())
   const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
@@ -161,7 +179,6 @@ export default function Dashboard({ session }) {
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
   const [serverSettingsName, setServerSettingsName] = useState('')
-  const [newChannelName, setNewChannelName] = useState('')
   const [channelSettingsName, setChannelSettingsName] = useState('')
   const profileCacheKey = `profile_cache_${session.user.id}`
   const [profileOverride, setProfileOverride] = useState(() => {
@@ -189,6 +206,13 @@ export default function Dashboard({ session }) {
 
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms)
   const webRTCProps = useWebRTC(session, activeDm)
+  const screenShareClientFactory = useMemo(() => () => ({
+    connect: async () => {},
+    disconnect: () => {},
+    publish: async () => {},
+    unpublish: async () => {},
+    subscribe: () => () => {}
+  }), [])
   const hasConfirmAction = Boolean(confirmAction)
   const hasSelectedImage = Boolean(chatManagerProps.selectedImage)
 
@@ -447,6 +471,44 @@ export default function Dashboard({ session }) {
       localStorage.removeItem(`last_dm_${session.user.id}`)
     }
   }, [session.user.id])
+
+  const selectChannel = useCallback((channel) => {
+    setActiveChannel(channel)
+    setMobileMenuOpen(false)
+    if (channel?.type === 'voice' && activeServer?.id && activeVoiceSession?.channelId !== channel.id) {
+      setActiveVoiceSession({
+        serverId: activeServer.id,
+        serverName: activeServer.name,
+        channelId: channel.id,
+        channelName: channel.name,
+        roomId: `channel:${channel.id}`
+      })
+      audioSys.playVoiceJoined()
+    }
+  }, [activeServer?.id, activeServer?.name, activeVoiceSession?.channelId])
+
+  const openActiveVoiceChannel = useCallback(() => {
+    if (!activeVoiceSession) return
+    const server = servers.find(item => item.id === activeVoiceSession.serverId) || activeServer
+    const channel = serverCategories.flatMap(category => category.channels || []).find(item => item.id === activeVoiceSession.channelId) || {
+      id: activeVoiceSession.channelId,
+      name: activeVoiceSession.channelName,
+      type: 'voice'
+    }
+    if (server) setActiveServer(server)
+    setView('server')
+    setActiveDm(null)
+    setActiveChannel(channel)
+    setMobileMenuOpen(false)
+  }, [activeServer, activeVoiceSession, serverCategories, servers])
+
+  const leaveActiveVoice = useCallback(() => {
+    setActiveVoiceSession(null)
+    setVoiceSessionState({ status: 'idle', isSharing: false, remoteCount: 0 })
+    setVoiceMuted(false)
+    setVoiceDeafened(false)
+    audioSys.playVoiceLeft()
+  }, [])
 
   const updateProfileBio = useCallback(async (newStatus) => {
     const nextBio = newStatus.trim()
@@ -774,6 +836,259 @@ export default function Dashboard({ session }) {
     if (data) setServers(data)
   }
 
+  useEffect(() => {
+    if (!activeServer?.id) {
+      setServerMembers([])
+      return
+    }
+
+    const cachedMembers = serverMembersCacheRef.current.get(activeServer.id)
+    if (cachedMembers) {
+      setServerMembers(cachedMembers)
+      return
+    }
+
+    let active = true
+    supabase
+      .from('server_members')
+      .select('id, profile_id, role, profiles(id, username, unique_tag, avatar_url, bio, pronouns)')
+      .eq('server_id', activeServer.id)
+      .then(({ data }) => {
+        const members = data || []
+        serverMembersCacheRef.current.set(activeServer.id, members)
+        if (active) setServerMembers(members)
+      })
+    return () => { active = false }
+  }, [activeServer?.id])
+
+  const fetchServerChannels = useCallback(async (serverId = activeServer?.id) => {
+    if (!serverId) {
+      setServerCategories([])
+      setActiveChannel(null)
+      return []
+    }
+
+    try {
+      const { data: categories, error: categoriesError } = await supabase
+        .from('categories')
+        .select('id, name, position')
+        .eq('server_id', serverId)
+        .order('position', { ascending: true, nullsFirst: false })
+
+      if (categoriesError) throw categoriesError
+
+      const categoryIds = (categories || []).map(category => category.id)
+      const { data: channels, error: channelsError } = categoryIds.length
+        ? await supabase
+          .from('channels')
+          .select('*')
+          .in('category_id', categoryIds)
+          .order('position', { ascending: true, nullsFirst: false })
+        : { data: [], error: null }
+
+      if (channelsError) throw channelsError
+
+      const channelsByCategory = new Map()
+      for (const channel of channels || []) {
+        const items = channelsByCategory.get(channel.category_id) || []
+        items.push(channel)
+        channelsByCategory.set(channel.category_id, items)
+      }
+
+      const nextCategories = (categories || []).map(category => ({
+        ...category,
+        channels: channelsByCategory.get(category.id) || []
+      }))
+      const nextChannels = nextCategories.flatMap(category => category.channels)
+
+      setServerCategories(nextCategories)
+      setActiveChannel(current => current && nextChannels.some(channel => channel.id === current.id) ? current : nextChannels[0] || null)
+      return nextCategories
+    } catch (_err) {
+      setServerCategories([])
+      setActiveChannel(null)
+      return []
+    }
+  }, [activeServer?.id])
+
+  const handleCreateChannel = async ({ name, type, category_id, server_id }) => {
+    const cleanName = name.trim()
+    const serverId = server_id || activeServer?.id
+    if (!cleanName || !serverId || serverId !== activeServer?.id || !category_id) return null
+    if (!canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can add channels.')
+      return null
+    }
+    const channelType = type === 'voice' ? 'voice' : 'text'
+
+    const { data: lastChannel, error: positionError } = await supabase
+      .from('channels')
+      .select('position')
+      .eq('category_id', category_id)
+      .order('position', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (positionError) throw positionError
+
+    const { data: channel, error: insertError } = await supabase
+      .from('channels')
+      .insert({
+        server_id: serverId,
+        category_id,
+        name: cleanName,
+        type: channelType,
+        position: Number.isFinite(lastChannel?.position) ? lastChannel.position + 1 : 0
+      })
+      .select()
+      .single()
+
+    if (insertError) throw insertError
+
+    await fetchServerChannels(serverId)
+    selectChannel(channel)
+    return channel
+  }
+
+  const handleCreateCategory = async (name) => {
+    const cleanName = name.trim()
+    const serverId = activeServer?.id
+    if (!cleanName || !serverId) return null
+    if (!canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can add categories.')
+      return null
+    }
+
+    const { data: lastCategory, error: positionError } = await supabase
+      .from('categories')
+      .select('position')
+      .eq('server_id', serverId)
+      .order('position', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (positionError) throw positionError
+
+    const { data: category, error: insertError } = await supabase
+      .from('categories')
+      .insert({
+        server_id: serverId,
+        name: cleanName,
+        position: Number.isFinite(lastCategory?.position) ? lastCategory.position + 1 : 0
+      })
+      .select()
+      .single()
+
+    if (insertError) throw insertError
+
+    await fetchServerChannels(serverId)
+    return category
+  }
+
+  const handleUpdateCategory = async (categoryId, name) => {
+    const cleanName = name.trim()
+    if (!activeServer?.id || !categoryId || !cleanName) return null
+    if (!canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can edit categories.')
+      return null
+    }
+    const { data: category, error } = await supabase
+      .from('categories')
+      .update({ name: cleanName })
+      .eq('id', categoryId)
+      .eq('server_id', activeServer.id)
+      .select()
+      .single()
+    if (error) throw error
+    await fetchServerChannels(activeServer.id)
+    return category
+  }
+
+  const handleDeleteCategory = async (categoryId) => {
+    if (!activeServer?.id || !categoryId) return
+    if (!canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can delete categories.')
+      return
+    }
+    const { error } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', categoryId)
+      .eq('server_id', activeServer.id)
+    if (error) throw error
+    const deletedCategory = serverCategories.find(category => category.id === categoryId)
+    if (deletedCategory?.channels?.some(channel => channel.id === activeVoiceSession?.channelId)) leaveActiveVoice()
+    await fetchServerChannels(activeServer.id)
+  }
+
+  const handleUpdateChannel = async (channelId, name) => {
+    const cleanName = name.trim()
+    if (!activeServer?.id || !channelId || !cleanName) return null
+    if (!canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can edit channels.')
+      return null
+    }
+    const { data: channel, error } = await supabase
+      .from('channels')
+      .update({ name: cleanName })
+      .eq('id', channelId)
+      .eq('server_id', activeServer.id)
+      .select()
+      .single()
+    if (error) throw error
+    await fetchServerChannels(activeServer.id)
+    setActiveChannel(current => current?.id === channel.id ? channel : current)
+    return channel
+  }
+
+  const handleDeleteChannel = async (channelId) => {
+    if (!activeServer?.id || !channelId) return
+    if (!canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can delete channels.')
+      return
+    }
+    const { error } = await supabase
+      .from('channels')
+      .delete()
+      .eq('id', channelId)
+      .eq('server_id', activeServer.id)
+    if (error) throw error
+    if (activeVoiceSession?.channelId === channelId) leaveActiveVoice()
+    await fetchServerChannels(activeServer.id)
+  }
+
+  const handleLeaveServer = async () => {
+    if (!activeServer?.id) return
+    const { error } = await supabase
+      .from('server_members')
+      .delete()
+      .match({ server_id: activeServer.id, profile_id: session.user.id })
+    if (error) throw error
+    setServers(current => current.filter(server => server.id !== activeServer.id))
+    if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
+    setActiveServer(null)
+    setActiveChannel(null)
+    setServerCategories([])
+    setView('home')
+    await fetchServers()
+  }
+
+  const handleDeleteServer = async () => {
+    if (!activeServer?.id || !canManageServer(activeServer, session.user.id)) {
+      toast.error('Only server admins can delete this server.')
+      return
+    }
+    const { error } = await supabase.from('servers').delete().eq('id', activeServer.id)
+    if (error) throw error
+    setServers(current => current.filter(server => server.id !== activeServer.id))
+    if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
+    setActiveServer(null)
+    setActiveChannel(null)
+    setServerCategories([])
+    setView('home')
+    await fetchServers()
+  }
+
   const fetchDms = async () => {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
     if (!myRooms || myRooms.length === 0) { setDms([]); return }
@@ -878,19 +1193,21 @@ export default function Dashboard({ session }) {
   }
 
   useEffect(() => {
-    if (view === 'server' && activeServer) {
-      const getServerData = async () => {
-        const [channelsRes] = await Promise.all([
-          supabase.from('channels').select('*').eq('server_id', activeServer.id).order('created_at', { ascending: true }),
-          supabase.from('channel_reads').select('channel_id, last_read_at').eq('profile_id', session.user.id)
-        ])
-        if (channelsRes.data?.length > 0) setActiveChannel(channelsRes.data[0])
-      }
-      getServerData()
+    if (view === 'server' && activeServer?.id) {
+      fetchServerChannels(activeServer.id)
+    } else {
+      setServerCategories([])
     }
-  }, [activeServer?.id, view, session.user.id])
+  }, [activeServer?.id, fetchServerChannels, view])
 
-  const searchResults = searchQuery ? chatManagerProps.validMessages.filter(m => !m.is_deleted && (m.content?.toLowerCase().includes(searchQuery.toLowerCase()) || m.profiles?.username.toLowerCase().includes(searchQuery.toLowerCase()))) : []
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    if (!showRightSidebar || rightTab !== 'search' || !query) return []
+    return chatManagerProps.validMessages.filter(m => {
+      if (m.is_deleted) return false
+      return m.content?.toLowerCase().includes(query) || m.profiles?.username?.toLowerCase().includes(query)
+    })
+  }, [chatManagerProps.validMessages, rightTab, searchQuery, showRightSidebar])
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
   const getPresenceStatus = useCallback((profileId) => {
@@ -908,6 +1225,8 @@ export default function Dashboard({ session }) {
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => dms.filter(dm => !restrictedUsersSet.has(dm.profiles.id)), [dms, restrictedUsersSet]);
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
+  const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
+  const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
 
   const quickSwitcherBase = useMemo(() => {
     const existingIds = new Set(dms.map(dm => dm.profiles.id))
@@ -921,6 +1240,7 @@ export default function Dashboard({ session }) {
   const isBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
   const blockReason = activeDmPeerId && blockedByUsersSet.has(activeDmPeerId) ? 'This user has blocked you.' : 'You blocked this user.'
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
+  const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 
   const quickSwitcherResults = quickSwitcherQuery ? quickSwitcherBase.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) || dm.profiles.unique_tag?.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : quickSwitcherBase
   const currentThemeHex = (activeDm?.dm_rooms?.theme_color || '#6366f1')
@@ -969,7 +1289,7 @@ export default function Dashboard({ session }) {
         containerStyle={{ top: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}
         toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
-      
+
       <LeftSidebar 
         session={session}
         view={view}
@@ -980,9 +1300,20 @@ export default function Dashboard({ session }) {
         setMobileMenuOpen={setMobileMenuOpen}
         servers={servers}
         activeServer={activeServer}
+        serverCategories={serverCategories}
         setActiveServer={setActiveServer}
         activeChannel={activeChannel}
-        setActiveChannel={setActiveChannel}
+        setActiveChannel={selectChannel}
+        canManageActiveServer={canManageActiveServer}
+        activeServerRole={activeServerRole}
+        handleCreateChannel={handleCreateChannel}
+        handleCreateCategory={handleCreateCategory}
+        handleUpdateCategory={handleUpdateCategory}
+        handleDeleteCategory={handleDeleteCategory}
+        handleUpdateChannel={handleUpdateChannel}
+        handleDeleteChannel={handleDeleteChannel}
+        handleLeaveServer={handleLeaveServer}
+        handleDeleteServer={handleDeleteServer}
         dms={dms}
         activeDm={activeDm}
         selectDm={selectDm}
@@ -995,6 +1326,7 @@ export default function Dashboard({ session }) {
         handleDeclineRequest={handleDeclineRequest}
         serverAction={serverAction}
         setServerAction={setServerAction}
+        fetchServers={fetchServers}
         showProfilePopout={showProfilePopout}
         setShowProfilePopout={setShowProfilePopout}
         settingsModalConfig={settingsModalConfig}
@@ -1026,6 +1358,18 @@ export default function Dashboard({ session }) {
         view={view}
         activeDm={activeDm}
         activeChannel={activeChannel}
+        activeVoiceSession={activeVoiceSession}
+        screenShareClientFactory={screenShareClientFactory}
+        voiceSessionState={voiceSessionState}
+        voiceMuted={voiceMuted}
+        voiceDeafened={voiceDeafened}
+        isViewingActiveVoiceChannel={isViewingActiveVoiceChannel}
+        setVoiceSessionState={setVoiceSessionState}
+        selectChannel={selectChannel}
+        leaveActiveVoice={leaveActiveVoice}
+        openActiveVoiceChannel={openActiveVoiceChannel}
+        setVoiceMuted={setVoiceMuted}
+        setVoiceDeafened={setVoiceDeafened}
         mobileMenuOpen={mobileMenuOpen}
         setMobileMenuOpen={setMobileMenuOpen}
         homeTab={homeTab}
@@ -1074,6 +1418,8 @@ export default function Dashboard({ session }) {
           closeRightSidebar={closeRightSidebar}
           rightTab={rightTab}
           onlineUsersSet={onlineUsersSet}
+          activeServer={activeServer}
+          serverMembers={serverMembers}
           userPresence={userPresence}
           getPresenceStatus={getPresenceStatus}
           getPresenceLabel={getPresenceLabel}
@@ -1353,7 +1699,6 @@ export default function Dashboard({ session }) {
         })
       }} onClose={closeUserSettings} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
-      {showChannelModal && <ChannelCreationModal handleCreate={() => {}} onClose={() => setShowChannelModal(false)} name={newChannelName} setName={setNewChannelName} serverName={activeServer?.name} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
     </div>
   )

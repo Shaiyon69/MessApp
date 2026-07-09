@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown } from 'lucide-react'
+import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import AddFriendView from '../modals/AddFriendView'
 import GifPickerPopout from '../modals/GifPickerPopout'
-import EmojiPicker from 'emoji-picker-react' 
+import ChatEmojiPicker from '../chat/ChatEmojiPicker'
+import SfuScreenShare from '../screen-share/SfuScreenShare'
 
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
@@ -46,7 +47,10 @@ export default function ChatArea(props) {
     }
     return null
   }, [props.session.user.id, props.visibleMessages])
+  const validMessagesById = useMemo(() => new Map(props.validMessages.map(message => [message.id, message])), [props.validMessages])
   const activeChatKey = `${props.view}:${props.activeChannel?.id || props.activeDm?.dm_room_id || 'none'}`
+  const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
+  const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
   const messageListStyle = props.isCallMinimized
     ? { paddingBottom: 'calc(9.5rem + env(safe-area-inset-bottom, 0px))' }
     : undefined
@@ -180,6 +184,7 @@ useEffect(() => {
 
           if (
             target.closest?.('.message-action-toolbar') ||
+            target.closest?.('.messapp-reaction-popover') ||
             target.closest?.('.message-touch-target') ||
             target.closest?.('.EmojiPickerReact')
           ) {
@@ -203,7 +208,7 @@ useEffect(() => {
             </div>
           ) : props.view === 'home' && props.activeDm ? (
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-dm-${props.activeDm.dm_room_id}`}>
-                <StatusAvatar url={props.activeDm.profiles.avatar_url} username={props.activeDm.profiles.username} status={props.getPresenceStatus?.(props.activeDm.profiles.id)} className="w-9 h-9" />
+                <StatusAvatar url={props.activeDm.profiles.avatar_url} username={props.activeDm.profiles.username} status={props.getPresenceStatus?.(props.activeDm.profiles.id)} className="w-9 h-9" loading="eager" />
                 <div className="min-w-0">
                   <h2 className="font-headline font-bold text-[var(--chat-text,var(--text-main))] text-xl tracking-tight truncate">{props.activeDm.profiles.username}</h2>
                   <p className="text-[11px] font-semibold text-gray-500 leading-none">{props.getPresenceLabel?.(props.activeDm.profiles.id) || 'Offline'}</p>
@@ -211,7 +216,7 @@ useEffect(() => {
             </div>
           ) : props.view === 'server' && props.activeChannel ? (
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-chan-${props.activeChannel.id}`}>
-              <Hash size={20} className="text-gray-500 shrink-0" aria-hidden="true" />
+              {isVoiceChannel ? <Volume2 size={20} className="text-gray-500 shrink-0" aria-hidden="true" /> : <Hash size={20} className="text-gray-500 shrink-0" aria-hidden="true" />}
               <h2 className="font-headline font-bold text-[var(--chat-text,var(--text-main))] text-xl tracking-tight truncate">{props.activeChannel.name}</h2>
             </div>
           ) : (
@@ -221,9 +226,9 @@ useEffect(() => {
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
           {props.isChatActive && (
             <>
-              <button onClick={() => props.startCall(false)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Phone size={20} aria-hidden="true" /></button>
-              <button onClick={() => props.startCall(true)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Video size={20} aria-hidden="true" /></button>
-              <div className="w-[1px] h-6 bg-[var(--border-subtle)] mx-1"></div>
+              {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Phone size={20} aria-hidden="true" /></button>}
+              {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(true)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Video size={20} aria-hidden="true" /></button>}
+              {props.view === 'home' && props.activeDm && <div className="w-[1px] h-6 bg-[var(--border-subtle)] mx-1"></div>}
               <button onClick={() => props.toggleRightSidebar('search')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${props.rightTab === 'search' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`}><Search size={20} aria-hidden="true" /></button>
               <button onClick={() => props.toggleRightSidebar('info')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${props.rightTab === 'info' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`}><Info size={20} aria-hidden="true" /></button>
             </>
@@ -231,9 +236,98 @@ useEffect(() => {
         </div>
       </header>
 
+      {props.activeVoiceSession && (
+        <SfuScreenShare
+          roomId={props.activeVoiceSession.roomId}
+          createClient={props.screenShareClientFactory}
+          variant={props.isViewingActiveVoiceChannel ? 'full' : 'mini'}
+          title={`${props.activeVoiceSession.serverName} / ${props.activeVoiceSession.channelName}`}
+          muted={props.voiceMuted}
+          deafened={props.voiceDeafened}
+          onToggleMute={() => props.setVoiceMuted?.(value => !value)}
+          onToggleDeafen={() => props.setVoiceDeafened?.(value => !value)}
+          onLeave={props.leaveActiveVoice}
+          onOpen={props.openActiveVoiceChannel}
+          onStateChange={props.setVoiceSessionState}
+        />
+      )}
+
+      {!props.isViewingActiveVoiceChannel && (
       <div className="flex-1 flex min-w-0 max-w-full overflow-hidden relative transition-all duration-300 ease-out transform" style={chatViewportStyle} data-pinned-count={pinnedMessages.length}>
         <div className="flex-1 flex flex-col min-w-0 max-w-full overflow-hidden z-10 relative transition-all duration-300 ease-out transform" key={props.view + (props.activeChannel?.id || props.activeDm?.dm_room_id || '')}>
-          {props.view === 'home' && !props.activeDm ? (
+          {isVoiceChannel ? (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 pb-36 md:p-8">
+              <div className="mx-auto flex max-w-5xl flex-col gap-4">
+                <section className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-5 shadow-xl md:p-7">
+                  <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${isActiveVoiceSession ? 'bg-green-500/15 text-green-300' : 'bg-[var(--theme-20)] text-[var(--theme-base)]'}`}>
+                        <Radio size={28} aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-widest text-gray-500">Voice channel</p>
+                        <h3 className="truncate text-2xl font-black text-[var(--text-main)]">{props.activeChannel.name}</h3>
+                        <p className={`mt-1 text-sm font-bold ${isActiveVoiceSession ? 'text-green-300' : 'text-gray-400'}`}>
+                          {isActiveVoiceSession ? `Connected - ${props.voiceSessionState?.status || 'connecting'}` : 'Not connected'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!isActiveVoiceSession ? (
+                        <button
+                          type="button"
+                          onClick={() => props.selectChannel?.(props.activeChannel)}
+                          className="inline-flex items-center gap-2 rounded-xl bg-[var(--theme-base)] px-4 py-2.5 text-sm font-black text-white shadow-lg"
+                        >
+                          <Phone size={18} aria-hidden="true" />
+                          Join voice
+                        </button>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => props.setVoiceMuted?.(value => !value)} className={`rounded-xl p-2.5 ${props.voiceMuted ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceMuted ? 'Unmute' : 'Mute'}>
+                            {props.voiceMuted ? <MicOff size={18} /> : <Mic size={18} />}
+                          </button>
+                          <button type="button" onClick={() => props.setVoiceDeafened?.(value => !value)} className={`rounded-xl p-2.5 ${props.voiceDeafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
+                            {props.voiceDeafened ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                          </button>
+                          <button type="button" onClick={props.openActiveVoiceChannel} className="inline-flex items-center gap-2 rounded-xl bg-green-500/15 px-4 py-2.5 text-sm font-black text-green-300">
+                            <MonitorUp size={18} aria-hidden="true" />
+                            Expanded
+                          </button>
+                          <button type="button" onClick={props.leaveActiveVoice} className="inline-flex items-center gap-2 rounded-xl bg-red-500/15 px-4 py-2.5 text-sm font-black text-red-300">
+                            <PhoneOff size={18} aria-hidden="true" />
+                            Leave
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Participants</p>
+                      <p className="mt-2 text-2xl font-black text-[var(--text-main)]">{isActiveVoiceSession ? 1 + (props.voiceSessionState?.remoteCount || 0) : 0}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Screen share</p>
+                      <p className={`mt-2 text-sm font-black ${props.voiceSessionState?.isSharing ? 'text-green-300' : 'text-gray-400'}`}>{props.voiceSessionState?.isSharing ? 'Live' : 'Idle'}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">You</p>
+                      <div className="mt-3 flex items-center gap-3">
+                        <StatusAvatar url={props.session.user.user_metadata?.avatar_url} username={props.session.user.user_metadata?.username || props.session.user.email} status="online" className="h-9 w-9" />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-[var(--text-main)]">{props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0]}</p>
+                          <p className="text-xs text-gray-500">{props.voiceMuted ? 'Muted' : 'Mic ready'} / {props.voiceDeafened ? 'Deafened' : 'Listening'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          ) : props.view === 'home' && !props.activeDm ? (
             <div className="flex-1 flex overflow-hidden bg-[var(--bg-base)]">
               <div className="flex-1 flex flex-col overflow-hidden">
                 {props.homeTab === 'add_friend' ? (
@@ -350,22 +444,20 @@ useEffect(() => {
                     <p className="text-gray-400 text-sm leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
                   </div>
                 )}
-                {props.visibleMessages.filter(m => {
-                    const text = String(m.content || '');
-                    return !text.includes('Encrypted Message');
-                }).map((m, index) => {
-                  const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}-${crypto.randomUUID()}`;
+                {props.visibleMessages.map((m, index, renderedMessages) => {
+                  const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}`;
                   const isMessageBlocked = props.blockedUsersSet.has(m.profile_id);
                   if (isMessageBlocked) return (
                     <div key={uniqueKey} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                   )
-                  const showHeader = index === 0 || props.visibleMessages[index - 1].profile_id !== m.profile_id || new Date(m.created_at) - new Date(props.visibleMessages[index - 1].created_at) > 300000;
+                  const previousMessage = renderedMessages[index - 1]
+                  const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || new Date(m.created_at) - new Date(previousMessage.created_at) > 300000;
                   const isDM = props.view === 'home';
                   const isMe = m.profile_id === props.session.user.id;
                   const alignRight = isDM && isMe;
                   const isEditing = props.editingMessageId === m.id;
                   const isHighlighted = props.highlightedMessageId === m.id;
-                  const repliedMsg = m.reply_to_message_id ? props.validMessages.find(msg => msg.id === m.reply_to_message_id) : null;
+                  const repliedMsg = m.reply_to_message_id ? validMessagesById.get(m.reply_to_message_id) : null;
                   return (
                     <MemoizedMessage 
                       key={uniqueKey}
@@ -397,6 +489,7 @@ useEffect(() => {
 	                      showDeliveryStatus={m.id === latestOutgoingMessageId}
 	                      messageActionMenuId={props.messageActionMenuId}
 	                      setMessageActionMenuId={props.setMessageActionMenuId}
+	                      setMessageActionMenuPosition={props.setMessageActionMenuPosition}
 	                    />
                   )
                 })}
@@ -562,7 +655,6 @@ useEffect(() => {
                         onPaste={props.handlePaste}
                         onBeforeInput={props.handleBeforeInput}
                         className="flex-1 bg-transparent border-none outline-none text-[var(--chat-text,var(--text-main))] resize-none py-2.5 px-4 custom-scrollbar text-[15px] md:text-[16px] font-body min-w-0 placeholder:text-gray-500 transition-all duration-300 ease-out transform" 
-                        data-message-composer="true"
                         placeholder={
                           props.editingMessageId
                             ? 'Edit message...'
@@ -593,30 +685,6 @@ useEffect(() => {
                             props.handleSendMessage(e)
                           }
                         }} 
-                        onChange={(e) => {
-                            if (props.editingMessageId) props.setEditContent(e.target.value)
-                            else props.handleTyping(e)
-                          }
-                        }
-                        onKeyDown={(e) => {
-                            if (props.editingMessageId) {
-                              if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
-                                e.preventDefault()
-                                props.handleUpdateMessage(e, props.editingMessageId, { allowEmpty: true })
-                              }
-                              if (e.key === 'Escape') {
-                                props.setEditingMessageId(null)
-                                props.setEditContent('')
-                              }
-                              return
-                            }
-
-                            if (e.key === 'Enter' && !e.shiftKey) { 
-                              e.preventDefault()
-                              props.handleSendMessage(e)
-                            }
-                          }
-                        } 
                         rows={1} 
                         style={{ minHeight: '44px', maxHeight: '200px' }} 
                       />
@@ -626,15 +694,10 @@ useEffect(() => {
                             className="premium-menu fixed bottom-20 right-2 sm:absolute sm:bottom-full sm:right-0 md:right-4 sm:mb-2 z-[100] rounded-xl overflow-hidden"
                             onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
                           >
-                            <EmojiPicker 
-                              theme={document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'}
-                              emojiStyle="native"
-                              lazyLoadEmojis={true}
+                            <ChatEmojiPicker
                               width={typeof window !== 'undefined' && window.innerWidth < 360 ? Math.min(window.innerWidth - 16, 320) : 320}
                               height={380}
                               searchDisabled={true}
-                              autoFocusSearch={false}
-                              previewConfig={{showPreview: false}}
                               onEmojiClick={handleEmojiSelect} 
                             />
                           </div>
@@ -667,6 +730,7 @@ useEffect(() => {
           )}
         </div>
       </div>
+      )}
     </main>
   )
 }

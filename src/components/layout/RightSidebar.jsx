@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { X, Search, ImagePlus, EyeOff, Ban, Trash2, FileText, Pin } from 'lucide-react'
+import { X, Search, ImagePlus, EyeOff, Ban, Trash2, FileText, Pin, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { safeMediaUrl } from '../../lib/security'
 
@@ -12,6 +12,8 @@ const safeDocumentUrl = (value) => {
 
 export default function RightSidebar({
   activeDm,
+  activeServer,
+  serverMembers = [],
   closeRightSidebar,
   rightTab,
   onlineUsersSet,
@@ -39,12 +41,13 @@ export default function RightSidebar({
   const [mediaTab, setMediaTab] = useState('images')
 
   const attachmentGroups = useMemo(() => {
+    if (rightTab !== 'info' || !activeDm) return { images: [], documents: [] }
     const items = messages.flatMap(message => (message.message_attachments || []).map(attachment => ({ message, attachment })))
     return {
       images: items.filter(item => item.attachment.file_type?.startsWith('image/') && safeMediaUrl(item.attachment.file_url)),
       documents: items.filter(item => !item.attachment.file_type?.startsWith('image/') && safeDocumentUrl(item.attachment.file_url))
     }
-  }, [messages])
+  }, [activeDm, messages, rightTab])
 
   const activeAttachments = mediaTab === 'images' ? attachmentGroups.images : attachmentGroups.documents
   const formatMessagePreview = (message) => {
@@ -67,15 +70,59 @@ export default function RightSidebar({
     return { backgroundImage: 'none', backgroundColor: themeColor }
   }
 
-  if (!activeDm) return null;
+  if (!activeDm && !activeServer) return null;
 
   return (
     <>
-      <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform" onClick={closeRightSidebar}></div>
+      <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform md:hidden" onClick={closeRightSidebar}></div>
       
-      <aside className="fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-80 max-w-[85vw] md:w-96 md:max-w-none bg-[var(--bg-surface)]/95 border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform" style={scopedChatStyle}>
+      <aside className="fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-80 max-w-[85vw] bg-[var(--bg-surface)]/95 border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-96 md:max-w-none md:shadow-none md:backdrop-blur-none" style={scopedChatStyle}>
         
-        {rightTab === 'info' && (
+        {rightTab === 'info' && activeServer && !activeDm && (
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Server Info</p>
+                <h2 className="truncate text-xl font-bold text-[var(--text-main)]">{activeServer.name}</h2>
+              </div>
+              <button onClick={closeRightSidebar} className="rounded-xl p-2 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]">
+                <X size={20} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              <div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                <Users size={14} />
+                {serverMembers.length} Member{serverMembers.length === 1 ? '' : 's'}
+              </div>
+              <div className="space-y-2">
+                {serverMembers.map(member => {
+                  const profile = member.profiles || {}
+                  const status = getPresenceStatus?.(profile.id) || (onlineUsersSet.has(profile.id) ? 'online' : 'offline')
+                  return (
+                    <div key={member.id || member.profile_id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-section)] p-3">
+                      <div className="flex items-center gap-3">
+                        <StatusAvatar url={profile.avatar_url} username={profile.username} status={status} className="h-10 w-10" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-bold text-[var(--text-main)]">{profile.username || 'Unknown user'}</p>
+                            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-bold uppercase text-gray-500">{member.role || 'member'}</span>
+                          </div>
+                          <p className="truncate text-[11px] text-gray-500">{profile.unique_tag || 'No tag'} • {getPresenceLabel?.(profile.id) || 'Offline'}</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 rounded-lg bg-[var(--bg-element)] px-3 py-2 text-xs italic leading-relaxed text-gray-400">
+                        {profile.bio || 'No profile thought/status yet.'}
+                      </p>
+                    </div>
+                  )
+                })}
+                {serverMembers.length === 0 && <p className="text-sm text-gray-500">No server users found.</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {rightTab === 'info' && activeDm && (
           <div className="flex flex-col h-full overflow-hidden relative">
             <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-gray-500 hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-20 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
               <X size={20} aria-hidden="true" />
@@ -228,7 +275,7 @@ export default function RightSidebar({
                 <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 pb-4">
                   {searchResults.map((m, i) => (
                     <button 
-                      key={m.id ? `search-res-${m.id}` : `search-fallback-${i}-${crypto.randomUUID()}`}
+                      key={m.id ? `search-res-${m.id}` : `search-fallback-${i}`}
                       onClick={() => { scrollToMessage(m); closeRightSidebar(); }}
                       className="w-full text-left p-3 bg-[var(--surface-section)] rounded-xl cursor-pointer hover:bg-[var(--bg-surface)] border border-transparent hover:border-[var(--theme-50)] transition-all duration-300 ease-out transform group focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none"
                     >
