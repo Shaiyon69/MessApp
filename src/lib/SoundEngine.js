@@ -158,6 +158,36 @@ export class SoundEngine {
     ], 0.035);
   }
 
+  playVoiceJoined() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([
+      { frequency: 392, duration: 0.06 },
+      { frequency: 587, at: 0.07, duration: 0.08 },
+      { frequency: 784, at: 0.15, duration: 0.1 }
+    ], 0.028);
+  }
+
+  playVoiceLeft() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([
+      { frequency: 587, duration: 0.06 },
+      { frequency: 392, at: 0.07, duration: 0.11 }
+    ], 0.026);
+  }
+
+  playScreenShareStarted() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([
+      { frequency: 740, duration: 0.07 },
+      { frequency: 988, at: 0.08, duration: 0.09 }
+    ], 0.026);
+  }
+
+  playScreenShareStopped() {
+    if (!this.isCallSoundEnabled()) return;
+    this.playTone([{ frequency: 440, duration: 0.12 }], 0.024);
+  }
+
   playReactionAdded() {
     if (!this.isMessageSoundEnabled()) return;
     this.playTone([{ frequency: 1400, duration: 0.06 }], 0.018);

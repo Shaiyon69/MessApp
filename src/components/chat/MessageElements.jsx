@@ -1,12 +1,27 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw } from 'lucide-react'
-import EmojiPicker from 'emoji-picker-react' 
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
+import { QUICK_REACTION_EMOJIS, normalizeReactionEmoji } from '../../lib/reactions'
+import ChatEmojiPicker from './ChatEmojiPicker'
 import StatusAvatar from '../ui/StatusAvatar'
+
+const QUICK_REACTION_COUNT = QUICK_REACTION_EMOJIS.length
+
+const normalizeQuickReactions = (value) => {
+  const list = Array.isArray(value) ? value : []
+  return [...list, ...QUICK_REACTION_EMOJIS]
+    .map(item => normalizeReactionEmoji(typeof item === 'string' ? item : item?.emoji || item?.type || item?.reaction))
+    .filter(Boolean)
+    .filter((item, index, self) => self.indexOf(item) === index)
+    .slice(0, QUICK_REACTION_COUNT)
+}
+
+const getQuickReactionStorageKey = (userId) => `messapp_quick_reactions_${userId || 'anon'}`
 
 const trimUrlToken = (value) => value.replace(/[),.!?;:'"\]]+$/g, '')
 
@@ -250,9 +265,19 @@ export const MemoizedMessage = React.memo(({
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
-  messageActionMenuPosition, setMessageActionMenuPosition, closeMessageInteraction
+  setMessageActionMenuPosition, closeMessageInteraction
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
+  const [showMoreReactions, setShowMoreReactions] = useState(false)
+  const [editingQuickReactions, setEditingQuickReactions] = useState(false)
+  const [quickReactionSlot, setQuickReactionSlot] = useState(0)
+  const [quickReactions, setQuickReactions] = useState(() => {
+    try {
+      return normalizeQuickReactions(JSON.parse(localStorage.getItem(getQuickReactionStorageKey(currentUserId)) || '[]'))
+    } catch (_err) {
+      return QUICK_REACTION_EMOJIS
+    }
+  })
   const [showInlineTime, setShowInlineTime] = useState(false)
   const [showReceiptDetails, setShowReceiptDetails] = useState(false)
   const touchTimer = useRef(null)
@@ -262,15 +287,16 @@ export const MemoizedMessage = React.memo(({
   const suppressNextBubbleClickRef = useRef(false)
   const bubbleRef = useRef(null)
   const actionMenuRef = useRef(null)
+  const reactionPopoverRef = useRef(null)
   const gestureRef = useRef(null)
-  const [actionMenuPosition, setActionMenuPosition] = useState(null)
+  const [, setActionMenuPosition] = useState(null)
+  const [reactionPopoverPosition, setReactionPopoverPosition] = useState(null)
   const [swipeOffset, setSwipeOffset] = useState(0)
   const message = m
   const hasAttachments = message.message_attachments && message.message_attachments.length > 0
   const attachments = message.message_attachments || []
   const imageAttachments = attachments.filter(attachment => attachment.file_type?.startsWith('image/'))
   const hasImageAttachments = imageAttachments.length > 0
-  const selectedMenuAnchor = messageActionMenuPosition?.messageId === m.id ? messageActionMenuPosition : null
   const isActionMenuOpen = messageActionMenuId === m.id
   const { previewLinks, renderedContent } = useMemo(() => {
     if (!m.content || m.is_deleted || typeof m.content !== 'string') {
@@ -294,14 +320,38 @@ export const MemoizedMessage = React.memo(({
     if (messageActionMenuId === m.id) {
       logMenuDebug('menu closed', { reason, messageId: m.id, ...payload })
       closeMessageInteraction?.(reason, { messageId: m.id, ...payload })
+      setMessageActionMenuId(null)
+      setMessageActionMenuPosition?.(null)
     }
     setShowReactionPicker(false)
+    setShowMoreReactions(false)
+    setEditingQuickReactions(false)
+    setReactionPopoverPosition(null)
     setShowReceiptDetails(false)
     if (inlineDeleteMessageId === m.id) {
       setInlineDeleteMessageId(null)
       setInlineDeleteStep('options')
     }
-  }, [closeMessageInteraction, inlineDeleteMessageId, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep])
+  }, [closeMessageInteraction, inlineDeleteMessageId, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition])
+
+  useEffect(() => {
+    try {
+      setQuickReactions(normalizeQuickReactions(JSON.parse(localStorage.getItem(getQuickReactionStorageKey(currentUserId)) || '[]')))
+    } catch (_err) {
+      setQuickReactions(QUICK_REACTION_EMOJIS)
+    }
+  }, [currentUserId])
+
+  const saveQuickReaction = (emoji) => {
+    setQuickReactions(current => {
+      const next = normalizeQuickReactions(current.map((item, index) => index === quickReactionSlot ? normalizeReactionEmoji(emoji) : item))
+      try {
+        localStorage.setItem(getQuickReactionStorageKey(currentUserId), JSON.stringify(next))
+      } catch (_err) {}
+      return next
+    })
+    setEditingQuickReactions(false)
+  }
 
   const captureBubbleAnchor = useCallback(() => {
     const rect = bubbleRef.current?.getBoundingClientRect?.()
@@ -361,6 +411,25 @@ export const MemoizedMessage = React.memo(({
     }
   }, [hasImageAttachments, isMe])
 
+  const getReactionPopoverPosition = useCallback((expanded = showMoreReactions || editingQuickReactions) => {
+    const rect = actionMenuRef.current?.getBoundingClientRect?.() || bubbleRef.current?.getBoundingClientRect?.()
+    if (!rect) return null
+    const margin = 8
+    const width = Math.min(300, window.innerWidth - margin * 2)
+    const height = expanded ? 410 : 48
+    const rawLeft = rect.left + (rect.width - width) / 2
+    const left = Math.min(Math.max(rawLeft, margin), window.innerWidth - width - margin)
+    const aboveTop = rect.top - height - margin
+    const belowTop = rect.bottom + margin
+    const top = aboveTop >= margin ? aboveTop : Math.min(belowTop, window.innerHeight - height - margin)
+    return { left, top: Math.max(margin, top), width }
+  }, [editingQuickReactions, showMoreReactions])
+
+  const updateReactionPopoverPosition = useCallback(() => {
+    const nextPosition = getReactionPopoverPosition()
+    if (nextPosition) setReactionPopoverPosition(nextPosition)
+  }, [getReactionPopoverPosition])
+
   const openMobileActions = useCallback((event, reason = 'long_press') => {
     event?.preventDefault?.()
     event?.stopPropagation?.()
@@ -380,6 +449,12 @@ export const MemoizedMessage = React.memo(({
     setActionMenuPosition(nextPosition)
     setMessageActionMenuPosition?.(nextPosition)
     setMessageActionMenuId(m.id)
+    setShowReactionPicker(true)
+    setShowMoreReactions(false)
+    setEditingQuickReactions(false)
+    const nextReactionPosition = getReactionPopoverPosition(false)
+    if (nextReactionPosition) setReactionPopoverPosition(nextReactionPosition)
+    else requestAnimationFrame(updateReactionPopoverPosition)
     logMenuDebug('menu opened', {
       reason,
       messageId: m.id,
@@ -390,7 +465,7 @@ export const MemoizedMessage = React.memo(({
       bubbleRect: nextAnchor.rect
     })
     if (navigator.vibrate) navigator.vibrate(50)
-  }, [calculateActionMenuPositionFromAnchor, captureBubbleAnchor, closeMessageInteraction, isMe, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition])
+  }, [calculateActionMenuPositionFromAnchor, captureBubbleAnchor, closeMessageInteraction, getReactionPopoverPosition, isMe, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition, updateReactionPopoverPosition])
 
   const handlePointerDown = (event) => {
     if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
@@ -499,11 +574,16 @@ export const MemoizedMessage = React.memo(({
       logMenuDebug('menu opened', { reason: 'reaction_picker', messageId: m.id, eventType: event.type, target: describeTarget(event.target) })
     }
     setShowReactionPicker(true)
+    setShowMoreReactions(false)
+    setEditingQuickReactions(false)
+    const nextPosition = getReactionPopoverPosition(false)
+    if (nextPosition) setReactionPopoverPosition(nextPosition)
+    else requestAnimationFrame(updateReactionPopoverPosition)
   }
   const handleReactionButtonClick = (event, emoji, hasReacted) => {
     event.stopPropagation()
     if (Date.now() - lastReactionTouchRef.current < 500) return
-    toggleReaction(m.id, emoji, hasReacted)
+    toggleReaction(m.id, normalizeReactionEmoji(emoji), hasReacted)
     setShowReactionPicker(false)
     closeActionMenu('action_react')
   }
@@ -511,13 +591,15 @@ export const MemoizedMessage = React.memo(({
     event.stopPropagation()
     event.preventDefault()
     lastReactionTouchRef.current = Date.now()
-    toggleReaction(m.id, emoji, hasReacted)
+    toggleReaction(m.id, normalizeReactionEmoji(emoji), hasReacted)
     setShowReactionPicker(false)
     closeActionMenu('action_react_touch')
   }
 
   const groupedReactions = m.message_reactions?.reduce((acc, r) => {
-    acc[r.emoji] = [...(acc[r.emoji] || []), r]
+    const emoji = normalizeReactionEmoji(r.emoji)
+    if (!emoji) return acc
+    acc[emoji] = [...(acc[emoji] || []), { ...r, emoji }]
     return acc
   }, {}) || {}
 
@@ -555,6 +637,9 @@ export const MemoizedMessage = React.memo(({
       gestureRef.current = null
       setSwipeOffset(0)
       setShowReactionPicker(false)
+      setShowMoreReactions(false)
+      setEditingQuickReactions(false)
+      setReactionPopoverPosition(null)
       setShowReceiptDetails(false)
       if (bubbleRef.current?.hasPointerCapture && detail.pointerId !== undefined) {
         try {
@@ -570,6 +655,9 @@ export const MemoizedMessage = React.memo(({
   useEffect(() => {
     if (!isActionMenuOpen) {
       setShowReactionPicker(false)
+      setShowMoreReactions(false)
+      setEditingQuickReactions(false)
+      setReactionPopoverPosition(null)
       setShowReceiptDetails(false)
     }
   }, [isActionMenuOpen])
@@ -579,6 +667,7 @@ export const MemoizedMessage = React.memo(({
 
     const handlePointerDownOutside = (event) => {
       if (actionMenuRef.current?.contains(event.target)) return
+      if (reactionPopoverRef.current?.contains(event.target)) return
       if (bubbleRef.current?.contains(event.target)) return
       closeActionMenu('click_away', {
         pointerType: event.pointerType,
@@ -597,6 +686,19 @@ export const MemoizedMessage = React.memo(({
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [closeActionMenu, isActionMenuOpen])
+
+  useEffect(() => {
+    if (!showReactionPicker) return undefined
+    updateReactionPopoverPosition()
+
+    const reposition = () => updateReactionPopoverPosition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [showReactionPicker, showMoreReactions, editingQuickReactions, updateReactionPopoverPosition])
 
   useEffect(() => () => {
     clearLongPressTimer()
@@ -866,32 +968,125 @@ export const MemoizedMessage = React.memo(({
                 onClick={(e) => e.stopPropagation()}
               >
                 
-                {showReactionPicker && (
+                {showReactionPicker && reactionPopoverPosition && createPortal(
                   <div 
-                    className={`premium-menu fixed bottom-20 left-1/2 -translate-x-1/2 sm:absolute sm:translate-x-0 ${alignRight ? 'sm:right-8' : 'sm:left-8'} sm:bottom-full sm:mb-2 z-[100] animate-fade-in rounded-xl overflow-hidden`}
+                    ref={reactionPopoverRef}
+                    className="messapp-reaction-popover premium-menu fixed z-[160] animate-fade-in rounded-2xl overflow-hidden p-1.5"
+                    style={{
+                      left: reactionPopoverPosition.left,
+                      top: reactionPopoverPosition.top,
+                      width: reactionPopoverPosition.width
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
                     onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
-                    onMouseDown={(e) => { e.preventDefault(); }}
                   >
-                    <div className="relative z-10 rounded-xl overflow-hidden">
-                      <EmojiPicker 
-                        theme={document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'} 
-                        emojiStyle="native"
-                        lazyLoadEmojis={true}
-                        width={typeof window !== 'undefined' && window.innerWidth < 350 ? Math.min(window.innerWidth - 32, 280) : 300}
-                        height={350}
-                        searchDisabled={true}
-                        autoFocusSearch={false}
-                        previewConfig={{ showPreview: false }} 
-                        onEmojiClick={(emojiData) => {
-                          const hasReacted = groupedReactions[emojiData.emoji]?.some(r => r.profile_id === currentUserId);
-	                          toggleReaction(m.id, emojiData.emoji, hasReacted);
-	                          setShowReactionPicker(false);
-	                          closeActionMenu('action_react_picker');
-	                        }} 
-                      />
+                    <div className="relative z-10">
+                      <div className="flex items-center gap-1">
+                        {quickReactions.map((emoji, index) => {
+                          const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
+                          const isSelectedSlot = editingQuickReactions && quickReactionSlot === index
+                          return (
+                            <button
+                              key={`${emoji}-${index}`}
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                if (editingQuickReactions) {
+                                  setQuickReactionSlot(index)
+                                  return
+                                }
+                                handleReactionButtonClick(event, emoji, hasReacted)
+                              }}
+                              onTouchEnd={(event) => {
+                                if (editingQuickReactions) return
+                                handleReactionButtonTouchEnd(event, emoji, hasReacted)
+                              }}
+                              className={`flex h-9 w-9 items-center justify-center rounded-full text-xl transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-110 ring-2 ring-[var(--theme-base)]' : ''}`}
+                              title={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
+                              aria-label={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
+                            >
+                              {emoji}
+                            </button>
+                          )
+                        })}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setEditingQuickReactions(false)
+                            setShowMoreReactions(value => {
+                              const next = !value
+                              const nextPosition = getReactionPopoverPosition(next)
+                              if (nextPosition) setReactionPopoverPosition(nextPosition)
+                              return next
+                            })
+                          }}
+                          className={`flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${showMoreReactions ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)]'}`}
+                          title="More emojis"
+                          aria-label="More emojis"
+                        >
+                          <Plus size={17} aria-hidden="true" />
+                        </button>
+                      </div>
+
+                      {(showMoreReactions || editingQuickReactions) && (
+                        <div className="mt-1.5 rounded-xl overflow-hidden">
+                          {showMoreReactions && !editingQuickReactions && (
+                            <div className="flex items-center justify-end bg-[var(--bg-element)] px-3 py-2">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  const nextPosition = getReactionPopoverPosition(true)
+                                  if (nextPosition) setReactionPopoverPosition(nextPosition)
+                                  setEditingQuickReactions(true)
+                                }}
+                                className="text-[11px] font-bold text-[var(--theme-base)] hover:text-[var(--text-main)]"
+                              >
+                                Edit quick reactions
+                              </button>
+                            </div>
+                          )}
+                          {editingQuickReactions && (
+                            <div className="flex items-center justify-between gap-3 bg-[var(--bg-element)] px-3 py-2 text-[11px] font-bold text-gray-400">
+                              <span>Pick replacement for {quickReactions[quickReactionSlot]}</span>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setEditingQuickReactions(false)
+                                }}
+                                className="rounded-full p-1 text-gray-500 hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)]"
+                                aria-label="Close quick reaction editor"
+                                title="Close editor"
+                              >
+                                <X size={12} aria-hidden="true" />
+                              </button>
+                            </div>
+                          )}
+                          <ChatEmojiPicker
+                            width={typeof window !== 'undefined' && window.innerWidth < 350 ? Math.min(window.innerWidth - 32, 280) : 300}
+                            height={editingQuickReactions ? 300 : 350}
+                            searchDisabled={false}
+                            onEmojiClick={(emojiData) => {
+                              if (editingQuickReactions) {
+                                saveQuickReaction(emojiData.emoji)
+                                return
+                              }
+                              const emoji = normalizeReactionEmoji(emojiData.emoji)
+                              const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
+                              toggleReaction(m.id, emoji, hasReacted)
+                              setShowReactionPicker(false)
+                              setShowMoreReactions(false)
+                              closeActionMenu('action_react_picker')
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
+                , document.body)}
 
                 {inlineDeleteMessageId === m.id ? (
                   <div className="flex items-center gap-0.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-2 py-1 rounded-full shadow-sm animate-fade-in">

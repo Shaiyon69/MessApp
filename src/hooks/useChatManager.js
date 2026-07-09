@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
@@ -7,6 +7,7 @@ import { cacheThumbnail } from '../lib/cacheManager'
 import { importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm } from '../lib/crypto'
 import { audioSys } from '../lib/SoundEngine'
 import { safeHttpUrl } from '../lib/security'
+import { normalizeReactionEmoji } from '../lib/reactions'
 
 const KeyboardImage =
   window.__messappKeyboardImagePlugin ||
@@ -15,6 +16,7 @@ const KeyboardImage =
 window.__messappKeyboardImagePlugin = KeyboardImage
 const MESSAGE_SELECT_BASE = '*, profiles!fk_messages_profile(username, avatar_url, public_key), message_reactions(*)'
 const MESSAGE_SELECT = `${MESSAGE_SELECT_BASE}, message_attachments(*)`
+const INITIAL_MESSAGE_LIMIT = 50
 
 const formatBytes = (bytes, decimals = 2) => {
   if (!+bytes) return '0 Bytes'
@@ -29,6 +31,7 @@ const safeCacheSave = (targetId, dataArray) => {
   try {
     const persisted = dataArray
       .filter(message => message && !message.__local && !message.__retry_payload)
+      .slice(-INITIAL_MESSAGE_LIMIT)
       .map(message => {
         const persistedMessage = { ...message }
         delete persistedMessage.__delivery_status
@@ -41,7 +44,7 @@ const safeCacheSave = (targetId, dataArray) => {
 }
 
 const safeCacheLoad = (targetId) => {
-  try { return JSON.parse(localStorage.getItem(`local_chat_${targetId}`)) || [] } catch (_err) { return [] }
+  try { return (JSON.parse(localStorage.getItem(`local_chat_${targetId}`)) || []).slice(-INITIAL_MESSAGE_LIMIT) } catch (_err) { return [] }
 }
 
 const mergeMessageLists = (previous = [], incoming = [], field, targetId) => {
@@ -745,10 +748,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
 
     try {
-    const { data } = await supabase.from('messages').select(MESSAGE_SELECT).eq(field, targetId).order('created_at', { ascending: false }).limit(100)
+    const { data } = await supabase.from('messages').select(MESSAGE_SELECT).eq(field, targetId).order('created_at', { ascending: false }).limit(INITIAL_MESSAGE_LIMIT)
       
     if (data) {
-      if (data.length < 100) setHasMoreMessages(false);
+      if (data.length < INITIAL_MESSAGE_LIMIT) setHasMoreMessages(false);
       const chronoData = data.reverse() 
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', chronoData);
       const decryptedData = await decryptMessageList(chronoData, sharedKeys);
@@ -982,14 +985,17 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   }, [activeChannel?.id, activeDm?.dm_room_id, markIncomingSeen, messages, view])
 
   const toggleReaction = async (messageId, emoji, hasReacted) => {
-    if (!messageId || !emoji || !session?.user?.id) return
+    const reactionEmoji = normalizeReactionEmoji(emoji)
+    if (!messageId || !reactionEmoji || !session?.user?.id) return
     try {
       if (hasReacted) {
-        const { error } = await supabase.from('message_reactions').delete().match({ message_id: messageId, profile_id: session.user.id, emoji: emoji })
+        const { error } = await supabase.from('message_reactions').delete().match({ message_id: messageId, profile_id: session.user.id })
         if (error) throw error
       } else {
-        const { error } = await supabase.from('message_reactions').upsert([{ message_id: messageId, profile_id: session.user.id, emoji: emoji }], { onConflict: 'message_id,profile_id,emoji' })
-        if (error) throw error
+        const { error: deleteError } = await supabase.from('message_reactions').delete().match({ message_id: messageId, profile_id: session.user.id })
+        if (deleteError) throw deleteError
+        const { error: insertError } = await supabase.from('message_reactions').insert([{ message_id: messageId, profile_id: session.user.id, emoji: reactionEmoji }])
+        if (insertError) throw insertError
       }
       
       setMessages(current => {
@@ -997,8 +1003,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           if (msg.id === messageId) {
             const currentReactions = msg.message_reactions || []
             const newReactions = hasReacted 
-              ? currentReactions.filter(r => !(r.profile_id === session.user.id && r.emoji === emoji))
-              : [...currentReactions, { profile_id: session.user.id, emoji: emoji }]
+              ? currentReactions.filter(r => r.profile_id !== session.user.id)
+              : [
+                  ...currentReactions.filter(r => r.profile_id !== session.user.id),
+                  { profile_id: session.user.id, emoji: reactionEmoji }
+                ]
             return { ...msg, message_reactions: newReactions }
           }
           return msg
@@ -1287,6 +1296,38 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     if (!targetId) return toast.error('Select a channel or DM before sending a GIF.')
     const replyToMessageId = asMessageId(replyingTo)
+    const localId = createLocalMessageId()
+    const localCreatedAt = new Date().toISOString()
+
+    setMessages(prev => {
+      const updated = [...prev, {
+        id: localId,
+        __local: true,
+        __delivery_status: 'sending',
+        __retry_payload: { type: 'gif', gifUrl },
+        profile_id: session.user.id,
+        profiles: getLocalProfile(session, myUsername),
+        content: '',
+        created_at: localCreatedAt,
+        updated_at: localCreatedAt,
+        is_encrypted: view === 'home',
+        [field]: targetId,
+        reply_to_message_id: replyToMessageId,
+        message_reactions: [],
+        message_attachments: [{
+          id: `${localId}-attachment`,
+          file_url: gifUrl,
+          file_type: 'image/gif',
+          file_name: 'animation.gif',
+          file_size: 0
+        }]
+      }]
+      updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      safeCacheSave(targetId, updated)
+      return updated
+    })
+    ownSendScrollRef.current = { targetId, active: true }
+    instantScrollToBottom('own-gif-optimistic')
 
     try {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
@@ -1318,20 +1359,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       const [decryptedMsg] = await decryptMessageList([newMsg], sharedKeys);
 
-      setMessages(prev => {
-        const updated = prev.some(msg => msg.id === decryptedMsg.id)
-          ? prev.map(msg => msg.id === decryptedMsg.id ? { ...msg, ...decryptedMsg } : msg)
-          : [...prev, decryptedMsg];
-        updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        safeCacheSave(targetId, updated);
-        return updated;
-      })
-
+      replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
+      ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
       setReplyingTo(null)
     } catch (err) {
       logMessageSendError('gif-send', err, { targetId, gifUrl })
       toast.error('Failed to send GIF.')
+      ownSendScrollRef.current = { targetId: null, active: false }
+      failLocalMessage(targetId, localId, { type: 'gif', gifUrl })
     }
   }
 
@@ -1352,6 +1388,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     if (retryPayload.type === 'attachment' && retryPayload.file) {
       await uploadPendingFile(retryPayload.file, retryPayload.caption || '')
+      return
+    }
+
+    if (retryPayload.type === 'gif' && retryPayload.gifUrl) {
+      await handleSendGif(retryPayload.gifUrl)
       return
     }
 
@@ -1470,8 +1511,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     finally { setInlineDeleteMessageId(null); setInlineDeleteStep('options') }
   }, [])
 
-  const validMessages = Array.from(new Map(messages.filter(m => m && m.id != null).map(item => [item.id, item])).values())
-  const pinnedMessages = validMessages.filter(m => m.is_pinned && !m.is_deleted)
+  const validMessages = useMemo(() => Array.from(new Map(messages.filter(m => m && m.id != null).map(item => [item.id, item])).values()), [messages])
+  const pinnedMessages = useMemo(() => validMessages.filter(m => m.is_pinned && !m.is_deleted), [validMessages])
 
   const togglePinnedMessage = useCallback(async (message) => {
     if (!message?.id) return
@@ -1491,7 +1532,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }, [activeChannel?.id, activeDm?.dm_room_id, view])
   
-  const visibleMessages = validMessages.filter(m => {
+  const visibleMessages = useMemo(() => validMessages.filter(m => {
     if (localDeletedMessages.includes(m.id)) return false;
     if (m.is_unreadable) return false;
     const contentString = typeof m.content === 'object' && m.content !== null ? JSON.stringify(m.content) : String(m.content);
@@ -1499,7 +1540,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (contentString.includes('"ciphertext"')) return false;
     if (contentString.includes('{"iv":')) return false;
     return true;
-  });
+  }), [localDeletedMessages, validMessages]);
 
   return {
     visibleMessages, validMessages, pinnedMessages,
