@@ -1,3 +1,4 @@
+/** Creates a Supabase auth identity; profile provisioning is backend-dependent. */
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { generateSecureRandomNumber } from '../lib/crypto'

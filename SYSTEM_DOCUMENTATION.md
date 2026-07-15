@@ -1,127 +1,144 @@
 # MessApp System Documentation
 
-## 1) Project Overview
-MessApp is a React + Vite secure chat platform built with Supabase for authentication, database, real-time subscriptions, and storage. It supports:
-- User auth (register, login, logout)
-- Direct messages (DMs)
-- Server-based team channels
-- Real-time message updates (Supabase Realtime)
-- File attachments via Supabase Storage
-- Theme customization and presence indicators
+## System overview
 
-## 2) High-level Architecture
+MessApp is a React/Vite messaging client packaged for the web, Capacitor mobile, and Tauri desktop. Supabase supplies authentication, Postgres access, Realtime signaling/presence, and Storage. The browser owns UI state, optimistic message state, Web Crypto operations, and WebRTC media. Server authorization is enforced by deployed RLS policies, Storage policies, and RPC grants; frontend visibility checks are never an authorization boundary.
 
-### Frontend
-- React functional components (App, Login, Register, Dashboard, modals)
-- Tailwind-style utility classes + custom CSS in `src/style/index.css`
-- Client state via React `useState`, `useEffect`, `useRef`
-- Markdown rendering in messages through `react-markdown` + `remark-gfm`
-- Syntax highlight with `react-syntax-highlighter`
-- Toast feedback via `react-hot-toast`
+## Frontend architecture
 
-### Backend (Supabase)
-- Auth: email/password register and sign-in
-- Postgres tables used by app (example): `profiles`, `servers`, `server_members`, `channels`, `messages`, `dm_members`, `channel_reads`
-- Realtime: subscriptions to `messages`, `channels`, and presence updates
-- Storage: `chat-attachments` bucket for image upload
+- `src/App.jsx` initializes theme and native keyboard behavior, tracks the Supabase session, handles recovery/deep-link routing, and chooses auth or `Dashboard` views.
+- `src/components/Dashboard.jsx` is the authenticated coordinator. It loads profile, DM/server navigation, presence, permission, modal, and voice-channel state.
+- `src/hooks/useChatManager.js` owns the active conversation's messages, pagination, optimistic sends, Realtime reconciliation, reactions, typing, attachments, and encryption boundary.
+- `src/hooks/useWebRTC.js` owns one-to-one call signaling, peer/media state, and Android audio routing.
+- Layout components render parent-owned state. Modal components should not become alternative data authorities.
 
-## 3) Data Flow
-1. User signs in and receives session in `App.jsx`
-2. `Dashboard.jsx` reads user servers and DMs and subscribes to channel/message updates.
-3. New messages are inserted into `messages` table and broadcast by Supabase realtime.
-4. UI updates message list and scrolls to latest messages.
-5. Image upload stores file in Supabase Storage and creates a message record with `image_url`.
+## Supabase architecture
 
-## 4) Core Components and Their Responsibilities
-- `App.jsx`: Auth gating (login/register vs dashboard)
-- `Login.jsx`, `Register.jsx`: User onboarding flows with Supabase auth
-- `Dashboard.jsx`: Main chat UI, server/channel/DM selection, message CRUD, presence, themes
-- `src/components/modals/*`: UI forms for server/channel/DM/user settings
+`src/supabaseClient.js` creates one browser client using `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The app accesses profiles, DMs, servers, channels, messages, reactions, reads, friendships, call state, and Storage through table queries and RPCs. Client-side visibility checks improve UX but are not security controls; deployed RLS and function grants must authorize every operation.
 
-## 5) Key Feature Map
-- Authentication: secure signup/login/logout
-- Server list + channel list + DM list
-- Realtime CRUD for messages
-- Message editing/deleting for own messages
-- Image attachments in messages
-- Channel unread markers and read-tracking in `channel_reads`
-- Presence indicators using Supabase Realtime presence
-- UI theme color persistence via `localStorage`
+The repository's authored backend security delta is `supabase/migrations/20260715000100_harden_conversation_rls.sql`. It removes permissive legacy policies, restricts direct membership and room creation, corrects channel membership checks, makes `chat-attachments` private, and scopes attachment access to authenticated conversation participants. Normal DM creation must use `create_or_get_dm(peer_id)` and server joins must use `join_server_by_code` rather than direct client inserts.
 
-## 6) Security & Privacy Design (Current + Recommended)
-### Core zero-knowledge architecture
-- Client-only cryptographic keys generated with Web Crypto API
-- Supabase used only for auth, presence signaling, and optional encrypted attachments storage
-- Message payload encryption performed before transmit (E2EE), server stores encrypted blobs only
-- Local cache pruning with `cacheManager` to keep local storage < 100MB
-- No external telemetry or analytics; all logs are local and ephemeral
+`supabase/tests/conversation_isolation.sql` is the matching transactional A/B/C isolation test. It verifies that participants can access their own conversation while an unrelated user cannot read, send, join, view attachments, or upload into it. Keep migrations and tests in version control. `supabase/schema.sql` and `supabase/storage_schema.sql` are generated snapshots of linked state for local inspection only and are intentionally ignored; they are not migration history.
 
-### Implemented now:
-- Auth using Supabase secure session tokens
-- Profile-level unique tags for user identity
-- Soft UI privacy options: server/DM membership boundaries
-- Basic P2P signaling and encrypted message handshake via Supabase Realtime channel
-- Encrypted image pipeline through P2P data channel fallback and secure storage upload path
+The hardening migration has been validated against a locally hydrated schema, but it has not been deployed to the linked remote project. Until an explicit reviewed deployment occurs, the remote backend may still have the older permissive policies. Never treat a passing frontend build as proof that remote RLS is current.
 
-### Recommended additions (for secure mobile+web app):
-- Stronger key management for device keys and cross-device trust chains
-- Full `Signal Protocol` / double ratchet for perfect forward secrecy
-- Expiring and revoke-able one-time message keys
-- Encrypted search and zero-knowledge metadata minimization
-- Mobile-first UI accessibility and offline sync with encrypted queue
+## Authentication and session flow
 
-## 7) Development Setup
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Set up Supabase project and add env variables in `.env`:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-3. Run app:
-   ```bash
-   npm run dev
-   ```
-4. Open at `http://localhost:5173`
+1. `App` asks Supabase Auth for the persisted session and subscribes to auth changes.
+2. Login/register/recovery components call Supabase Auth and leave session ownership with `App`.
+3. `Dashboard` loads the authenticated profile and dependent navigation data.
+4. Capacitor deep links return recovery/login callbacks to the browser route.
+5. Logout clears the Supabase session; local privacy and key settings remain explicitly managed by settings flows.
 
-## 8) Database Schema Blueprint (suggested)
-Recommended core tables:
-- `profiles`: id, username, avatar_url, unique_tag, metadata
-- `servers`: id, name, owner_id
-- `server_members`: server_id, profile_id, role
-- `channels`: server_id, name, type
-- `dm_rooms`: id, created_at
-- `dm_members`: dm_room_id, profile_id
-- `messages`: id, profile_id, channel_id?, dm_room_id?, content, image_url, created_at, updated_at
-- `channel_reads`: profile_id, channel_id, last_read_at
+Never log auth tokens, recovery fragments, passwords, push tokens, or private key material.
 
-## 9) Production & Deployment Notes
-- Build:
-  ```bash
-  npm run build
-  ```
-- Deploy to Vercel / Netlify / Supabase Edge with env vars
-- Ensure Supabase Row Level Security (RLS) policies are configured strictly for authenticated access
+## Messaging flow
 
-## 10) Next Milestones (Product Roadmap)
-1. Strong encryption + key management for E2EE.
-2. Mobile-responsive app shell and PWA support.
-3. Multi-device login and session dashboard.
-4. Rich message features: reactions, threads, voice notes.
-5. Admin role controls, server moderation, link invites.
+`useChatManager` derives one active target from a DM room or server channel. It loads cached/recent rows, decrypts content where applicable, and subscribes to target-scoped Realtime changes. Sends create a local optimistic row, perform encryption/upload/database work, and reconcile the local row with the matching server insert. A room switch must invalidate stale asynchronous work, reject results belonging to another target, and remove the old Realtime/presence channels before their results can update the new room.
 
-## 11) Where to Customize
-- `src/supabaseClient.js`: Supabase initialization and auth helper
-- `src/components/Dashboard.jsx`: Main chat logic (the bulk of features), including secure P2P handshake, channel CRUD, and invite handling
-- `src/components/modals/ServerSettings.jsx`: Server invite code generation and sharing
-- `src/components/modals/JoinServer.jsx`: Join by invite code maps correctly to server_id
-- `src/components/modals/ChannelCreation.jsx`: Channel creation UI
-- `src/style/index.css`: Global theme + appearance
+Pagination prepends older rows without disturbing newer optimistic/realtime entries. The bounded local cache is an availability optimization, not authoritative state. Delivery/read markers derive from backend timestamps and current visibility.
 
-## 12) Contribution Guide
-- Use feature branches named like `feature/e2ee` or `fix/read-marker`
-- Follow code style in the existing code (functional components, modular handlers)
-- Add tests once stability is confirmed (UI interactions, message flows)
+## Attachments
 
----
-_Last updated: March 2026_
+The chat hook validates type and size, encrypts DM attachment bytes where configured, uploads to the private `chat-attachments` bucket, and stores object metadata with the message. Object paths use the uploader and conversation identifier as authorization inputs. Read paths resolve stored object paths to temporary signed URLs and decrypt bytes at the client boundary. Signed URLs, file contents, plaintext, and encrypted key material must not be persisted in diagnostics. The frontend may cache resolved media for performance, but access is ultimately controlled by deployed Storage policies and conversation membership.
+
+## Reactions
+
+Reaction replacement removes the current user's prior reaction before inserting the normalized new emoji. UI state is updated only after the write succeeds and cached consistently. Realtime message/reaction changes remain the cross-client source of convergence.
+
+## Servers and channels
+
+`Dashboard` owns selected server/channel state and passes permission decisions to `LeftSidebar` and settings modals. One-to-one rooms are created only through `create_or_get_dm(peer_id)`; the RPC returns a `dm_rooms` row and the frontend navigates with its `id`. The maintained migration derives the caller from `auth.uid()`, checks friendship/block/privacy rules, serializes the user pair, and inserts both memberships atomically. Server creation/join and invite operations depend on backend RPCs; categories/channels and membership depend on RLS-protected writes. UI checks for owner/admin/member roles are not substitutes for backend enforcement. Voice-channel switching must leave the previous media session before joining another.
+
+## Voice and WebRTC
+
+`useWebRTC` implements DM call states from ringing through connecting/connected and terminal outcomes. It owns the peer connection, offer/answer/ICE exchange, local camera/microphone tracks, remote streams, timeout handling, and teardown. Tracks and senders must stop once, signaling subscriptions must be removed, and late ICE/signaling must not revive an ended call.
+
+Voice-channel media is presented by `SfuScreenShare`. Dashboard/media-session state supplies participants and streams; the component owns only view state (pin, grid, carousel, page, and watch selection). Stream identity should use stable participant/track identifiers rather than array position.
+
+## Screen sharing
+
+Screen and camera tracks are upstream-owned media resources. `SfuScreenShare` binds them to video elements, chooses responsive layouts, and reports user actions upward. Pinning and stopping a watch alter presentation/subscription intent; they do not transfer track ownership. Cleanup must detach element streams and leave track shutdown to the layer that created them.
+
+## Mobile and Capacitor
+
+`App` configures body-resize keyboard behavior and the Android back/deep-link lifecycle. CSS safe-area and viewport variables keep composer trays, call overlays, and long-press portals above the keyboard/system UI.
+
+Authored Android classes provide two bridges:
+
+- `MessAppWebView` and `KeyboardImagePlugin` accept images committed by Android keyboards, copy temporary URI content to app-private storage, and notify JavaScript.
+- `CallAudioPlugin` enters Android communication audio mode, switches speaker routing, and restores the pre-call audio state.
+
+Temporary URI permissions, streams, plugin listeners, and audio routing all require cleanup. Generated Capacitor assets are not authored source.
+
+## Desktop and Tauri
+
+`src-tauri/src/main.rs` starts the desktop shell and suppresses the extra Windows release console. `src-tauri/src/lib.rs` owns the Tauri lifecycle and enables native informational logging only in debug builds. The React application and Supabase client remain shared with web/mobile.
+
+## Important data models
+
+Names below are client-observed dependencies, not a schema declaration:
+
+- `profiles`: user display identity, presence/settings-related fields, public key, and push registration.
+- `dm_rooms` / DM membership data: direct-conversation identity and participants.
+- `servers`, `server_members`, `categories`, `channels`: community hierarchy and roles.
+- `messages`, `message_attachments`, `message_reactions`: conversation content and related state.
+- read/receipt records: per-user channel or DM visibility progress.
+- call/voice data and Realtime channels: signaling and voice-session coordination.
+
+Confirm exact columns, constraints, RPC contracts, and policy behavior against both authored migrations and the deployed backend before changing queries. A generated linked-schema snapshot is evidence of current remote state, not an authored source of truth.
+
+## Security boundaries
+
+- Supabase Auth establishes identity; RLS/RPC/Storage policies establish authorization.
+- Web Crypto helpers handle ECDH, AES-GCM, fingerprints, randomness, and PIN wrapping. They do not provide a full ratcheting protocol or independently prove peer identity.
+- Rendering routes untrusted links/media through `src/lib/security.js`; Markdown must not bypass those checks.
+- Local caches and localStorage are device-local convenience state, not trusted backend truth.
+- Diagnostics must exclude tokens, passwords, private/encrypted keys, full message content, signed URLs, service-role keys, and attachment contents.
+
+## Repository and deployment hygiene
+
+- `SYSTEM_DOCUMENTATION.md` is the project-level system reference. Do not recreate a root `AGENTS.md`.
+- Commit authored Supabase migrations and tests. Do not commit `.temp`, `.branches`, linked schema snapshots, database dumps, or local credentials.
+- Keep `.env.example` limited to variable names and safe placeholders. Real `.env*` files remain local.
+- Do not edit generated build directories. Android, iOS, and Tauri source projects are tracked; their build caches, local SDK paths, signing files, and platform service credentials are ignored.
+- Database deployment is a separate, explicit operation. Review the migration diff and run local isolation checks before applying it to any remote project.
+- Never commit, deploy, or push as a side effect of documentation or local validation work.
+
+## Debug-label reference
+
+`src/lib/debug.js` accepts stable labels and structured metadata. `debug`/`info` are disabled in production unless `localStorage.messappDebug` is `true`; warnings/errors remain available and metadata is sanitized.
+
+| Label | Boundary |
+|---|---|
+| `APP_SESSION` | Initial session lookup and auth transitions |
+| `PROFILE_LOAD` | Profile retrieval/provisioning |
+| `DM_LIST` | DM navigation loading |
+| `CHAT_LOAD` | Conversation load/pagination |
+| `MESSAGE_SEND`, `MESSAGE_SEND_ERROR` | Optimistic send and persistence |
+| `MESSAGE_REALTIME` | Target-scoped message reconciliation |
+| `REACTION`, `REACTION_ERROR` | Reaction replacement/write |
+| `ATTACHMENT_UPLOAD`, `ATTACHMENT_RESOLVE` | Storage and temporary URL lifecycle |
+| `VOICE_JOIN`, `VOICE_LEAVE`, `VOICE_STATE` | Voice-channel lifecycle |
+| `MEDIA_CAMERA`, `MEDIA_SCREEN` | Local track lifecycle |
+| `STREAM_WATCH`, `STREAM_PIN` | Remote presentation/subscription intent |
+| `WEBRTC_SIGNAL`, `WEBRTC_ERROR` | DM call signaling/failures |
+| `SUPABASE_ERROR` | Safe database/RPC failure context |
+| `MOBILE_WEBVIEW` | Capacitor/WebView workarounds |
+
+Do not emit events during render loops, scrolling, presence heartbeats, or video frames.
+
+## Where to start for common tasks
+
+| Task | Primary files |
+|---|---|
+| Message sending | `src/hooks/useChatManager.js`, `src/components/chat/MessageElements.jsx` |
+| Reactions | `src/components/chat/MessageElements.jsx`, `src/lib/reactions.js` |
+| Voice calls | `src/hooks/useWebRTC.js`, `src/components/chat/CallOverlay.jsx` |
+| Voice channels | `src/components/Dashboard.jsx`, `src/components/screen-share/SfuScreenShare.jsx` |
+| Server UI | `src/components/layout/LeftSidebar.jsx`, `src/components/modals/ServerSettings.jsx` |
+| Supabase security | `supabase/migrations`, `supabase/tests` |
+| Android WebView | `MessAppWebView.java`, `KeyboardImagePlugin.java`, `MainActivity.java` |
+| Android call audio | `CallAudioPlugin.java`, `src/hooks/useWebRTC.js` |
+| Desktop shell | `src-tauri/src/lib.rs`, `src-tauri/src/main.rs` |
+| Safe diagnostics | `src/lib/debug.js` |

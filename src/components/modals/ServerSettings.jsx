@@ -1,30 +1,51 @@
+/**
+ * Presents server rename/delete settings. Visibility is not authorization;
+ * backend policies must continue enforcing owner/admin permissions.
+ */
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import { X, Copy, Check, Loader2, Trash2, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { generateSecureRandomString } from '../../lib/crypto'
 import { trackSpotlight } from '../../lib/uiEffects'
 
-export default function ServerSettingsModal({ session, activeServer, handleUpdate, handleDelete, onClose, name, setName }) {
+export default function ServerSettingsModal({ activeServer, handleUpdate, handleDelete, onClose, name, setName }) {
   const [loading, setLoading] = useState(false)
   const [inviteCode, setInviteCode] = useState(null)
+  const [inviteId, setInviteId] = useState(null)
   const [copied, setCopied] = useState(false)
 
   const generateInvite = async () => {
     if (!activeServer?.id) return toast.error('No active server selected.')
     setLoading(true)
-    const newCode = `MS-${generateSecureRandomString(6)}`
 
-    const { data, error } = await supabase.from('invites').insert([{ server_id: activeServer.id, creator_id: session.user.id, code: newCode }]).select()
+    const { data, error } = await supabase.rpc('create_server_invite', {
+      target_server_id: activeServer.id,
+      requested_uses: 100,
+      requested_expires_at: null
+    })
 
-    if (error || !data || data.length === 0) {
+    if (error || !data?.code) {
       setInviteCode(null)
+      setInviteId(null)
       setLoading(false)
       return toast.error(`Failed to generate invite. Error: ${error?.message || 'Unknown'}`)
     }
     
-    setInviteCode(data[0].code)
+    setInviteCode(data.code)
+    setInviteId(data.id)
     setLoading(false)
+  }
+
+  const revokeInvite = async () => {
+    if (!inviteId) return
+    setLoading(true)
+    const { error } = await supabase.rpc('revoke_server_invite', { target_invite_id: inviteId })
+    setLoading(false)
+    if (error) return toast.error('Failed to revoke invite.')
+    setInviteCode(null)
+    setInviteId(null)
+    setCopied(false)
+    toast.success('Invite revoked.')
   }
 
   const copyToClipboard = () => {
@@ -52,9 +73,14 @@ export default function ServerSettingsModal({ session, activeServer, handleUpdat
             <div className="premium-input flex items-center rounded-xl overflow-hidden ghost-border h-14">
               <input className="flex-1 px-4 bg-transparent text-white font-mono outline-none w-full" value={inviteCode || 'Generate a link to share'} readOnly />
               {inviteCode ? (
-                <button type="button" onClick={copyToClipboard} className="p-4 bg-[var(--accent-glow)] hover:bg-[var(--border-accent)] transition-colors flex items-center justify-center h-full border-l border-[var(--border-subtle)] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
-                  {copied ? <Check size={20} className="text-green-400" /> : <Copy size={20} className="text-indigo-400" />}
-                </button>
+                <>
+                  <button type="button" onClick={copyToClipboard} className="p-4 bg-[var(--accent-glow)] hover:bg-[var(--border-accent)] transition-colors flex items-center justify-center h-full border-l border-[var(--border-subtle)] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+                    {copied ? <Check size={20} className="text-green-400" /> : <Copy size={20} className="text-indigo-400" />}
+                  </button>
+                  <button type="button" onClick={revokeInvite} disabled={loading} className="p-4 bg-red-500/10 hover:bg-red-500/20 transition-colors flex items-center justify-center h-full border-l border-[var(--border-subtle)] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50" title="Revoke invite" aria-label="Revoke invite">
+                    {loading ? <Loader2 className="animate-spin text-red-300" size={18} /> : <Trash2 size={18} className="text-red-300" />}
+                  </button>
+                </>
               ) : (
                 <button type="button" onClick={generateInvite} disabled={loading} className="premium-button px-6 flex items-center justify-center h-full cursor-pointer disabled:opacity-50 rounded-none">
                   {loading ? <Loader2 className="animate-spin text-white" size={20} /> : <span className="text-white font-bold text-sm">Generate</span>}

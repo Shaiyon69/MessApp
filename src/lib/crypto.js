@@ -1,3 +1,8 @@
+/**
+ * Web Crypto helpers for ECDH/AES-GCM messaging and PIN-wrapped local keys.
+ * Callers own persistence and trust decisions. Private keys, plaintext, and
+ * derived keys must never be logged or sent as diagnostic metadata.
+ */
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
 

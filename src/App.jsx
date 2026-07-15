@@ -1,6 +1,12 @@
+/**
+ * Owns application bootstrap, Supabase session gating, lightweight routing,
+ * theme initialization, and Capacitor app/keyboard listeners. Dashboard and
+ * auth screens consume the resulting session; subscriptions require cleanup.
+ */
 import { useState, useEffect, useLayoutEffect } from 'react'
 import { supabase, supabaseConfigError } from './supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
 import Register from './components/Register'
 import Login from './components/Login'
@@ -8,6 +14,10 @@ import Dashboard from './components/Dashboard'
 import ForgotPassword from './components/ForgotPassword'
 import UpdatePassword from './components/UpdatePassword'
 import { applyThemeMode, normalizeThemeMode } from './lib/theme'
+import { debug } from './lib/debug'
+import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
+
+let keyboardResizeConfigured = false
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -32,7 +42,13 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    Keyboard.setResizeMode({ mode: KeyboardResize.BODY }).catch(() => {})
+    // The web shim rejects resize calls; guard the native bridge and avoid a
+    // duplicate call when Strict Mode remounts effects in development.
+    if (!shouldConfigureNativeKeyboard(Capacitor) || keyboardResizeConfigured) return
+    keyboardResizeConfigured = true
+    Keyboard.setResizeMode({ mode: KeyboardResize.BODY }).catch(error => {
+      debug.warn('MOBILE_WEBVIEW', { operation: 'keyboard-resize-mode', error })
+    })
   }, [])
 
   const toggleThemeMode = () => {
@@ -44,10 +60,14 @@ export default function App() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
+      debug.info('APP_SESSION', { operation: 'initial-session', authenticated: Boolean(session) })
+    }).catch(error => {
+      debug.error('APP_SESSION', { operation: 'initial-session', error })
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      debug.info('APP_SESSION', { operation: 'auth-state-change', authEvent: _event, authenticated: Boolean(session) })
     })
 
     const setupDeepLinkListener = async () => {

@@ -1,3 +1,4 @@
+/** Chooses create/join server actions without owning server data or permissions. */
 import { useRef, useEffect } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { trackSpotlight } from '../../lib/uiEffects'

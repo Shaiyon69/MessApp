@@ -1,5 +1,10 @@
 package com.shaiyon.messapp;
 
+/**
+ * Capacitor entry point. Registers authored audio and keyboard-image bridges
+ * before BridgeActivity creates the WebView.
+ */
+
 import android.os.Bundle;
 
 import com.getcapacitor.BridgeActivity;

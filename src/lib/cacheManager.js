@@ -1,3 +1,8 @@
+/**
+ * Owns bounded IndexedDB caches for recent messages and thumbnails. Cached data
+ * is an availability optimization, never an authorization source; failures are
+ * best-effort and callers continue from Supabase/network state.
+ */
 const DB_NAME = 'MessAppDB'
 const DB_VERSION = 1
 const MAX_MESSAGES_PER_ROOM = 300

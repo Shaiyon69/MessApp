@@ -1,3 +1,4 @@
+/** Browser entry point; global styling and React root ownership start here. */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './style/index.css'

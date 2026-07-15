@@ -1,3 +1,8 @@
+/**
+ * Renders message bodies, safe media, reactions, replies, delivery state, and
+ * mobile action portals. Mutation state comes from useChatManager; temporary
+ * signed media URLs must not be persisted or logged.
+ */
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { createPortal } from 'react-dom'
@@ -6,11 +11,49 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
-import { QUICK_REACTION_EMOJIS, normalizeReactionEmoji } from '../../lib/reactions'
+import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import ChatEmojiPicker from './ChatEmojiPicker'
 import StatusAvatar from '../ui/StatusAvatar'
+import { debug } from '../../lib/debug'
 
 const QUICK_REACTION_COUNT = QUICK_REACTION_EMOJIS.length
+const loadedMessageImageKeys = new Set()
+const MAX_LOADED_MESSAGE_IMAGE_KEYS = 1000
+const TOUCH_PORTAL_Z_INDEX = 2147483000
+const TOUCH_ACTION_STYLE = { pointerEvents: 'auto', touchAction: 'manipulation' }
+const ACTION_TOOLBAR_OWNER = Object.freeze({
+  CLOSED: 'closed',
+  DESKTOP_HOVER: 'desktop-hover',
+  TOUCH_LONGPRESS: 'touch-longpress'
+})
+
+// One owner renders the action toolbar at a time. Responsive-mode browsers can
+// report both hover and touch capability, so portal ownership cannot be inferred
+// from CSS breakpoints alone.
+const ActionToolbarHost = ({ owner, onBackdropPointerDown, children }) => owner === ACTION_TOOLBAR_OWNER.TOUCH_LONGPRESS
+  ? createPortal(
+      <div
+        data-reaction-portal
+        data-reaction-backdrop
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: TOUCH_PORTAL_Z_INDEX,
+          pointerEvents: 'auto',
+          touchAction: 'none'
+        }}
+        onPointerDown={onBackdropPointerDown}
+        onTouchMove={(event) => event.preventDefault()}
+        onWheel={(event) => event.preventDefault()}
+      >
+        {children}
+      </div>,
+      document.body,
+      ACTION_TOOLBAR_OWNER.TOUCH_LONGPRESS
+    )
+  : <React.Fragment key={ACTION_TOOLBAR_OWNER.DESKTOP_HOVER}>{children}</React.Fragment>
+
+const ReactionPickerPortal = ({ children }) => createPortal(children, document.body)
 
 const normalizeQuickReactions = (value) => {
   const list = Array.isArray(value) ? value : []
@@ -66,6 +109,9 @@ const safeDownloadUrl = (value) => {
   return ''
 }
 
+const getAttachmentMediaType = (attachment) => String(attachment?.file_type || '').replace(/^encrypted:/i, '').toLowerCase()
+const isImageAttachment = (attachment) => getAttachmentMediaType(attachment).startsWith('image/')
+
 const formatAttachmentSize = (value) => {
   if (typeof value === 'string' && value.trim()) return value
   if (!Number.isFinite(value) || value <= 0) return ''
@@ -74,9 +120,55 @@ const formatAttachmentSize = (value) => {
   return `${(value / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
+const rememberLoadedMessageImage = (key) => {
+  if (!key) return
+  loadedMessageImageKeys.delete(key)
+  loadedMessageImageKeys.add(key)
+  while (loadedMessageImageKeys.size > MAX_LOADED_MESSAGE_IMAGE_KEYS) {
+    loadedMessageImageKeys.delete(loadedMessageImageKeys.values().next().value)
+  }
+}
+
+const MessageImage = ({ src, mediaKey, alt, className, style, blurWhileLoading, fill, onOpen }) => {
+  const stableMediaKey = String(mediaKey || src)
+  const [loaded, setLoaded] = useState(() => loadedMessageImageKeys.has(stableMediaKey))
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setLoaded(loadedMessageImageKeys.has(stableMediaKey))
+    setFailed(false)
+  }, [src, stableMediaKey])
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl bg-[var(--bg-element)] ${fill ? 'h-full w-full' : 'w-fit max-w-full'}`}>
+      <img
+        src={src}
+        alt={alt || ''}
+        className={`${className} transition-[filter,opacity] duration-300 ${failed ? 'opacity-0' : blurWhileLoading && !loaded ? 'scale-105 blur-xl opacity-70' : 'blur-0 opacity-100'}`}
+        style={style}
+        loading="eager"
+        decoding="async"
+        onLoad={() => {
+          rememberLoadedMessageImage(stableMediaKey)
+          setLoaded(true)
+          setFailed(false)
+        }}
+        onError={() => setFailed(true)}
+        onClick={onOpen}
+      />
+      {(!loaded || failed) && (
+        <div
+          className="pointer-events-none absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md scale-110"
+          aria-label="Image loading"
+        />
+      )}
+    </div>
+  )
+}
+
 const resolveAttachmentUrl = (attachment) => {
   const value = attachment?.file_url || ''
-  return attachment?.file_type?.startsWith('image/')
+  return isImageAttachment(attachment)
     ? safeMediaUrl(value) || ''
     : safeDownloadUrl(value)
 }
@@ -269,6 +361,10 @@ export const MemoizedMessage = React.memo(({
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMoreReactions, setShowMoreReactions] = useState(false)
+  const [isReactionSubmitting, setIsReactionSubmitting] = useState(false)
+  const [reactionMenuState, setReactionMenuState] = useState(REACTION_MENU_STATE.CLOSED)
+  const [reactionInputMode, setReactionInputMode] = useState(null)
+  const [isDesktopHovered, setIsDesktopHovered] = useState(false)
   const [editingQuickReactions, setEditingQuickReactions] = useState(false)
   const [quickReactionSlot, setQuickReactionSlot] = useState(0)
   const [quickReactions, setQuickReactions] = useState(() => {
@@ -281,21 +377,23 @@ export const MemoizedMessage = React.memo(({
   const [showInlineTime, setShowInlineTime] = useState(false)
   const [showReceiptDetails, setShowReceiptDetails] = useState(false)
   const touchTimer = useRef(null)
+  const desktopHoverExitTimer = useRef(null)
   const lastReactionTouchRef = useRef(0)
   const lastReactionPickerTouchRef = useRef(0)
   const suppressBubbleClickUntilRef = useRef(0)
-  const suppressNextBubbleClickRef = useRef(false)
   const bubbleRef = useRef(null)
   const actionMenuRef = useRef(null)
   const reactionPopoverRef = useRef(null)
   const gestureRef = useRef(null)
-  const [, setActionMenuPosition] = useState(null)
+  const longPressActivatedRef = useRef(false)
+  const lastToolbarPointerUpRef = useRef(0)
+  const [actionMenuPosition, setActionMenuPosition] = useState(null)
   const [reactionPopoverPosition, setReactionPopoverPosition] = useState(null)
   const [swipeOffset, setSwipeOffset] = useState(0)
   const message = m
   const hasAttachments = message.message_attachments && message.message_attachments.length > 0
   const attachments = message.message_attachments || []
-  const imageAttachments = attachments.filter(attachment => attachment.file_type?.startsWith('image/'))
+  const imageAttachments = attachments.filter(isImageAttachment)
   const hasImageAttachments = imageAttachments.length > 0
   const isActionMenuOpen = messageActionMenuId === m.id
   const { previewLinks, renderedContent } = useMemo(() => {
@@ -312,11 +410,19 @@ export const MemoizedMessage = React.memo(({
   }, [m.content, m.is_deleted])
 
   const closeActionMenu = useCallback((reason, payload = {}) => {
-    if (bubbleRef.current?.hasPointerCapture && payload.pointerId !== undefined) {
+    if (touchTimer.current) {
+      clearTimeout(touchTimer.current)
+      touchTimer.current = null
+    }
+    const pointerId = payload.pointerId ?? gestureRef.current?.pointerId
+    if (bubbleRef.current?.hasPointerCapture && pointerId !== undefined) {
       try {
-        if (bubbleRef.current.hasPointerCapture(payload.pointerId)) bubbleRef.current.releasePointerCapture(payload.pointerId)
+        if (bubbleRef.current.hasPointerCapture(pointerId)) bubbleRef.current.releasePointerCapture(pointerId)
       } catch (_err) {}
     }
+    gestureRef.current = null
+    longPressActivatedRef.current = false
+    setSwipeOffset(0)
     if (messageActionMenuId === m.id) {
       logMenuDebug('menu closed', { reason, messageId: m.id, ...payload })
       closeMessageInteraction?.(reason, { messageId: m.id, ...payload })
@@ -326,8 +432,13 @@ export const MemoizedMessage = React.memo(({
     setShowReactionPicker(false)
     setShowMoreReactions(false)
     setEditingQuickReactions(false)
+    setActionMenuPosition(null)
     setReactionPopoverPosition(null)
     setShowReceiptDetails(false)
+    setReactionInputMode(null)
+    setReactionMenuState(current => transitionReactionMenu(current, 'CLOSE'))
+    debug.debug('REACTION_MENU_CLOSE', { reason, messageId: m.id })
+    debug.debug('REACTION_CLEANUP', { reason, messageId: m.id, pointerType: payload.pointerType })
     if (inlineDeleteMessageId === m.id) {
       setInlineDeleteMessageId(null)
       setInlineDeleteStep('options')
@@ -374,7 +485,7 @@ export const MemoizedMessage = React.memo(({
     const rect = anchor?.rect
     if (!rect) return null
     const isMobileViewport = window.innerWidth < 768
-    const width = menuSize.width || (isMobileViewport ? (hasImageAttachments ? 292 : isMe ? 244 : 200) : hasImageAttachments ? 232 : 210)
+    const width = menuSize.width || (hasImageAttachments ? 40 : isMobileViewport ? (isMe ? 244 : 200) : 210)
     const height = menuSize.height || (isMobileViewport ? 52 : 44)
     const gap = 8
     const margin = 8
@@ -433,8 +544,7 @@ export const MemoizedMessage = React.memo(({
   const openMobileActions = useCallback((event, reason = 'long_press') => {
     event?.preventDefault?.()
     event?.stopPropagation?.()
-    suppressBubbleClickUntilRef.current = Date.now() + 1200
-    suppressNextBubbleClickRef.current = true
+    suppressBubbleClickUntilRef.current = Date.now() + 500
     setShowInlineTime(false)
     setShowReceiptDetails(false)
     setInlineDeleteMessageId(null)
@@ -446,10 +556,14 @@ export const MemoizedMessage = React.memo(({
     if (!nextAnchor?.rect) return
     const nextPosition = calculateActionMenuPositionFromAnchor(nextAnchor)
     if (!nextPosition) return
+    setReactionInputMode(event?.pointerType === 'touch' || event?.pointerType === 'pen' ? 'touch' : 'desktop')
     setActionMenuPosition(nextPosition)
     setMessageActionMenuPosition?.(nextPosition)
     setMessageActionMenuId(m.id)
-    setShowReactionPicker(true)
+    setReactionMenuState(current => transitionReactionMenu(current, 'OPEN_TOOLBAR'))
+    // The quick strip is the touch toolbar; the full emoji grid remains closed
+    // until the user explicitly presses +.
+    setShowReactionPicker(event?.pointerType === 'touch' || event?.pointerType === 'pen')
     setShowMoreReactions(false)
     setEditingQuickReactions(false)
     const nextReactionPosition = getReactionPopoverPosition(false)
@@ -464,12 +578,15 @@ export const MemoizedMessage = React.memo(({
       target: describeTarget(event?.target),
       bubbleRect: nextAnchor.rect
     })
+    debug.debug('REACTION_MENU_OPEN', { reason, messageId: m.id })
     if (navigator.vibrate) navigator.vibrate(50)
   }, [calculateActionMenuPositionFromAnchor, captureBubbleAnchor, closeMessageInteraction, getReactionPopoverPosition, isMe, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition, updateReactionPopoverPosition])
 
   const handlePointerDown = (event) => {
     if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
-    if (event.target?.closest?.('a, button, textarea, input, select, [contenteditable="true"]')) return
+    // Links (including file attachments) share the same gesture. A normal tap
+    // still navigates; only an activated long press suppresses its click.
+    if (event.target?.closest?.('button, textarea, input, select, [contenteditable="true"]')) return
     gestureRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -478,7 +595,29 @@ export const MemoizedMessage = React.memo(({
       offset: 0,
       triggeredReply: false
     }
-    touchTimer.current = setTimeout(() => openMobileActions(event, 'pointer_long_press'), 420)
+    debug.debug('REACTION_POINTER_START', { messageId: m.id, pointerType: event.pointerType })
+    longPressActivatedRef.current = false
+    touchTimer.current = setTimeout(() => {
+      touchTimer.current = null
+      longPressActivatedRef.current = true
+      const pointerId = gestureRef.current?.pointerId ?? event.pointerId
+      let hadPointerCapture = false
+      try {
+        hadPointerCapture = Boolean(bubbleRef.current?.hasPointerCapture?.(pointerId))
+        if (hadPointerCapture) bubbleRef.current.releasePointerCapture(pointerId)
+      } catch (_err) {}
+      if (import.meta.env.DEV) debug.debug('REACTION_POINTER_RELEASE', {
+        eventType: event.type,
+        pointerType: event.pointerType,
+        messageId: m.id,
+        hadPointerCapture
+      })
+      // Activation completes ownership of the original message gesture. Later
+      // pointermove/up events must not continue the swipe/long-press state.
+      gestureRef.current = null
+      debug.debug('REACTION_LONG_PRESS_ACTIVATED', { messageId: m.id, pointerType: event.pointerType })
+      openMobileActions(event, 'pointer_long_press')
+    }, 420)
   }
 
   const clearLongPressTimer = useCallback(() => {
@@ -486,6 +625,23 @@ export const MemoizedMessage = React.memo(({
       clearTimeout(touchTimer.current)
       touchTimer.current = null
     }
+  }, [])
+
+  const keepDesktopToolbarOpen = useCallback(() => {
+    if (desktopHoverExitTimer.current) {
+      clearTimeout(desktopHoverExitTimer.current)
+      desktopHoverExitTimer.current = null
+    }
+    setIsDesktopHovered(true)
+  }, [])
+
+  const scheduleDesktopToolbarClose = useCallback(() => {
+    if (desktopHoverExitTimer.current) clearTimeout(desktopHoverExitTimer.current)
+    // Keep ownership while the pointer crosses the small message/toolbar gap.
+    desktopHoverExitTimer.current = setTimeout(() => {
+      desktopHoverExitTimer.current = null
+      setIsDesktopHovered(false)
+    }, 160)
   }, [])
 
   const resetSwipe = useCallback(() => {
@@ -505,7 +661,10 @@ export const MemoizedMessage = React.memo(({
     const dy = event.clientY - gesture.startY
     const absX = Math.abs(dx)
     const absY = Math.abs(dy)
-    if (gesture.mode === 'pending' && absY > 10 && absY > absX) {
+    if (gesture.mode === 'pending' && shouldCancelLongPress(gesture.startX, gesture.startY, event.clientX, event.clientY)) clearLongPressTimer()
+    // Cancel before scrolling/swiping once movement exceeds touch slop; this
+    // prevents a delayed long press from firing after the list starts moving.
+    if (gesture.mode === 'pending' && Math.hypot(dx, dy) > 10 && absY >= absX) {
       clearLongPressTimer()
       gesture.mode = 'scroll'
       setSwipeOffset(0)
@@ -526,7 +685,6 @@ export const MemoizedMessage = React.memo(({
     clearLongPressTimer()
     if (gesture?.mode === 'swipe' && Math.abs(gesture.offset || swipeOffset) >= 64 && !isActionMenuOpen) {
       suppressBubbleClickUntilRef.current = Date.now() + 500
-      suppressNextBubbleClickRef.current = true
       setReplyingTo(m)
       gesture.triggeredReply = true
       if (navigator.vibrate) navigator.vibrate(20)
@@ -539,9 +697,14 @@ export const MemoizedMessage = React.memo(({
     resetSwipe()
   }
 
+  const handleContextMenu = (event) => {
+    if (!longPressActivatedRef.current) return
+    event.preventDefault()
+    longPressActivatedRef.current = false
+  }
+
   const handleBubbleClick = (event) => {
-    if (suppressNextBubbleClickRef.current || Date.now() < suppressBubbleClickUntilRef.current) {
-      suppressNextBubbleClickRef.current = false
+    if (shouldSuppressOriginClick(suppressBubbleClickUntilRef.current)) {
       event?.preventDefault()
       event?.stopPropagation()
       logMenuDebug('suppressed bubble click after long press', { messageId: m.id, target: describeTarget(event?.target) })
@@ -557,6 +720,10 @@ export const MemoizedMessage = React.memo(({
   const openReactionPicker = (event) => {
     event.stopPropagation()
     event.preventDefault()
+    if (reactionInputMode !== 'touch') setReactionInputMode('desktop')
+    if (import.meta.env.DEV) debug.debug('REACTION_PORTAL_ACTION', {
+      action: 'open_picker', eventType: event.type, pointerType: event.pointerType, messageId: m.id
+    })
     if (touchTimer.current) clearTimeout(touchTimer.current)
     if (Date.now() - lastReactionPickerTouchRef.current < 120) return
     lastReactionPickerTouchRef.current = Date.now()
@@ -574,26 +741,111 @@ export const MemoizedMessage = React.memo(({
       logMenuDebug('menu opened', { reason: 'reaction_picker', messageId: m.id, eventType: event.type, target: describeTarget(event.target) })
     }
     setShowReactionPicker(true)
+    setReactionMenuState(current => transitionReactionMenu(current, 'OPEN_TOOLBAR'))
     setShowMoreReactions(false)
     setEditingQuickReactions(false)
     const nextPosition = getReactionPopoverPosition(false)
     if (nextPosition) setReactionPopoverPosition(nextPosition)
     else requestAnimationFrame(updateReactionPopoverPosition)
   }
-  const handleReactionButtonClick = (event, emoji, hasReacted) => {
+  const submitReaction = async (event, emoji, reason) => {
     event.stopPropagation()
-    if (Date.now() - lastReactionTouchRef.current < 500) return
-    toggleReaction(m.id, normalizeReactionEmoji(emoji), hasReacted)
-    setShowReactionPicker(false)
-    closeActionMenu('action_react')
+    event.preventDefault?.()
+    if (isReactionSubmitting) return
+    setIsReactionSubmitting(true)
+    setReactionMenuState(current => transitionReactionMenu(current, 'SUBMIT'))
+    debug.debug('REACTION_TOOLBAR_ACTION', { action: reason, messageId: m.id })
+    if (import.meta.env.DEV) debug.debug('REACTION_PORTAL_ACTION', {
+      action: reason, eventType: event.type, pointerType: event.pointerType, messageId: m.id
+    })
+    try {
+      await toggleReaction(m.id, normalizeReactionEmoji(emoji))
+    } finally {
+      // Portal cleanup must run even when Supabase rejects the mutation; an
+      // orphaned fixed layer would otherwise intercept the whole chat surface.
+      setIsReactionSubmitting(false)
+      closeActionMenu(reason)
+    }
   }
-  const handleReactionButtonTouchEnd = (event, emoji, hasReacted) => {
-    event.stopPropagation()
-    event.preventDefault()
+  const handleReactionButtonClick = (event, emoji) => {
+    if (Date.now() - lastReactionTouchRef.current < 500) return
+    void submitReaction(event, emoji, 'action_react')
+  }
+  const handleReactionButtonTouchEnd = (event, emoji) => {
     lastReactionTouchRef.current = Date.now()
-    toggleReaction(m.id, normalizeReactionEmoji(emoji), hasReacted)
-    setShowReactionPicker(false)
-    closeActionMenu('action_react_touch')
+    void submitReaction(event, emoji, 'action_react_touch')
+  }
+
+  const logReactionHitTest = (event) => {
+    if (import.meta.env.DEV) {
+      let hadPointerCapture = false
+      try {
+        hadPointerCapture = Boolean(event.currentTarget?.hasPointerCapture?.(event.pointerId))
+      } catch (_err) {}
+      const hitElement = Number.isFinite(event.clientX) && Number.isFinite(event.clientY)
+        ? document.elementFromPoint(event.clientX, event.clientY)
+        : null
+      const action = event.target?.closest?.('[data-reaction-action]')
+      const toolbar = event.target?.closest?.('[data-reaction-toolbar]') || actionMenuRef.current
+      const portal = document.querySelector('[data-reaction-portal]')
+      const backdrop = document.querySelector('[data-reaction-backdrop]')
+      const describeLayer = (element) => element instanceof Element ? {
+        tag: element.tagName,
+        className: typeof element.className === 'string' ? element.className : undefined,
+        data: { ...element.dataset },
+        pointerEvents: getComputedStyle(element).pointerEvents,
+        position: getComputedStyle(element).position,
+        zIndex: getComputedStyle(element).zIndex,
+        display: getComputedStyle(element).display,
+        visibility: getComputedStyle(element).visibility,
+        touchAction: getComputedStyle(element).touchAction
+      } : null
+      const composedPath = typeof event.composedPath === 'function'
+        ? event.composedPath()
+        : typeof event.nativeEvent?.composedPath === 'function'
+          ? event.nativeEvent.composedPath()
+          : []
+      const diagnosticLabel = event.type === 'pointerdown'
+        ? 'REACTION_ACTION_POINTER_DOWN'
+        : event.type === 'pointerup'
+          ? 'REACTION_ACTION_POINTER_UP'
+          : event.type === 'click'
+            ? 'REACTION_ACTION_CLICK'
+            : 'REACTION_HIT_TEST'
+      debug.debug(diagnosticLabel, {
+        eventType: event.type, pointerType: event.pointerType, messageId: m.id,
+        activeMessageId: messageActionMenuId,
+        insideToolbar: true,
+        hadPointerCapture,
+        clickFollowedPointerUp: event.type === 'click' && performance.now() - lastToolbarPointerUpRef.current < 750,
+        disabled: Boolean(action?.disabled),
+        reactionSubmissionPending: isReactionSubmitting,
+        hitElement: describeLayer(hitElement),
+        action: describeLayer(action),
+        toolbar: describeLayer(toolbar),
+        portal: describeLayer(portal),
+        backdrop: describeLayer(backdrop),
+        composedPath: composedPath.map(element => describeLayer(element)).filter(Boolean)
+      })
+    }
+  }
+
+  const isolateReactionSurfaceEvent = (event) => {
+    event.stopPropagation()
+    if (event.type === 'pointerup') lastToolbarPointerUpRef.current = performance.now()
+    logReactionHitTest(event)
+  }
+
+  const handleBackdropPointerDown = (event) => {
+    if (event.target !== event.currentTarget) return
+    event.stopPropagation()
+    if (import.meta.env.DEV) debug.debug('REACTION_BACKDROP_CLOSE', {
+      eventType: event.type,
+      pointerType: event.pointerType,
+      messageId: m.id,
+      hitElement: document.elementFromPoint(event.clientX, event.clientY)?.tagName
+    })
+    closeActionMenu('portal_backdrop', { pointerType: event.pointerType })
   }
 
   const groupedReactions = m.message_reactions?.reduce((acc, r) => {
@@ -615,6 +867,11 @@ export const MemoizedMessage = React.memo(({
   const deliveryMeta = deliveryStatus ? deliveryStatusMeta[deliveryStatus] : null
   const DeliveryIcon = deliveryMeta?.icon
   const shouldShowDeliveryStatus = isMe && deliveryMeta && (showDeliveryStatus || deliveryStatus === 'failed')
+  const actionToolbarOwner = isActionMenuOpen && reactionInputMode === 'touch'
+    ? ACTION_TOOLBAR_OWNER.TOUCH_LONGPRESS
+    : isDesktopHovered || isActionMenuOpen
+      ? ACTION_TOOLBAR_OWNER.DESKTOP_HOVER
+      : ACTION_TOOLBAR_OWNER.CLOSED
   const seenTimestamp = getSeenTimestamp(m, peerReadAt)
   const receiptRows = isMe ? [
     { label: 'Sent', value: formatReceiptTime(m.created_at) },
@@ -654,6 +911,7 @@ export const MemoizedMessage = React.memo(({
 
   useEffect(() => {
     if (!isActionMenuOpen) {
+      setReactionInputMode(null)
       setShowReactionPicker(false)
       setShowMoreReactions(false)
       setEditingQuickReactions(false)
@@ -663,12 +921,82 @@ export const MemoizedMessage = React.memo(({
   }, [isActionMenuOpen])
 
   useEffect(() => {
+    if (actionToolbarOwner !== ACTION_TOOLBAR_OWNER.TOUCH_LONGPRESS) return undefined
+    const frame = requestAnimationFrame(() => {
+      const anchor = captureBubbleAnchor()
+      const rect = actionMenuRef.current?.getBoundingClientRect?.()
+      if (!anchor || !rect) return
+      const nextPosition = calculateActionMenuPositionFromAnchor(anchor, {
+        width: rect.width,
+        height: rect.height
+      })
+      if (nextPosition) {
+        setActionMenuPosition(nextPosition)
+        setMessageActionMenuPosition?.(nextPosition)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [actionToolbarOwner, calculateActionMenuPositionFromAnchor, captureBubbleAnchor, setMessageActionMenuPosition])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !isActionMenuOpen || reactionInputMode !== 'touch') return undefined
+    const frame = requestAnimationFrame(() => {
+      const samples = [
+        ...document.querySelectorAll('[data-reaction-action]'),
+        document.querySelector('[data-reaction-toolbar]'),
+        document.querySelector('[data-reaction-picker]')
+      ].filter(Boolean)
+      for (const sample of samples) {
+        const rect = sample.getBoundingClientRect()
+        const x = rect.left + rect.width / 2
+        const y = rect.top + rect.height / 2
+        const hit = document.elementFromPoint(x, y)
+        const style = getComputedStyle(sample)
+        debug.debug('REACTION_HIT_TEST', {
+          eventType: 'portal_mount',
+          action: sample.dataset.reactionAction,
+          messageId: m.id,
+          hitElement: hit ? { tag: hit.tagName, className: typeof hit.className === 'string' ? hit.className : undefined, data: { ...hit.dataset } } : null,
+          expectedElement: { tag: sample.tagName, data: { ...sample.dataset } },
+          pointerEvents: style.pointerEvents,
+          position: style.position,
+          zIndex: style.zIndex,
+          display: style.display,
+          visibility: style.visibility,
+          touchAction: style.touchAction,
+          hitInsideExpected: Boolean(hit && (hit === sample || sample.contains(hit)))
+        })
+      }
+      const backdrop = document.querySelector('[data-reaction-backdrop]')
+      const outsideHit = document.elementFromPoint(4, 4)
+      if (backdrop) debug.debug('REACTION_HIT_TEST', {
+        eventType: 'portal_mount',
+        action: 'backdrop',
+        messageId: m.id,
+        hitElement: outsideHit ? { tag: outsideHit.tagName, className: typeof outsideHit.className === 'string' ? outsideHit.className : undefined, data: { ...outsideHit.dataset } } : null,
+        hitInsideExpected: outsideHit === backdrop
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [isActionMenuOpen, m.id, reactionInputMode, showReactionPicker])
+
+  useEffect(() => {
+    if (m.is_deleted && isActionMenuOpen) closeActionMenu('message_deleted')
+  }, [closeActionMenu, isActionMenuOpen, m.is_deleted])
+
+  useEffect(() => {
     if (!isActionMenuOpen) return undefined
 
     const handlePointerDownOutside = (event) => {
+      const touchBackdrop = document.querySelector('[data-reaction-backdrop]')
+      if (reactionInputMode === 'touch' && event.target === touchBackdrop) return
       if (actionMenuRef.current?.contains(event.target)) return
       if (reactionPopoverRef.current?.contains(event.target)) return
       if (bubbleRef.current?.contains(event.target)) return
+      debug.debug('REACTION_OUTSIDE_CLOSE', { messageId: m.id, pointerType: event.pointerType })
+      if (import.meta.env.DEV) debug.debug('REACTION_BACKDROP_CLOSE', {
+        eventType: event.type, pointerType: event.pointerType, messageId: m.id, insideToolbar: false
+      })
       closeActionMenu('click_away', {
         pointerType: event.pointerType,
         target: describeTarget(event.target)
@@ -676,33 +1004,61 @@ export const MemoizedMessage = React.memo(({
     }
 
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') closeActionMenu('escape_key')
+      if (event.key !== 'Escape') return
+      if (showMoreReactions || editingQuickReactions) {
+        setShowMoreReactions(false)
+        setEditingQuickReactions(false)
+        setReactionMenuState(current => transitionReactionMenu(current, 'BACK'))
+      } else if (showReactionPicker) {
+        setShowReactionPicker(false)
+        setReactionPopoverPosition(null)
+      } else closeActionMenu('escape_key')
+    }
+
+    const handleBack = (event) => {
+      if (showMoreReactions || editingQuickReactions) {
+        event.preventDefault()
+        setShowMoreReactions(false)
+        setEditingQuickReactions(false)
+        setReactionMenuState(current => transitionReactionMenu(current, 'BACK'))
+      } else if (showReactionPicker) {
+        event.preventDefault()
+        setShowReactionPicker(false)
+        setReactionPopoverPosition(null)
+      }
     }
 
     document.addEventListener('pointerdown', handlePointerDownOutside, true)
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('messapp:reaction-back', handleBack)
     return () => {
       document.removeEventListener('pointerdown', handlePointerDownOutside, true)
       window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('messapp:reaction-back', handleBack)
     }
-  }, [closeActionMenu, isActionMenuOpen])
+  }, [closeActionMenu, editingQuickReactions, isActionMenuOpen, m.id, reactionInputMode, showMoreReactions, showReactionPicker])
 
   useEffect(() => {
     if (!showReactionPicker) return undefined
     updateReactionPopoverPosition()
 
     const reposition = () => updateReactionPopoverPosition()
+    const closeOnScroll = () => closeActionMenu('message_list_scroll')
     window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('scroll', closeOnScroll, true)
     return () => {
       window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('scroll', closeOnScroll, true)
+      if (import.meta.env.DEV) debug.debug('REACTION_PORTAL_UNMOUNT', { messageId: m.id })
     }
-  }, [showReactionPicker, showMoreReactions, editingQuickReactions, updateReactionPopoverPosition])
+  }, [closeActionMenu, m.id, showReactionPicker, showMoreReactions, editingQuickReactions, updateReactionPopoverPosition])
 
   useEffect(() => () => {
     clearLongPressTimer()
+    if (desktopHoverExitTimer.current) clearTimeout(desktopHoverExitTimer.current)
     gestureRef.current = null
+    longPressActivatedRef.current = false
+    debug.debug('REACTION_CLEANUP', { reason: 'message_unmounted', messageId: m.id })
     if (messageActionMenuId === m.id) {
       logMenuDebug('menu closed', { reason: 'message_unmounted', messageId: m.id })
     }
@@ -736,7 +1092,15 @@ export const MemoizedMessage = React.memo(({
             <span className={`text-[10px] text-gray-500 mt-1.5 block ${alignRight ? 'text-right' : ''}`}>Press Enter to save, Esc to cancel</span>
           </form>
         ) : (
-          <div className={`flex items-start gap-0.5 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} relative group/bubble`}>
+          <div
+            className={`flex items-start gap-0.5 max-w-full w-fit ${alignRight ? 'flex-row-reverse ml-auto' : 'mr-auto'} relative group/bubble`}
+            onPointerEnter={(event) => {
+              if (event.pointerType === 'mouse') keepDesktopToolbarOpen()
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === 'mouse') scheduleDesktopToolbarClose()
+            }}
+          >
             
             <div 
               ref={bubbleRef}
@@ -746,8 +1110,10 @@ export const MemoizedMessage = React.memo(({
               onPointerUp={handlePointerEndOrCancel}
               onPointerCancel={handlePointerEndOrCancel}
               onPointerMove={handlePointerMove}
+              onTouchEnd={clearLongPressTimer}
+              onTouchCancel={clearLongPressTimer}
               onClick={handleBubbleClick}
-              onContextMenu={(e) => openMobileActions(e, 'context_menu')}
+              onContextMenu={handleContextMenu}
             >
               {swipeOffset !== 0 && (
                 <div className={`message-reply-swipe-affordance ${swipeOffset > 0 ? 'is-left' : 'is-right'}`}>
@@ -802,13 +1168,16 @@ export const MemoizedMessage = React.memo(({
                   )}
 
                   {hasAttachments && (
-                    <div className={`flex flex-col gap-0.5 ${hasVisibleContent ? 'mt-1' : ''} w-full ${alignRight ? 'items-end' : 'items-start'}`}>
-                      {message.message_attachments.map((attachment) => {
+                    <div className={`${imageAttachments.length > 1 ? 'grid grid-cols-2 gap-1 max-w-[min(76vw,420px)]' : 'flex flex-col gap-0.5'} ${hasVisibleContent ? 'mt-1' : ''} w-full ${imageAttachments.length > 1 ? '' : alignRight ? 'items-end' : 'items-start'}`}>
+                      {message.message_attachments.map((attachment, attachmentIndex) => {
                         const attachmentUrl = resolveAttachmentUrl(attachment, message)
                         const attachmentSize = formatAttachmentSize(attachment.file_size || message.file_size)
+                        const attachmentIsImage = isImageAttachment(attachment)
                         return (
                         <div key={attachment.id || attachment.file_url || attachmentUrl} className="max-w-full text-[var(--theme-base)]">
-                          {!attachmentUrl ? (
+                          {!attachmentUrl && attachmentIsImage ? (
+                            <div className={`${imageAttachments.length > 1 ? 'aspect-square h-full w-full' : 'h-40 w-[min(68vw,260px)]'} animate-pulse scale-[0.98] rounded-2xl border bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md`} style={attachmentBorderStyle} aria-label="Image loading" />
+                          ) : !attachmentUrl ? (
                             <div className="file-message-card flex min-w-[220px] max-w-[min(76vw,360px)] items-center gap-3 rounded-2xl border px-4 py-3.5 text-gray-500">
                               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)]">
                                 <FileText size={24} className="text-[var(--theme-base)]" />
@@ -818,14 +1187,18 @@ export const MemoizedMessage = React.memo(({
                                 <span className="block text-[11px] font-semibold text-gray-500">Unavailable{attachmentSize ? ` • ${attachmentSize}` : ''}</span>
                               </div>
                             </div>
-                          ) : attachment.file_type?.startsWith('image/') ? (
-                              <img
+                          ) : attachmentIsImage ? (
+                              <MessageImage
                                 src={attachmentUrl}
+                                mediaKey={`${message.id}:${attachment.id || attachment.file_name || attachmentIndex}`}
                                 alt={attachment.file_name || 'Attachment'}
-                                className="w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border"
+                                className={imageAttachments.length > 1
+                                  ? 'aspect-square h-full w-full rounded-xl border object-cover'
+                                  : 'w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border'}
                                 style={attachmentBorderStyle}
-                                loading="lazy"
-                                onClick={(e) => {
+                                blurWhileLoading={!isMe}
+                                fill={imageAttachments.length > 1}
+                                onOpen={(e) => {
                                   e.stopPropagation()
                                   setSelectedImage({ url: attachmentUrl, user: message.profiles?.username, time: exactTime })
                                 }}
@@ -943,7 +1316,7 @@ export const MemoizedMessage = React.memo(({
                       {Object.entries(groupedReactions).map(([emoji, reactions], idx) => {
                         const hasReacted = reactions.some(r => r.profile_id === currentUserId)
                         return (
-                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji, hasReacted)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji, hasReacted)} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
+                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
                             <span>{emoji}</span> <span className={`font-bold ${hasReacted ? 'text-[var(--text-main)]' : 'text-gray-400'}`}>{reactions.length}</span>
                           </button>
                         )
@@ -954,33 +1327,71 @@ export const MemoizedMessage = React.memo(({
               )}
             </div>
 
-            {!m.is_deleted && !m.__local && (
+            {!m.is_deleted && !m.__local && actionToolbarOwner !== ACTION_TOOLBAR_OWNER.CLOSED && (
+              <>
+              {/* Desktop hover and touch long-press are exclusive owners. The
+                  quick-reaction picker below is a separate, single surface. */}
+              <ActionToolbarHost owner={actionToolbarOwner} onBackdropPointerDown={handleBackdropPointerDown}>
               <div
                 ref={actionMenuRef}
-                className={`message-action-toolbar absolute top-1/2 -translate-y-1/2 transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 z-[80]
-                  ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}
+                data-reaction-toolbar
+                data-toolbar-owner={actionToolbarOwner}
+                data-message-id={m.id}
+                className={`message-action-toolbar transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
+                  ${isActionMenuOpen && reactionInputMode === 'touch' ? 'fixed' : `absolute top-1/2 -translate-y-1/2 ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}`}
                   ${hasImageAttachments ? 'flex-col h-auto w-10 py-1 gap-0.5' : 'flex-row h-9 px-1 gap-0.5'}
                   ${isActionMenuOpen || showReactionPicker || inlineDeleteMessageId === m.id
                     ? 'flex items-center opacity-100 pointer-events-auto scale-100'
                     : 'flex items-center opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'
                   }`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
+                style={isActionMenuOpen && reactionInputMode === 'touch' && actionMenuPosition ? {
+                  position: 'fixed',
+                  left: actionMenuPosition.left,
+                  top: actionMenuPosition.top,
+                  zIndex: 1,
+                  pointerEvents: 'auto',
+                  touchAction: 'manipulation'
+                } : undefined}
+                onPointerDown={isolateReactionSurfaceEvent}
+                onPointerUp={isolateReactionSurfaceEvent}
+                onPointerCancel={isolateReactionSurfaceEvent}
+                onClick={isolateReactionSurfaceEvent}
+                onPointerDownCapture={logReactionHitTest}
+                onPointerUpCapture={logReactionHitTest}
+                onClickCapture={logReactionHitTest}
+                onContextMenu={isolateReactionSurfaceEvent}
+                onTouchStart={isolateReactionSurfaceEvent}
+                onTouchEnd={isolateReactionSurfaceEvent}
+                onTouchCancel={isolateReactionSurfaceEvent}
               >
                 
-                {showReactionPicker && reactionPopoverPosition && createPortal(
-                  <div 
-                    ref={reactionPopoverRef}
-                    className="messapp-reaction-popover premium-menu fixed z-[160] animate-fade-in rounded-2xl overflow-hidden p-1.5"
-                    style={{
-                      left: reactionPopoverPosition.left,
-                      top: reactionPopoverPosition.top,
-                      width: reactionPopoverPosition.width
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => event.stopPropagation()}
-                    onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
-                  >
+                {showReactionPicker && reactionPopoverPosition && (
+                  <ReactionPickerPortal>
+                    <div
+                      ref={reactionPopoverRef}
+                      data-reaction-picker
+                      className="messapp-reaction-popover premium-menu fixed z-[170] animate-fade-in rounded-2xl overflow-hidden p-1.5"
+                      style={{
+                        left: reactionPopoverPosition.left,
+                        top: reactionPopoverPosition.top,
+                        width: reactionPopoverPosition.width,
+                        pointerEvents: 'auto',
+                        touchAction: 'manipulation',
+                        zIndex: reactionInputMode === 'touch' ? TOUCH_PORTAL_Z_INDEX + 1 : 160
+                      }}
+                      onPointerDown={isolateReactionSurfaceEvent}
+                      onPointerUp={isolateReactionSurfaceEvent}
+                      onPointerCancel={isolateReactionSurfaceEvent}
+                      onClick={isolateReactionSurfaceEvent}
+                      onPointerDownCapture={logReactionHitTest}
+                      onPointerUpCapture={logReactionHitTest}
+                      onClickCapture={logReactionHitTest}
+                      onContextMenu={isolateReactionSurfaceEvent}
+                      onTouchStart={isolateReactionSurfaceEvent}
+                      onTouchEnd={isolateReactionSurfaceEvent}
+                      onTouchCancel={isolateReactionSurfaceEvent}
+                      onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                    >
                     <div className="relative z-10">
                       <div className="flex items-center gap-1">
                         {quickReactions.map((emoji, index) => {
@@ -990,17 +1401,20 @@ export const MemoizedMessage = React.memo(({
                             <button
                               key={`${emoji}-${index}`}
                               type="button"
+                              data-reaction-action="quick-reaction"
+                              style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined}
+                              disabled={reactionMenuState === REACTION_MENU_STATE.SUBMITTING}
                               onClick={(event) => {
                                 event.stopPropagation()
                                 if (editingQuickReactions) {
                                   setQuickReactionSlot(index)
                                   return
                                 }
-                                handleReactionButtonClick(event, emoji, hasReacted)
+                                handleReactionButtonClick(event, emoji)
                               }}
                               onTouchEnd={(event) => {
                                 if (editingQuickReactions) return
-                                handleReactionButtonTouchEnd(event, emoji, hasReacted)
+                                handleReactionButtonTouchEnd(event, emoji)
                               }}
                               className={`flex h-9 w-9 items-center justify-center rounded-full text-xl transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-110 ring-2 ring-[var(--theme-base)]' : ''}`}
                               title={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
@@ -1012,11 +1426,15 @@ export const MemoizedMessage = React.memo(({
                         })}
                         <button
                           type="button"
+                          data-reaction-action="more-emojis"
+                          style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined}
+                          disabled={reactionMenuState === REACTION_MENU_STATE.SUBMITTING}
                           onClick={(event) => {
                             event.stopPropagation()
                             setEditingQuickReactions(false)
                             setShowMoreReactions(value => {
                               const next = !value
+                              setReactionMenuState(current => transitionReactionMenu(current, next ? 'OPEN_PICKER' : 'BACK'))
                               const nextPosition = getReactionPopoverPosition(next)
                               if (nextPosition) setReactionPopoverPosition(nextPosition)
                               return next
@@ -1075,18 +1493,15 @@ export const MemoizedMessage = React.memo(({
                                 return
                               }
                               const emoji = normalizeReactionEmoji(emojiData.emoji)
-                              const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
-                              toggleReaction(m.id, emoji, hasReacted)
-                              setShowReactionPicker(false)
-                              setShowMoreReactions(false)
-                              closeActionMenu('action_react_picker')
+                              void submitReaction({ stopPropagation() {}, preventDefault() {} }, emoji, 'action_react_picker')
                             }}
                           />
                         </div>
                       )}
                     </div>
                   </div>
-                , document.body)}
+                  </ReactionPickerPortal>
+                )}
 
                 {inlineDeleteMessageId === m.id ? (
                   <div className="flex items-center gap-0.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-2 py-1 rounded-full shadow-sm animate-fade-in">
@@ -1115,9 +1530,11 @@ export const MemoizedMessage = React.memo(({
                   </div>
                 ) : (
                   <>
-	                    <button onClick={() => { setReplyingTo(m); closeActionMenu('action_reply'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Reply" aria-label="Reply"><CornerDownLeft size={15} aria-hidden="true" /></button>
+                    <button type="button" data-reaction-action="reply" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setReplyingTo(m); closeActionMenu('action_reply'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Reply" aria-label="Reply"><CornerDownLeft size={15} aria-hidden="true" /></button>
                     <button 
-                      onPointerDown={openReactionPicker}
+                      type="button"
+                      data-reaction-action="open-picker"
+                      style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined}
                       onClick={openReactionPicker}
                       onTouchStartCapture={() => { 
                         if (document.activeElement) document.activeElement.blur(); 
@@ -1130,18 +1547,18 @@ export const MemoizedMessage = React.memo(({
                       <SmilePlus size={15} aria-hidden="true" />
                     </button>
 	                    {isMe && !hasAttachments && (
-	                      <button onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
+	                      <button type="button" data-reaction-action="edit" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
 	                    )}
 	                    {isMe && hasImageAttachments && (
-	                      <button onClick={() => { setEditingMessageId(m.id); setEditContent(visibleContent || ''); closeActionMenu('action_edit_caption'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title={hasVisibleContent ? 'Edit Caption' : 'Add Caption'} aria-label={hasVisibleContent ? 'Edit Caption' : 'Add Caption'}><Pen size={15} aria-hidden="true" /></button>
+	                      <button type="button" data-reaction-action="edit-caption" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(visibleContent || ''); closeActionMenu('action_edit_caption'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title={hasVisibleContent ? 'Edit Caption' : 'Add Caption'} aria-label={hasVisibleContent ? 'Edit Caption' : 'Add Caption'}><Pen size={15} aria-hidden="true" /></button>
 	                    )}
-	                    <button onClick={() => { togglePinnedMessage(m); closeActionMenu('action_pin'); }} className={`message-action-button md:hover:bg-[var(--border-subtle)] ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'} aria-label={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={15} aria-hidden="true" /></button>
+	                    <button type="button" data-reaction-action="pin" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { togglePinnedMessage(m); closeActionMenu('action_pin'); }} className={`message-action-button md:hover:bg-[var(--border-subtle)] ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'} aria-label={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={15} aria-hidden="true" /></button>
 	                    {firstImageUrl && (
 	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.stopPropagation(); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
 	                        <Download size={15} aria-hidden="true" />
 	                      </a>
 	                    )}
-	                    <button onClick={() => { setShowReceiptDetails(false); setInlineDeleteMessageId(m.id); setInlineDeleteStep('options'); }} className="message-action-button text-gray-500 hover:text-red-400 md:hover:bg-red-500/10" title="Hide/Delete" aria-label="Hide or Delete"><Trash2 size={15} aria-hidden="true" /></button>
+	                    <button type="button" data-reaction-action="delete" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setShowReceiptDetails(false); setInlineDeleteMessageId(m.id); setInlineDeleteStep('options'); }} className="message-action-button text-gray-500 hover:text-red-400 md:hover:bg-red-500/10" title="Hide/Delete" aria-label="Hide or Delete"><Trash2 size={15} aria-hidden="true" /></button>
 	                    {showReceiptDetails && (
 	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 text-[11px] text-gray-400 shadow-inner md:col-span-full">
 	                        {receiptRows.map(row => (
@@ -1155,6 +1572,8 @@ export const MemoizedMessage = React.memo(({
                   </>
                 )}
               </div>
+              </ActionToolbarHost>
+              </>
             )}
 
           </div>

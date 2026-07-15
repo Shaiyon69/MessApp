@@ -1,7 +1,12 @@
+/**
+ * Creates the single browser Supabase client used by auth, database, Storage,
+ * and Realtime consumers. Only public client configuration belongs here;
+ * authorization remains enforced by server-side RLS and RPC policies.
+ */
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY
 const missingSupabaseEnv = [
   !supabaseUrl && 'VITE_SUPABASE_URL',
   !supabaseAnonKey && 'VITE_SUPABASE_ANON_KEY'
