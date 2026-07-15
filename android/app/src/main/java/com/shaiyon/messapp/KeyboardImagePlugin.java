@@ -1,5 +1,10 @@
 package com.shaiyon.messapp;
 
+/**
+ * Copies Android IME committed-content URIs into app-private temporary files and
+ * emits metadata to JavaScript. URI contents are private and must not be logged.
+ */
+
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;

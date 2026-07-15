@@ -1,3 +1,6 @@
+//! Tauri desktop bootstrap. It owns the native lifecycle and enables
+//! informational logging only in debug builds; React remains the UI layer.
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()

@@ -17,6 +17,43 @@ window.__messappKeyboardImagePlugin = KeyboardImage
 const MESSAGE_SELECT_BASE = '*, profiles!fk_messages_profile(username, avatar_url, public_key), message_reactions(*)'
 const MESSAGE_SELECT = `${MESSAGE_SELECT_BASE}, message_attachments(*)`
 const INITIAL_MESSAGE_LIMIT = 50
+const SESSION_MEDIA_CACHE_MAX_ROOMS = 8
+const SESSION_MEDIA_CACHE_MAX_BYTES = 96 * 1024 * 1024
+const sessionHydratedRoomCache = new Map()
+
+const getConversationScopeKey = (userId, view, targetId) => `${userId}:${view}:${targetId}`
+
+const getSessionHydratedMessages = (userId, view, targetId) => {
+  const scopeKey = getConversationScopeKey(userId, view, targetId)
+  const entry = sessionHydratedRoomCache.get(scopeKey)
+  if (!entry) return []
+  sessionHydratedRoomCache.delete(scopeKey)
+  sessionHydratedRoomCache.set(scopeKey, entry)
+  return entry.messages
+}
+
+const cacheSessionHydratedMessages = (userId, view, targetId, messages) => {
+  if (!userId || !targetId) return
+  const scopeKey = getConversationScopeKey(userId, view, targetId)
+  const hydrated = messages.filter(message =>
+    message?.id && (message.message_attachments || []).some(attachment =>
+      /^(?:data:|blob:|https?:)/i.test(attachment?.file_url || '') && !attachment.is_unavailable
+    )
+  ).slice(-INITIAL_MESSAGE_LIMIT)
+  if (hydrated.length === 0) return
+  const bytes = hydrated.reduce((total, message) => total + (message.message_attachments || []).reduce((attachmentTotal, attachment) => {
+    const value = attachment.file_url || ''
+    return attachmentTotal + (value.startsWith('data:') ? Math.ceil(value.length * 0.75) : value.length * 2)
+  }, 0), 0)
+  if (bytes > SESSION_MEDIA_CACHE_MAX_BYTES) return
+
+  sessionHydratedRoomCache.delete(scopeKey)
+  sessionHydratedRoomCache.set(scopeKey, { messages: hydrated, bytes })
+  const totalBytes = () => Array.from(sessionHydratedRoomCache.values()).reduce((total, entry) => total + entry.bytes, 0)
+  while (sessionHydratedRoomCache.size > SESSION_MEDIA_CACHE_MAX_ROOMS || totalBytes() > SESSION_MEDIA_CACHE_MAX_BYTES) {
+    sessionHydratedRoomCache.delete(sessionHydratedRoomCache.keys().next().value)
+  }
+}
 
 const formatBytes = (bytes, decimals = 2) => {
   if (!+bytes) return '0 Bytes'
@@ -27,7 +64,7 @@ const formatBytes = (bytes, decimals = 2) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
 }
 
-const safeCacheSave = (targetId, dataArray) => {
+const safeCacheSave = (userId, targetId, dataArray) => {
   try {
     const persisted = dataArray
       .filter(message => message && !message.__local && !message.__retry_payload)
@@ -39,12 +76,12 @@ const safeCacheSave = (targetId, dataArray) => {
         delete persistedMessage.__retry_payload
         return persistedMessage
       })
-    localStorage.setItem(`local_chat_${targetId}`, JSON.stringify(persisted))
+    localStorage.setItem(`local_chat_${userId}_${targetId}`, JSON.stringify(persisted))
   } catch (_err) {}
 }
 
-const safeCacheLoad = (targetId) => {
-  try { return (JSON.parse(localStorage.getItem(`local_chat_${targetId}`)) || []).slice(-INITIAL_MESSAGE_LIMIT) } catch (_err) { return [] }
+const safeCacheLoad = (userId, targetId) => {
+  try { return (JSON.parse(localStorage.getItem(`local_chat_${userId}_${targetId}`)) || []).slice(-INITIAL_MESSAGE_LIMIT) } catch (_err) { return [] }
 }
 
 const mergeMessageLists = (previous = [], incoming = [], field, targetId) => {
@@ -84,6 +121,17 @@ const isNativeAndroidKeyboardImageCandidate = () =>
   Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
 
 const normalizeFileType = (value) => (value || 'application/octet-stream').toLowerCase()
+const getChatAttachmentObjectPath = (value) => {
+  if (!value || /^(?:data:|blob:)/i.test(value)) return ''
+  if (!/^https?:\/\//i.test(value)) return value
+  try {
+    const pathname = new URL(value).pathname
+    const match = pathname.match(/\/storage\/v1\/object\/(?:public|sign)\/chat-attachments\/(.+)$/)
+    return match ? decodeURIComponent(match[1]) : ''
+  } catch (_err) {
+    return ''
+  }
+}
 const isDebugEnabled = (key) => {
   try { return localStorage.getItem(key) === 'true' } catch (_err) { return false }
 }
@@ -193,12 +241,36 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const typingTimeoutRef = useRef(null)
   const seenReceiptWriteRef = useRef('')
   const ownSendScrollRef = useRef({ targetId: null, active: false })
+  const activeConversationScopeRef = useRef('')
   
   const sharedKeysCacheRef = useRef({})
 
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0]
+  const activeTargetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+  activeConversationScopeRef.current = activeTargetId
+    ? getConversationScopeKey(session.user.id, view, activeTargetId)
+    : ''
 
   useEffect(() => { localStorage.setItem(`deleted_msgs_${session.user.id}`, JSON.stringify(localDeletedMessages)) }, [localDeletedMessages, session.user.id])
+  useEffect(() => {
+    // Pre-user-scoped builds cached rooms as local_chat_<room UUID>. Never read
+    // those entries because a different account can reuse the same browser.
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index)
+      if (/^local_chat_[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(key || '')) localStorage.removeItem(key)
+    }
+    const userScopePrefix = `${session.user.id}:`
+    return () => {
+      for (const key of sessionHydratedRoomCache.keys()) {
+        if (key.startsWith(userScopePrefix)) sessionHydratedRoomCache.delete(key)
+      }
+    }
+  }, [session.user.id])
+  useEffect(() => {
+    const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    if (targetId) cacheSessionHydratedMessages(session.user.id, view, targetId, messages.filter(message => message?.[field] === targetId))
+  }, [activeChannel?.id, activeDm?.dm_room_id, messages, view])
 
   const getScrollSnapshot = useCallback(() => {
     const target = scrollContainerRef.current
@@ -219,17 +291,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
   const instantScrollToBottom = useCallback((reason = 'instant') => {
     const before = getScrollSnapshot()
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
-        }
-        setShowLatestMessagesButton(false)
-        if (isDebugEnabled('messappDebugScroll')) {
-          console.debug('[SCROLL_DEBUG]', { handler: 'instantScrollToBottom', reason, before, after: getScrollSnapshot() })
-        }
-      })
-    }, 10)
+    requestAnimationFrame(() => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+      }
+      setShowLatestMessagesButton(false)
+      if (isDebugEnabled('messappDebugScroll')) {
+        console.debug('[SCROLL_DEBUG]', { handler: 'instantScrollToBottom', reason, before, after: getScrollSnapshot() })
+      }
+    })
   }, [getScrollSnapshot])
 
   const smoothScrollToBottom = useCallback((reason = 'smooth') => {
@@ -403,8 +473,18 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const attachment = attachments[0]
         const encryptedAttachment = attachment.file_type?.startsWith('encrypted:')
         try {
+          const objectPath = getChatAttachmentObjectPath(attachment.file_url)
+          let attachmentUrl = attachment.file_url
+          if (objectPath) {
+            const { data: signedData, error: signedError } = await supabase.storage
+              .from('chat-attachments')
+              .createSignedUrl(objectPath, 3600)
+            if (signedError) throw signedError
+            attachmentUrl = signedData.signedUrl
+          }
           if (encryptedAttachment) {
-            const response = await fetch(attachment.file_url)
+            const response = await fetch(attachmentUrl)
+            if (!response.ok) throw new Error(`Attachment fetch failed: ${response.status}`)
             const encryptedPayload = await response.json()
             const decryptedBuffer = await decryptAttachmentPayload(sharedKeys, encryptedPayload)
             const originalType = normalizeFileType(attachment.file_type.replace('encrypted:', '') || encryptedPayload.type || 'application/octet-stream')
@@ -423,9 +503,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
               ? { image_url: dataUrl, file_name: resolvedAttachment.file_name, file_size: formatBytes(resolvedSize), decrypted_attachment_url: dataUrl }
               : { file_url: dataUrl, file_name: resolvedAttachment.file_name, file_size: formatBytes(resolvedSize), decrypted_attachment_url: dataUrl }
           } else if (!encryptedAttachment) {
+            const resolvedAttachment = { ...attachment, file_url: attachmentUrl }
+            resolvedAttachments = attachments.map(item => item.id === attachment.id ? resolvedAttachment : item)
             attachmentPatch = attachment.file_type?.startsWith('image/')
-              ? { image_url: attachment.file_url, file_name: attachment.file_name, file_size: formatBytes(attachment.file_size) }
-              : { file_url: attachment.file_url, file_name: attachment.file_name, file_size: formatBytes(attachment.file_size) }
+              ? { image_url: attachmentUrl, file_name: attachment.file_name, file_size: formatBytes(attachment.file_size) }
+              : { file_url: attachmentUrl, file_name: attachment.file_name, file_size: formatBytes(attachment.file_size) }
           }
         } catch (_err) {
           resolvedAttachments = attachments.map(item => item.id === attachment.id ? { ...item, file_url: '', is_unavailable: true } : item)
@@ -637,7 +719,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const merged = [...safePrev, ...decryptedData];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        safeCacheSave(targetId, uniqueData);
+        safeCacheSave(session.user.id, targetId, uniqueData);
         return uniqueData;
       })
       
@@ -702,7 +784,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const merged = [...decryptedData, ...safePrev];
         const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
         uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        safeCacheSave(targetId, uniqueData);
+        safeCacheSave(session.user.id, targetId, uniqueData);
         return uniqueData;
       });
 
@@ -739,9 +821,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (!targetId) return;
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const expectedScope = getConversationScopeKey(session.user.id, view, targetId)
+    const isCurrentScope = () => activeConversationScopeRef.current === expectedScope
     setMessagesLoading(true)
 
-    const cachedData = safeCacheLoad(targetId)
+    const persistedData = safeCacheLoad(session.user.id, targetId)
+    const cachedData = mergeMessageLists(persistedData, getSessionHydratedMessages(session.user.id, view, targetId), field, targetId)
     if (cachedData.length > 0) {
       const validCache = Array.from(new Map(cachedData.filter(m => m && m.id).map(item => [item.id, item])).values())
       setMessages(prev => mergeMessageLists(prev, validCache, field, targetId))
@@ -749,17 +834,27 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     try {
     const { data } = await supabase.from('messages').select(MESSAGE_SELECT).eq(field, targetId).order('created_at', { ascending: false }).limit(INITIAL_MESSAGE_LIMIT)
+    if (!isCurrentScope()) return
       
     if (data) {
       if (data.length < INITIAL_MESSAGE_LIMIT) setHasMoreMessages(false);
-      const chronoData = data.reverse() 
+      const chronoData = data.reverse()
+      const hydratedById = new Map(getSessionHydratedMessages(session.user.id, view, targetId).map(message => [message.id, message]))
+      const chronoWithHydratedMedia = chronoData.map(message => {
+        const hydrated = hydratedById.get(message.id)
+        return hydrated?.message_attachments?.length
+          ? { ...message, message_attachments: hydrated.message_attachments }
+          : message
+      })
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', chronoData);
-      const decryptedData = await decryptMessageList(chronoData, sharedKeys);
+      const decryptedData = await decryptMessageList(chronoWithHydratedMedia, sharedKeys);
+      if (!isCurrentScope()) return
+      cacheSessionHydratedMessages(session.user.id, view, targetId, decryptedData)
 
       setMessages(prev => {
         const updated = mergeMessageLists(prev, decryptedData, field, targetId)
-        safeCacheSave(targetId, updated)
-        return updated
+        safeCacheSave(session.user.id, targetId, updated)
+        return isCurrentScope() ? updated : prev
       })
 
       requestAnimationFrame(() => {
@@ -769,8 +864,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
       }
     } finally {
-      setInitialMessagesLoaded(true)
-      setMessagesLoading(false)
+      if (isCurrentScope()) {
+        setInitialMessagesLoaded(true)
+        setMessagesLoading(false)
+      }
     }
   }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeysForTarget, decryptMessageList, instantScrollToBottom])
 
@@ -779,19 +876,24 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (!targetId) { setMessages([]); setTypingUsers([]); setMessagesLoading(false); setInitialMessagesLoaded(false); return; }
     
     setHasMoreMessages(true);
-    const cachedMessages = safeCacheLoad(targetId)
+    const persistedMessages = safeCacheLoad(session.user.id, targetId)
+    const sessionHydratedMessages = getSessionHydratedMessages(session.user.id, view, targetId)
+    const cachedMessages = mergeMessageLists(persistedMessages, sessionHydratedMessages, view === 'server' ? 'channel_id' : 'dm_room_id', targetId)
     setInitialMessagesLoaded(false)
     setMessagesLoading(true)
     setMessages(cachedMessages)
-    requestAnimationFrame(() => instantScrollToBottom('chat_switch_cache'))
+    instantScrollToBottom('chat_switch_cache')
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const expectedScope = getConversationScopeKey(session.user.id, view, targetId)
+    const isCurrentScope = () => activeConversationScopeRef.current === expectedScope
     fetchCurrentMessages() 
     fetchPeerReadAt(targetId)
 
     const roomChannel = supabase.channel(`room:${targetId}`)
     
     roomChannel.on('presence', { event: 'sync' }, () => {
+      if (!isCurrentScope()) return
       const state = roomChannel.presenceState()
       const rawTypers = Object.values(state).flatMap(p => p).filter(p => p.user_id !== session.user.id)
       const uniqueTypers = Array.from(new Map(rawTypers.map(p => [p.user_id, p])).values())
@@ -808,10 +910,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             supabase.from('messages').select(MESSAGE_SELECT_BASE).eq('id', payload.new.id).single(),
             supabase.from('message_attachments').select('*').eq('message_id', payload.new.id)
           ])
+          if (!isCurrentScope()) return
           if (fullMsg) {
             const messageWithAttachments = { ...fullMsg, message_attachments: attachments || [] }
             const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [messageWithAttachments]);
             const [decryptedMsg] = await decryptMessageList([messageWithAttachments], sharedKeys);
+            if (!isCurrentScope()) return
 
             const isAtBottom = isNearBottom()
 
@@ -828,7 +932,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
               didAppendMessage = !matchingLocal
               replacedLocalEcho = Boolean(matchingLocal)
               updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-              safeCacheSave(targetId, updated);
+              safeCacheSave(session.user.id, targetId, updated);
               return updated;
             })
             
@@ -862,6 +966,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           const messageToDecrypt = fullMsg || payload.new
           const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [messageToDecrypt]);
           const [decryptedMsg] = await decryptMessageList([messageToDecrypt], sharedKeys);
+          if (!isCurrentScope()) return
 
           setMessages(current => {
             const updated = current.map(msg => {
@@ -874,16 +979,17 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
                 message_attachments: decryptedMsg.message_attachments?.length ? decryptedMsg.message_attachments : msg.message_attachments
               }
             })
-            safeCacheSave(targetId, updated)
+            safeCacheSave(session.user.id, targetId, updated)
             return updated
           })
         })();
       }
       
       if (payload.eventType === 'DELETE') {
+        if (!isCurrentScope()) return
         setMessages(current => {
           const updated = current.filter(msg => msg.id !== payload.old.id)
-          safeCacheSave(targetId, updated)
+          safeCacheSave(session.user.id, targetId, updated)
           return updated
         })
       }
@@ -896,6 +1002,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const attachments = fullMsg.message_attachments?.length ? fullMsg.message_attachments : [payload.new]
         const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg])
         const [decryptedMsg] = await decryptMessageList([{ ...fullMsg, message_attachments: attachments }], sharedKeys)
+        if (!isCurrentScope()) return
 
         setMessages(current => {
           const safePrev = current.filter(m => m[field] === targetId)
@@ -903,7 +1010,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             ? safePrev.map(msg => msg.id === decryptedMsg.id ? { ...msg, ...decryptedMsg } : msg)
             : [...safePrev, decryptedMsg]
           updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-          safeCacheSave(targetId, updated)
+          safeCacheSave(session.user.id, targetId, updated)
           return updated
         })
       })()
@@ -917,6 +1024,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         if (!fullMsg || fullMsg[field] !== targetId) return
         const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg])
         const [decryptedMsg] = await decryptMessageList([fullMsg], sharedKeys)
+        if (!isCurrentScope()) return
 
         setMessages(current => {
           if (!current.some(msg => msg.id === decryptedMsg.id)) return current
@@ -926,7 +1034,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             profiles: decryptedMsg.profiles || msg.profiles,
             message_attachments: decryptedMsg.message_attachments?.length ? decryptedMsg.message_attachments : msg.message_attachments
           } : msg)
-          safeCacheSave(targetId, updated)
+          safeCacheSave(session.user.id, targetId, updated)
           return updated
         })
       })()
@@ -936,6 +1044,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       'postgres_changes',
       { event: '*', schema: 'public', table: 'dm_reads', filter: `dm_room_id=eq.${targetId}` },
       (payload) => {
+        if (!isCurrentScope()) return
         const row = payload.new?.dm_room_id ? payload.new : payload.old
         const peerId = activeDm?.profiles?.id
 
@@ -1013,7 +1122,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           return msg
         })
         const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
-        if (targetId) safeCacheSave(targetId, updated)
+        if (targetId) safeCacheSave(session.user.id, targetId, updated)
         return updated
       })
     } catch (_err) { toast.error('Failed to update reaction') }
@@ -1096,7 +1205,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         ? withoutLocal.map(msg => msg.id === nextMessage.id ? { ...msg, ...nextMessage } : msg)
         : [...withoutLocal, nextMessage]
       updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      safeCacheSave(targetId, updated)
+      safeCacheSave(session.user.id, targetId, updated)
       return updated
     })
   }, [])
@@ -1108,7 +1217,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         __delivery_status: 'failed',
         __retry_payload: retryPayload
       } : msg)
-      safeCacheSave(targetId, updated)
+      safeCacheSave(session.user.id, targetId, updated)
       return updated
     })
   }, [])
@@ -1157,7 +1266,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           message_attachments: [localAttachment]
         }]
         updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        safeCacheSave(targetId, updated)
+        safeCacheSave(session.user.id, targetId, updated)
         return updated
       })
       ownSendScrollRef.current = { targetId, active: true }
@@ -1254,7 +1363,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         message_attachments: []
       }]
       updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      safeCacheSave(targetId, updated)
+      safeCacheSave(session.user.id, targetId, updated)
       return updated
     })
     ownSendScrollRef.current = { targetId, active: true }
@@ -1323,7 +1432,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         }]
       }]
       updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      safeCacheSave(targetId, updated)
+      safeCacheSave(session.user.id, targetId, updated)
       return updated
     })
     ownSendScrollRef.current = { targetId, active: true }
@@ -1382,7 +1491,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     setMessages(prev => {
       const updated = prev.filter(msg => msg.id !== message.id)
-      safeCacheSave(targetId, updated)
+      safeCacheSave(session.user.id, targetId, updated)
       return updated
     })
 
@@ -1419,7 +1528,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         message_attachments: []
       }]
       updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      safeCacheSave(targetId, updated)
+      safeCacheSave(session.user.id, targetId, updated)
       return updated
     })
     ownSendScrollRef.current = { targetId, active: true }
@@ -1483,7 +1592,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           is_edited: true,
           updated_at: updatedAt
         } : msg)
-        if (targetId) safeCacheSave(targetId, updated)
+        if (targetId) safeCacheSave(session.user.id, targetId, updated)
         return updated
       })
       setEditingMessageId(null)
@@ -1511,7 +1620,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     finally { setInlineDeleteMessageId(null); setInlineDeleteStep('options') }
   }, [])
 
-  const validMessages = useMemo(() => Array.from(new Map(messages.filter(m => m && m.id != null).map(item => [item.id, item])).values()), [messages])
+  const validMessages = useMemo(() => {
+    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+    if (!targetId) return []
+    return Array.from(new Map(messages
+      .filter(message => message && message.id != null && message[field] === targetId)
+      .map(message => [message.id, message]))
+      .values())
+  }, [activeChannel?.id, activeDm?.dm_room_id, messages, view])
   const pinnedMessages = useMemo(() => validMessages.filter(m => m.is_pinned && !m.is_deleted), [validMessages])
 
   const togglePinnedMessage = useCallback(async (message) => {
@@ -1523,7 +1640,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       setMessages(current => {
         const updated = current.map(msg => msg.id === message.id ? { ...msg, is_pinned: nextPinned } : msg)
         const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
-        if (targetId) safeCacheSave(targetId, updated)
+        if (targetId) safeCacheSave(session.user.id, targetId, updated)
         return updated
       })
       toast.success(nextPinned ? 'Message pinned' : 'Message unpinned')

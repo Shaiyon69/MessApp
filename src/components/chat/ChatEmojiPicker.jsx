@@ -1,3 +1,4 @@
+/** Thin chat-specific wrapper around the shared emoji picker dependency. */
 import EmojiPicker from 'emoji-picker-react'
 
 const getTheme = () =>

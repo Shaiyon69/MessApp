@@ -1,5 +1,10 @@
+/**
+ * Renders DM/server/category/channel navigation and profile controls. Dashboard
+ * owns selection and permissions; Supabase policies still authorize every
+ * server, invite, category, and channel mutation.
+ */
 import React, { useEffect, useRef, useState } from 'react'
-import { Hash, Home, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, Volume2 } from 'lucide-react'
+import { Camera, Hash, Home, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Volume2, VolumeX } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import toast from 'react-hot-toast'
 import { safeMediaUrl } from '../../lib/security'
@@ -19,6 +24,8 @@ export default function LeftSidebar(props) {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [isCreatingCategory, setIsCreatingCategory] = useState(false)
+  const [activeInviteCode, setActiveInviteCode] = useState('')
+  const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   const [isServerMenuOpen, setIsServerMenuOpen] = useState(false)
   const [serverItemMenuId, setServerItemMenuId] = useState(null)
   const [editingServerItem, setEditingServerItem] = useState(null)
@@ -33,6 +40,10 @@ export default function LeftSidebar(props) {
   const currentStatus = props.userStatus || 'online'
   const currentStatusLabel = statusOptions.find(option => option.id === currentStatus)?.label || 'Online'
   const canManageServer = Boolean(props.canManageActiveServer)
+  const getVoiceParticipantsForChannel = (channelId) => {
+    if (props.activeVoiceSession?.channelId !== channelId) return []
+    return props.voiceSessionState?.participants || []
+  }
   const openProfileSettings = () => {
     props.setShowProfilePopout(false)
     props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: false })
@@ -89,30 +100,11 @@ export default function LeftSidebar(props) {
     const name = serverName.trim()
     if (!name) return toast.error('Enter a server name')
     try {
-      const invite_code = Math.random().toString(36).slice(2, 8).toUpperCase()
-      const { data: server, error: serverError } = await supabase
-        .from('servers')
-        .insert({ name, owner_id: props.session.user.id, invite_code })
-        .select()
-        .single()
-      if (serverError) throw serverError
-
-      const { error: memberError } = await supabase
-        .from('server_members')
-        .insert({ server_id: server.id, profile_id: props.session.user.id, role: 'owner' })
-      if (memberError) throw memberError
-
-      const { data: category, error: categoryError } = await supabase
-        .from('categories')
-        .insert({ server_id: server.id, name: 'General' })
-        .select()
-        .single()
-      if (categoryError) throw categoryError
-
-      const { error: channelError } = await supabase
-        .from('channels')
-        .insert({ server_id: server.id, category_id: category.id, name: 'general', type: 'text' })
-      if (channelError) throw channelError
+      const { data: server, error } = await supabase.rpc('create_server', {
+        server_name: name,
+        idempotency_key: crypto.randomUUID()
+      })
+      if (error) throw error
 
       closeCreateModal()
       await refreshServers(server)
@@ -126,18 +118,9 @@ export default function LeftSidebar(props) {
     const code = inviteCode.trim().toUpperCase()
     if (!code) return toast.error('Enter an invite code')
     try {
-      const { data: server, error: serverError } = await supabase
-        .from('servers')
-        .select()
-        .eq('invite_code', code)
-        .maybeSingle()
-      if (serverError) throw serverError
+      const { data: server, error } = await supabase.rpc('join_server_by_code', { invite: code })
+      if (error) throw error
       if (!server) throw new Error('Server not found')
-
-      const { error: memberError } = await supabase
-        .from('server_members')
-        .insert({ server_id: server.id, profile_id: props.session.user.id, role: 'member' })
-      if (memberError) throw memberError
 
       closeJoinModal()
       await refreshServers(server)
@@ -213,9 +196,23 @@ export default function LeftSidebar(props) {
     }
   }
   const copyInviteCode = async () => {
-    if (!props.activeServer?.invite_code) return
-    await navigator.clipboard.writeText(props.activeServer.invite_code)
-    toast.success('Invite code copied')
+    if (!props.activeServer?.id || isGeneratingInvite) return
+    setIsGeneratingInvite(true)
+    try {
+      const { data, error } = await supabase.rpc('create_server_invite', {
+        target_server_id: props.activeServer.id,
+        requested_uses: 100,
+        requested_expires_at: null
+      })
+      if (error) throw error
+      setActiveInviteCode(data.code)
+      await navigator.clipboard.writeText(data.code)
+      toast.success('Invite code copied')
+    } catch (_err) {
+      toast.error('Could not create invite')
+    } finally {
+      setIsGeneratingInvite(false)
+    }
   }
   const runServerAction = async (action) => {
     if (action === 'delete' && !canManageServer) return toast.error('Only server admins can delete this server.')
@@ -304,6 +301,9 @@ export default function LeftSidebar(props) {
       <div className={`fixed left-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <nav className="flex h-full w-16 flex-col items-center border-r border-[var(--border-subtle)] bg-[#0f1117] py-3 shrink-0 relative z-20">
           <div className="flex flex-1 flex-col gap-2 overflow-y-auto custom-scrollbar px-2">
+            {props.serversLoading && props.servers.length === 0 && Array.from({ length: 4 }, (_, index) => (
+              <div key={`server-skeleton-${index}`} className="h-12 w-12 animate-pulse rounded-2xl bg-gray-800/80" aria-hidden="true" />
+            ))}
             {props.servers.map((server, i) => {
               const isActive = props.activeServer?.id === server.id && props.view === 'server'
               const iconUrl = safeMediaUrl(server.icon_url)
@@ -352,6 +352,12 @@ export default function LeftSidebar(props) {
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3 block px-2">Direct Messages</span>
                   <div className="space-y-1">
+                    {props.dmsLoading && props.dms.length === 0 && Array.from({ length: 5 }, (_, index) => (
+                      <div key={`dm-skeleton-${index}`} className="flex items-center gap-3.5 px-3.5 py-3" aria-hidden="true">
+                        <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-[var(--bg-element)]" />
+                        <div className="h-3.5 animate-pulse rounded-full bg-[var(--bg-element)]" style={{ width: `${58 + (index % 3) * 12}%` }} />
+                      </div>
+                    ))}
                     {props.dms.map((dm, i) => {
                       const isActive = props.activeDm?.dm_room_id === dm.dm_room_id && props.view === 'home';
                       const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
@@ -406,7 +412,7 @@ export default function LeftSidebar(props) {
                       <div className="mb-2 rounded-lg border border-gray-700 bg-gray-800 p-2">
                         <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">Invite Code</p>
                         <button type="button" onClick={copyInviteCode} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono text-sm text-white hover:bg-gray-700">
-                          <span className="truncate">{props.activeServer?.invite_code || 'No code'}</span>
+                          <span className="truncate">{isGeneratingInvite ? 'Creating...' : activeInviteCode || 'Create code'}</span>
                           <Copy size={14} aria-hidden="true" />
                         </button>
                       </div>
@@ -451,6 +457,7 @@ export default function LeftSidebar(props) {
                       <div className="space-y-1">
                         {(category.channels || []).map(channel => {
                           const isActive = props.activeChannel?.id === channel.id
+                          const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
                           return (
                             <div key={channel.id} className="relative group">
                               <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 pr-9 text-left text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
@@ -466,6 +473,35 @@ export default function LeftSidebar(props) {
                                 <div className="absolute right-2 top-9 z-[80] w-44 rounded-lg border border-gray-700 bg-gray-900 p-1 shadow-2xl">
                                   <button type="button" onClick={() => openEditServerItemModal('channel', channel)} className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800">Edit Channel</button>
                                   <button type="button" onClick={() => deleteServerItem('channel', channel)} className="w-full rounded-md px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10">Delete Channel</button>
+                                </div>
+                              )}
+                              {voiceParticipants.length > 0 && (
+                                <div className="mt-1 space-y-1 pl-6 pr-1">
+                                  {voiceParticipants.map(participant => {
+                                    const hasStream = participant.cameraActive || participant.screenShareActive
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={`${channel.id}-${participant.id}`}
+                                        onClick={() => {
+                                          props.onVoiceParticipantSelect?.(participant)
+                                          props.setMobileMenuOpen(false)
+                                        }}
+                                        className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'bg-green-500/10 text-green-200' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}
+                                        title={hasStream ? `Watch ${participant.displayName}` : participant.displayName}
+                                      >
+                                        <StatusAvatar url={participant.avatarUrl} username={participant.displayName} status="online" className="h-6 w-6" />
+                                        <span className="min-w-0 flex-1 truncate font-bold">{participant.displayName}</span>
+                                        <span className="flex shrink-0 items-center gap-1 text-gray-500">
+                                          {participant.speaking && <Volume2 size={12} aria-label="Speaking" />}
+                                          {participant.muted && <MicOff size={12} aria-label="Muted" />}
+                                          {participant.deafened && <VolumeX size={12} aria-label="Deafened" />}
+                                          {participant.cameraActive && <Camera size={12} aria-label="Camera active" />}
+                                          {participant.screenShareActive && <MonitorUp size={12} aria-label="Screen sharing" />}
+                                        </span>
+                                      </button>
+                                    )
+                                  })}
                                 </div>
                               )}
                             </div>

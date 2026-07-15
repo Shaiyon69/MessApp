@@ -1,5 +1,10 @@
 package com.shaiyon.messapp;
 
+/**
+ * WebView input bridge that advertises image MIME types to Android keyboards.
+ * Committed content is delegated while its temporary URI permission is valid.
+ */
+
 import android.content.Context;
 import android.os.Bundle;
 import android.util.AttributeSet;
