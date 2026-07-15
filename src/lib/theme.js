@@ -1,3 +1,4 @@
+/** Normalizes and applies the persisted document theme mode. */
 export const THEME_MODES = ['dark', 'light']
 
 export function normalizeThemeMode(value) {

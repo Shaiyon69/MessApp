@@ -1,5 +1,10 @@
 package com.shaiyon.messapp;
 
+/**
+ * Owns Android communication-mode and speaker routing during WebRTC calls. The
+ * pre-call AudioManager state is restored so routing does not leak after calls.
+ */
+
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;

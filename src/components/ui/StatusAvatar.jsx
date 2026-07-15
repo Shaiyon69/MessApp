@@ -1,3 +1,4 @@
+/** Renders a sanitized avatar plus presence state without owning profile data. */
 import React from 'react'
 import { safeMediaUrl } from '../../lib/security'
 

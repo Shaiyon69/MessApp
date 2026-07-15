@@ -1,3 +1,8 @@
+/**
+ * Orchestrates the authenticated shell: profile-derived state, server/DM
+ * selection, presence, permissions, voice-channel state, and modal ownership.
+ * Supabase/RPCs remain authoritative; switches must retire obsolete async work.
+ */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -22,6 +27,7 @@ import UserSettingsModal from './modals/UserSettings'
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
 import { normalizeProfileBaseName } from '../lib/security'
 import { applyThemeMode } from '../lib/theme'
+import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
 import StatusAvatar from './ui/StatusAvatar'
 import { CornerDownLeft } from 'lucide-react'
 
@@ -67,6 +73,19 @@ const WALLPAPERS = [
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
+}
+
+const readNavigationCache = (key) => {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '[]')
+    return Array.isArray(value) ? value : []
+  } catch (_err) {
+    return []
+  }
+}
+
+const writeNavigationCache = (key, value) => {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch (_err) {}
 }
 
 const getMyServerRole = (server, userId) => {
@@ -127,24 +146,32 @@ const logUiFreezeDebug = (event, payload = {}) => {
 }
 
 export default function Dashboard({ session }) {
+  const serverListCacheKey = `server_list_${session.user.id}`
+  const dmListCacheKey = `dm_list_${session.user.id}`
+  const cachedServers = useMemo(() => readNavigationCache(serverListCacheKey), [serverListCacheKey])
+  const cachedDms = useMemo(() => readNavigationCache(dmListCacheKey), [dmListCacheKey])
   const [view, setView] = useState('home')
   const [homeTab, setHomeTab] = useState('online') 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [servers, setServers] = useState([])
+  const [servers, setServers] = useState(cachedServers)
+  const [serversLoading, setServersLoading] = useState(cachedServers.length === 0)
   const [activeServer, setActiveServer] = useState(null)
   const [activeChannel, setActiveChannel] = useState(null)
   const [activeVoiceSession, setActiveVoiceSession] = useState(null)
   const [voiceSessionState, setVoiceSessionState] = useState({ status: 'idle', isSharing: false, remoteCount: 0 })
+  const [voiceFocusRequest, setVoiceFocusRequest] = useState(null)
   const [voiceMuted, setVoiceMuted] = useState(false)
   const [voiceDeafened, setVoiceDeafened] = useState(false)
   const [serverCategories, setServerCategories] = useState([])
   const [serverMembers, setServerMembers] = useState([])
-  const [dms, setDms] = useState([])
+  const [dms, setDms] = useState(cachedDms)
+  const [dmsLoading, setDmsLoading] = useState(cachedDms.length === 0)
   const [activeDm, setActiveDm] = useState(null)
   const [onlineUsers, setOnlineUsers] = useState([])
   const [userPresence, setUserPresence] = useState({})
   const [friendRequests, setFriendRequests] = useState([])
   const [acceptedFriends, setAcceptedFriends] = useState([])
+  const [startingDmProfileId, setStartingDmProfileId] = useState(null)
   const [blockedUsers, setBlockedUsers] = useState([]) 
   const [blockedByUsers, setBlockedByUsers] = useState([])
   const [restrictedUsers, setRestrictedUsers] = useState(() => {
@@ -161,6 +188,8 @@ export default function Dashboard({ session }) {
   
   const popoutRef = useRef(null)
   const serverMembersCacheRef = useRef(new Map())
+  const serversFetchRef = useRef(null)
+  const dmsFetchRef = useRef(null)
   const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
@@ -204,7 +233,21 @@ export default function Dashboard({ session }) {
     if (window.innerWidth < 768) setMobileMenuOpen(true)
   }, [])
 
-  const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms)
+  const handleCurrentUserRead = useCallback((roomId, readAt) => {
+    const applyReadAt = item => {
+      if (item.dm_room_id !== roomId) return item
+      if (item.last_read_at && new Date(item.last_read_at) >= new Date(readAt)) return item
+      return { ...item, last_read_at: readAt, is_unread: false }
+    }
+    setDms(current => {
+      const next = current.map(applyReadAt)
+      writeNavigationCache(dmListCacheKey, next)
+      return next
+    })
+    setActiveDm(current => current?.dm_room_id === roomId ? applyReadAt(current) : current)
+  }, [dmListCacheKey])
+
+  const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms, handleCurrentUserRead)
   const webRTCProps = useWebRTC(session, activeDm)
   const screenShareClientFactory = useMemo(() => () => ({
     connect: async () => {},
@@ -221,6 +264,7 @@ export default function Dashboard({ session }) {
   const presenceChannelRef = useRef(null);
   const lastHomeClickRef = useRef(0);
   const acceptingRefs = useRef(new Set());
+  const startingDmRefs = useRef(new Set());
   const exitTimerRef = useRef(null);
   const dmMenuScopeRef = useRef('');
 
@@ -279,6 +323,9 @@ export default function Dashboard({ session }) {
         const state = stateRef.current;
         
 	        if (state.messageActionMenuId) {
+	          const reactionBackEvent = new Event('messapp:reaction-back', { cancelable: true })
+	          window.dispatchEvent(reactionBackEvent)
+	          if (reactionBackEvent.defaultPrevented) return
 	          logMenuDebug('menu closed', { reason: 'android_back', messageId: state.messageActionMenuId })
 	          setMessageActionMenuId(null)
 	          setMessageActionMenuPosition(null)
@@ -463,14 +510,18 @@ export default function Dashboard({ session }) {
     setActiveDm(dm)
     setMobileMenuOpen(false)
     if (dm) {
-      const readAt = new Date().toISOString()
       localStorage.setItem(`last_dm_${session.user.id}`, dm.dm_room_id)
-      setDms(current => current.map(item => item.dm_room_id === dm.dm_room_id ? { ...item, last_read_at: readAt, is_unread: false } : item))
-      void supabase.from('dm_reads').upsert({ profile_id: session.user.id, dm_room_id: dm.dm_room_id, last_read_at: readAt })
+      // Preserve the prior receipt until the message viewport proves what the
+      // user actually saw. useChatManager owns visible-message receipt writes.
+      setDms(current => {
+        const next = current.map(item => item.dm_room_id === dm.dm_room_id ? { ...item, is_unread: false } : item)
+        writeNavigationCache(dmListCacheKey, next)
+        return next
+      })
     } else {
       localStorage.removeItem(`last_dm_${session.user.id}`)
     }
-  }, [session.user.id])
+  }, [dmListCacheKey, session.user.id])
 
   const selectChannel = useCallback((channel) => {
     setActiveChannel(channel)
@@ -505,10 +556,22 @@ export default function Dashboard({ session }) {
   const leaveActiveVoice = useCallback(() => {
     setActiveVoiceSession(null)
     setVoiceSessionState({ status: 'idle', isSharing: false, remoteCount: 0 })
+    setVoiceFocusRequest(null)
     setVoiceMuted(false)
     setVoiceDeafened(false)
     audioSys.playVoiceLeft()
   }, [])
+
+  const focusVoiceParticipant = useCallback((participant) => {
+    if (!participant || !activeVoiceSession) return
+    openActiveVoiceChannel()
+    if (participant.cameraActive || participant.screenShareActive) {
+      setVoiceFocusRequest({
+        ownerId: participant.id,
+        requestedAt: Date.now()
+      })
+    }
+  }, [activeVoiceSession, openActiveVoiceChannel])
 
   const updateProfileBio = useCallback(async (newStatus) => {
     const nextBio = newStatus.trim()
@@ -654,14 +717,12 @@ export default function Dashboard({ session }) {
       const messageAt = payload.new.created_at || new Date().toISOString();
       const isOwnMessage = payload.new.profile_id === session.user.id;
       const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
-      if (isOpenRoom) {
-        void supabase.from('dm_reads').upsert({ profile_id: session.user.id, dm_room_id: roomId, last_read_at: messageAt })
-      }
       setDms(current => {
         const next = current.map(dm => dm.dm_room_id === roomId ? {
           ...dm,
           last_message_at: messageAt,
-          last_read_at: isOpenRoom ? messageAt : dm.last_read_at,
+          last_message_profile_id: payload.new.profile_id,
+          last_read_at: dm.last_read_at,
           is_unread: !isOwnMessage && !isOpenRoom
         } : dm)
         return sortDmsByLastMessage(next)
@@ -715,18 +776,23 @@ export default function Dashboard({ session }) {
       const { data: check } = await supabase.from('friendships').select('status').eq('id', request.id).single()
       if (check?.status === 'accepted') return;
 
-      await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
-      const { data: newRoom } = await supabase.from('dm_rooms').insert([{}]).select().maybeSingle()
-      if (newRoom) {
-        await supabase.from('dm_members').insert([
-          { dm_room_id: newRoom.id, profile_id: session.user.id }, 
-          { dm_room_id: newRoom.id, profile_id: request.sender_id }
-        ])
-      }
-      fetchFriendRequests()
-      fetchAcceptedFriends()
-      fetchDms()
-      toast.success("Friend request accepted!")
+      const { error } = await supabase.from('friendships').update({ status: 'accepted' }).eq('id', request.id)
+      if (error) throw error
+
+      await Promise.all([fetchFriendRequests(), fetchAcceptedFriends(), fetchDms()])
+      const targetProfile = { ...request.profiles, id: request.sender_id }
+      toast.success(t => (
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => {
+            toast.dismiss(t.id)
+            void createOrOpenDm({ dm_room_id: null, profiles: targetProfile, is_new_chat: true })
+          }}
+        >
+          Friend request accepted from <strong>{targetProfile.username || 'your friend'}</strong>. Click to start chatting.
+        </button>
+      ), { duration: 7000 })
     } catch { toast.error("Failed to accept request.") }
     finally { acceptingRefs.current.delete(request.id); }
   }
@@ -831,9 +897,22 @@ export default function Dashboard({ session }) {
     setConfirmAction(null);
   }
 
-  const fetchServers = async () => {
-    const { data } = await supabase.from('servers').select('*, server_members!inner(*)').eq('server_members.profile_id', session.user.id)
-    if (data) setServers(data)
+  const fetchServers = () => {
+    if (serversFetchRef.current) return serversFetchRef.current
+    if (servers.length === 0) setServersLoading(true)
+    const request = (async () => {
+      const { data } = await supabase.from('servers').select('*, server_members!inner(*)').eq('server_members.profile_id', session.user.id)
+      if (data) {
+        setServers(data)
+        writeNavigationCache(serverListCacheKey, data)
+      }
+      return data || []
+    })()
+    serversFetchRef.current = request
+    return request.finally(() => {
+      if (serversFetchRef.current === request) serversFetchRef.current = null
+      setServersLoading(false)
+    })
   }
 
   useEffect(() => {
@@ -1089,9 +1168,16 @@ export default function Dashboard({ session }) {
     await fetchServers()
   }
 
-  const fetchDms = async () => {
+  const fetchDms = () => {
+    if (dmsFetchRef.current) return dmsFetchRef.current
+    if (dms.length === 0) setDmsLoading(true)
+    const request = (async () => {
     const { data: myRooms } = await supabase.from('dm_members').select('dm_room_id').eq('profile_id', session.user.id)
-    if (!myRooms || myRooms.length === 0) { setDms([]); return }
+    if (!myRooms || myRooms.length === 0) {
+      setDms([])
+      writeNavigationCache(dmListCacheKey, [])
+      return []
+    }
     const roomIds = myRooms.map(r => r.dm_room_id)
     const [otherMembersRes, latestMessagesRes, readsRes] = await Promise.all([
       supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id),
@@ -1106,89 +1192,59 @@ export default function Dashboard({ session }) {
       for (const message of latestMessagesRes.data || []) {
         if (message.dm_room_id && !latestByRoom.has(message.dm_room_id)) latestByRoom.set(message.dm_room_id, message)
       }
-      const uniqueDms = Array.from(new Map(otherMembers.map(item => {
+      const roomEntries = otherMembers.map(item => {
         const latestMessage = latestByRoom.get(item.dm_room_id)
         const lastReadAt = readByRoom.get(item.dm_room_id) || null
         const lastMessageAt = latestMessage?.created_at || null
         const isUnread = Boolean(lastMessageAt && latestMessage?.profile_id !== session.user.id && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt)))
-        return [item.dm_room_id, { ...item, last_message_at: lastMessageAt, last_read_at: lastReadAt, is_unread: isUnread }]
-      })).values())
-      setDms(sortDmsByLastMessage(uniqueDms))
+        return { ...item, last_message_at: lastMessageAt, last_message_profile_id: latestMessage?.profile_id || null, last_read_at: lastReadAt, is_unread: isUnread }
+      })
+      const uniqueByPeer = new Map()
+      for (const dm of sortDmsByLastMessage(roomEntries)) {
+        if (!uniqueByPeer.has(dm.profiles.id)) uniqueByPeer.set(dm.profiles.id, dm)
+      }
+      const nextDms = Array.from(uniqueByPeer.values())
+      setDms(nextDms)
+      writeNavigationCache(dmListCacheKey, nextDms)
+      return nextDms
     }
+    return []
+    })()
+    dmsFetchRef.current = request
+    return request.finally(() => {
+      if (dmsFetchRef.current === request) dmsFetchRef.current = null
+      setDmsLoading(false)
+    })
   }
 
   const createOrOpenDm = async (entry) => {
+    const targetProfile = entry.profiles
+    if (!targetProfile?.id || startingDmRefs.current.has(targetProfile.id)) return
+    startingDmRefs.current.add(targetProfile.id)
+    setStartingDmProfileId(targetProfile.id)
     try {
-      const targetProfile = entry.profiles
-      if (!targetProfile?.id) throw new Error('Missing target user')
-
-      const { data: myRooms, error: myRoomsError } = await supabase
-        .from('dm_members')
-        .select('dm_room_id')
-        .eq('profile_id', session.user.id)
-      if (myRoomsError) throw myRoomsError
-
-      const roomIds = Array.from(new Set((myRooms || []).map(room => room.dm_room_id).filter(Boolean)))
-      if (roomIds.length > 0) {
-        const { data: roomMembers, error: membersError } = await supabase
-          .from('dm_members')
-          .select('dm_room_id, profile_id')
-          .in('dm_room_id', roomIds)
-        if (membersError) throw membersError
-
-        const membersByRoom = new Map()
-        for (const member of roomMembers || []) {
-          const members = membersByRoom.get(member.dm_room_id) || []
-          members.push(member.profile_id)
-          membersByRoom.set(member.dm_room_id, members)
-        }
-
-        const existingRoomId = roomIds.find(roomId => {
-          const members = membersByRoom.get(roomId) || []
-          return members.length === 2 && members.includes(session.user.id) && members.includes(targetProfile.id)
-        })
-
-        if (existingRoomId) {
-          const existingDm = dms.find(dm => dm.dm_room_id === existingRoomId) || {
-            dm_room_id: existingRoomId,
-            dm_rooms: entry.dm_rooms || { theme_color: '#6366f1', wallpaper: 'default' },
-            profiles: targetProfile,
-            last_message_at: entry.last_message_at || null,
-            last_read_at: entry.last_read_at || null,
-            is_unread: false
-          }
-          setDms(current => sortDmsByLastMessage([existingDm, ...current.filter(dm => dm.dm_room_id !== existingRoomId)]))
-          setView('home')
-          selectDm(existingDm)
-          setShowQuickSwitcher(false)
-          setQuickSwitcherQuery('')
-          return
-        }
-      }
-
-      const { data: newRoom, error: roomError } = await supabase.from('dm_rooms').insert([{}]).select().single()
-      if (roomError) throw roomError
-      const { error: selfMemberError } = await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: session.user.id }])
-      if (selfMemberError) throw selfMemberError
-      const { error: peerMemberError } = await supabase.from('dm_members').insert([{ dm_room_id: newRoom.id, profile_id: targetProfile.id }])
-      if (peerMemberError) throw peerMemberError
-
-      const newDm = {
-        dm_room_id: newRoom.id,
-        dm_rooms: { theme_color: newRoom.theme_color, wallpaper: newRoom.wallpaper },
+      const roomId = await getOrCreateDmRoom(targetProfile.id, supabase)
+      const openedDm = dms.find(dm => dm.dm_room_id === roomId) || {
+        dm_room_id: roomId,
+        dm_rooms: entry.dm_rooms || { theme_color: '#6366f1', wallpaper: 'default' },
         profiles: targetProfile,
-        last_message_at: null,
-        last_read_at: null,
+        last_message_at: entry.last_message_at || null,
+        last_message_profile_id: entry.last_message_profile_id || null,
+        last_read_at: entry.last_read_at || null,
         is_unread: false
       }
-      setDms(current => sortDmsByLastMessage([newDm, ...current.filter(dm => dm.profiles.id !== targetProfile.id)]))
+      setDms(current => sortDmsByLastMessage([openedDm, ...current.filter(dm => dm.dm_room_id !== roomId && dm.profiles.id !== targetProfile.id)]))
       setView('home')
-      selectDm(newDm)
+      selectDm(openedDm)
       setShowQuickSwitcher(false)
       setQuickSwitcherQuery('')
+      await fetchDms()
       toast.success(`Started chat with ${targetProfile.username}`)
     } catch (_err) {
-      toast.error('Could not start this chat.')
+      toast.error(getDmRoomErrorMessage(_err))
+    } finally {
+      startingDmRefs.current.delete(targetProfile.id)
+      setStartingDmProfileId(current => current === targetProfile.id ? null : current)
     }
   }
 
@@ -1223,18 +1279,18 @@ export default function Dashboard({ session }) {
   }, [getPresenceStatus])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
-  const allFriends = useMemo(() => dms.filter(dm => !restrictedUsersSet.has(dm.profiles.id)), [dms, restrictedUsersSet]);
+  const allFriends = useMemo(() => {
+    const existingIds = new Set(dms.map(dm => dm.profiles.id))
+    const selectableFriends = acceptedFriends
+      .filter(profile => !existingIds.has(profile.id))
+      .map(profile => ({ dm_room_id: null, profiles: profile, is_new_chat: true }))
+    return [...dms, ...selectableFriends].filter(dm => !restrictedUsersSet.has(dm.profiles.id))
+  }, [acceptedFriends, dms, restrictedUsersSet]);
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
   const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
 
-  const quickSwitcherBase = useMemo(() => {
-    const existingIds = new Set(dms.map(dm => dm.profiles.id))
-    const friendEntries = acceptedFriends
-      .filter(profile => !existingIds.has(profile.id) && !restrictedUsersSet.has(profile.id))
-      .map(profile => ({ dm_room_id: null, profiles: profile, is_new_chat: true }))
-    return [...allFriends, ...friendEntries]
-  }, [acceptedFriends, allFriends, dms, restrictedUsersSet])
+  const quickSwitcherBase = allFriends
 
   const activeDmPeerId = activeDm?.profiles?.id
   const isBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
@@ -1290,6 +1346,7 @@ export default function Dashboard({ session }) {
         toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
 
+      {/* Dashboard owns atomic DM creation and passes the canonical RPC-backed handler down. */}
       <LeftSidebar 
         session={session}
         view={view}
@@ -1299,6 +1356,7 @@ export default function Dashboard({ session }) {
         mobileMenuOpen={mobileMenuOpen}
         setMobileMenuOpen={setMobileMenuOpen}
         servers={servers}
+        serversLoading={serversLoading}
         activeServer={activeServer}
         serverCategories={serverCategories}
         setActiveServer={setActiveServer}
@@ -1315,8 +1373,11 @@ export default function Dashboard({ session }) {
         handleLeaveServer={handleLeaveServer}
         handleDeleteServer={handleDeleteServer}
         dms={dms}
+        dmsLoading={dmsLoading}
         activeDm={activeDm}
         selectDm={selectDm}
+        createOrOpenDm={createOrOpenDm}
+        startingDmProfileId={startingDmProfileId}
         onlineUsersSet={onlineUsersSet}
         userPresence={userPresence}
         getPresenceStatus={getPresenceStatus}
@@ -1351,6 +1412,9 @@ export default function Dashboard({ session }) {
         onlineFriends={onlineFriends}
         scopedChatStyle={scopedChatStyle}
         handleHomeClick={handleHomeClick}
+        activeVoiceSession={activeVoiceSession}
+        voiceSessionState={voiceSessionState}
+        onVoiceParticipantSelect={focusVoiceParticipant}
       />
 
       <ChatArea 
@@ -1364,6 +1428,7 @@ export default function Dashboard({ session }) {
         voiceMuted={voiceMuted}
         voiceDeafened={voiceDeafened}
         isViewingActiveVoiceChannel={isViewingActiveVoiceChannel}
+        voiceFocusRequest={voiceFocusRequest}
         setVoiceSessionState={setVoiceSessionState}
         selectChannel={selectChannel}
         leaveActiveVoice={leaveActiveVoice}
@@ -1378,6 +1443,8 @@ export default function Dashboard({ session }) {
         onlineFriends={onlineFriends}
         allFriends={allFriends}
         selectDm={selectDm}
+        createOrOpenDm={createOrOpenDm}
+        startingDmProfileId={startingDmProfileId}
         startCall={webRTCProps.startCall}
         toggleRightSidebar={toggleRightSidebar}
         rightTab={rightTab}
@@ -1465,7 +1532,8 @@ export default function Dashboard({ session }) {
                   {quickSwitcherResults.map((dm, idx) => (
                     <button 
                       key={dm.dm_room_id ? `qs-${dm.dm_room_id}` : `qs-fallback-${idx}`} 
-                      onClick={() => createOrOpenDm(dm)} 
+                      onClick={() => createOrOpenDm(dm)}
+                      disabled={startingDmProfileId === dm.profiles.id}
                       className={`w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent ${idx === 0 ? 'bg-indigo-500/10 border-indigo-500/20' : 'hover:bg-[var(--bg-base)] hover:border-[var(--border-subtle)]'}`}
                     >
                       <div className="flex items-center gap-3 sm:gap-4 min-w-0">

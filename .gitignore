@@ -1,33 +1,40 @@
-# 📦 Dependencies
-node_modules/
+# Dependencies
+/node_modules/
 .pnp
 .pnp.js
 
-# 🏗️ Build outputs
-dist/
-dist-ssr/
-build/
-coverage/
+# Build and test output
+/dist/
+/dist-ssr/
+/build/
+/coverage/
+/src-tauri/target/
+/android/.gradle/
+/android/build/
+/android/app/build/
 
-# 🚨 Environment Variables (CRITICAL SECRETS)
+# Environment files and local secrets
 .env
-.env.local
 .env.*
 !.env.example
-.env.development.local
-.env.test.local
-.env.production.local
 *.local
+*.keystore
+*.jks
+keystore.properties
+google-services.json
+GoogleService-Info.plist
 
-# 🗄️ Database dumps and generated schemas
-schema.sql
-*.schema.sql
+# Supabase local state and generated linked-schema snapshots
+# Migrations and tests are authored source and must remain trackable.
+/supabase/.branches/
+/supabase/.temp/
+/supabase/schema.sql
+/supabase/storage_schema.sql
 *.dump.sql
 *.backup.sql
-supabase/migrations/
 
-# 📝 Logs
-logs/
+# Logs
+/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -35,7 +42,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# 💻 OS & Editor generated files
+# OS and editor state
 .DS_Store
 .DS_Store?
 ._*
@@ -52,5 +59,9 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
-google-services.json
-memory.md
+**/xcuserdata/
+/android/local.properties
+
+# Local agent notes; project documentation belongs in SYSTEM_DOCUMENTATION.md.
+/AGENTS.md
+/memory.md

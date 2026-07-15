@@ -1,3 +1,4 @@
+/** Authenticates an existing user through Supabase and hands routing to App. */
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { trackSpotlight } from '../lib/uiEffects'

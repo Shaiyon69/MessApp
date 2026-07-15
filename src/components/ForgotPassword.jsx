@@ -1,3 +1,4 @@
+/** Requests a Supabase recovery email without exposing credentials. */
 import { useState } from 'react'
 import { Mail, ArrowLeft, Send } from 'lucide-react'
 import { supabase } from '../supabaseClient'

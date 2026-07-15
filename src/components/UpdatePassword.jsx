@@ -1,3 +1,4 @@
+/** Completes the recovery-session password update through Supabase Auth. */
 import { useEffect, useState } from 'react'
 import { Check, KeyRound, LogIn } from 'lucide-react'
 import { supabase } from '../supabaseClient'

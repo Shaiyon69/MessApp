@@ -1,8 +1,14 @@
+/**
+ * Owns the one-to-one WebRTC call state machine, peer connection, local media,
+ * Supabase signaling, and Android audio routing. Tracks belong to this hook and
+ * must stop when a call ends or the active DM changes.
+ */
 import { useState, useEffect, useRef } from 'react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { supabase } from '../supabaseClient';
 import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
+import { debug } from '../lib/debug';
 
 const CallAudio = registerPlugin('CallAudio');
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
@@ -37,6 +43,7 @@ const serializeCallError = (err) => {
   return { message: String(err) };
 };
 
+/** Returns call state and controls for the active DM, including cleanup handlers. */
 export function useWebRTC(session, activeDm) {
   const [callActive, setCallActive] = useState(false);
   const [callMinimized, setCallMinimized] = useState(false);
@@ -497,7 +504,7 @@ export function useWebRTC(session, activeDm) {
       setCallDirection('ringing');
       scheduleOutgoingTimeout();
     } catch (err) {
-      console.error("Call initiation structural error context:", serializeCallError(err));
+      debug.error('WEBRTC_ERROR', { operation: 'initiate-call', error: serializeCallError(err), dmRoomId: activeDm?.dm_room_id, callState: callDirection });
       audioSys.playCallFailed();
       endCallLocal('failed');
       if (err.name === 'NotAllowedError') {
@@ -556,7 +563,7 @@ export function useWebRTC(session, activeDm) {
       setCallDirection('connected');
       audioSys.playCallConnected();
     } catch (err) {
-      console.error("Call answering structural error context:", serializeCallError(err));
+      debug.error('WEBRTC_ERROR', { operation: 'answer-call', error: serializeCallError(err), dmRoomId: activeDm?.dm_room_id, callState: callDirection });
       audioSys.playCallFailed();
       const targetId = activeCallTargetRef.current;
       endCallLocal('failed');
@@ -568,21 +575,6 @@ export function useWebRTC(session, activeDm) {
       }
     }
   };
-
-  const resetCallUiState = () => {
-  callActiveRef.current = false
-  callDirectionRef.current = null
-
-  setCallActive(false)
-  setCallMinimized(false)
-  setCallDirection(null)
-  setRemoteCaller(null)
-  setMicEnabled(true)
-  setVideoEnabled(false)
-  setRemoteVideoEnabled(false)
-  setPendingVideoRequest(false)
-  setSpeakerEnabled(false)
-}
 
   const endCallNetwork = (reason) => {
     logCallEndDebug('end button clicked', { reason, callDirection: callDirectionRef.current, callActive: callActiveRef.current });

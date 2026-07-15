@@ -1,3 +1,4 @@
+/** Fetches best-effort link metadata; failures leave the original link usable. */
 import React, { useState, useEffect } from 'react'
 
 export default function LinkPreview({ url }) {
