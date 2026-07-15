@@ -1,3 +1,4 @@
+/** Loads public GIF search results and returns the selected remote media URL. */
 import React, { useState, useEffect } from 'react'
 import { Loader2, X } from 'lucide-react'
 

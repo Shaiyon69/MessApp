@@ -1,3 +1,8 @@
+/**
+ * Renders members, search, pins, and conversation media from parent-owned state.
+ * Attachment URLs are treated as ephemeral capabilities and opened only after
+ * media safety validation.
+ */
 import React, { useMemo, useState } from 'react'
 import { X, Search, ImagePlus, EyeOff, Ban, Trash2, FileText, Pin, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'

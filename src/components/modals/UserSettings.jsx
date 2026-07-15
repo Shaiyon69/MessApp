@@ -1,3 +1,8 @@
+/**
+ * Owns account, privacy, notification, appearance, and local key settings.
+ * Native device tokens and private key material must never be logged or exposed
+ * to sibling components.
+ */
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
@@ -208,7 +213,6 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           await PushNotifications.register();
 
           PushNotifications.addListener('registration', async (token) => {
-            console.log('Push registration success, token: ' + token.value);
             await supabase.from('profiles').update({ fcm_token: token.value }).eq('id', session.user.id);
           });
 

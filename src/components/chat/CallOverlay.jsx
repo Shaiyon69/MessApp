@@ -1,3 +1,7 @@
+/**
+ * Presents hook-owned WebRTC state in full or minimized call UI. Media refs
+ * receive streams from useWebRTC; this component never creates or stops tracks.
+ */
 import React from 'react'
 import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff, Volume2 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'

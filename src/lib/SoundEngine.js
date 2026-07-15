@@ -1,3 +1,7 @@
+/**
+ * Owns lazily initialized Web Audio nodes and app sound cues. Browser autoplay
+ * policy requires user activation; generated nodes disconnect after use.
+ */
 export class SoundEngine {
   constructor() {
     this.ctx = null;

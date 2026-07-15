@@ -1,4 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+/**
+ * Owns central chat presentation and composer-only UI state. Dashboard and the
+ * chat hook supply data/actions. Mobile trays and viewport offsets stay aligned
+ * with native keyboard and safe-area behavior.
+ */
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
@@ -6,6 +11,8 @@ import AddFriendView from '../modals/AddFriendView'
 import GifPickerPopout from '../modals/GifPickerPopout'
 import ChatEmojiPicker from '../chat/ChatEmojiPicker'
 import SfuScreenShare from '../screen-share/SfuScreenShare'
+import { debug } from '../../lib/debug'
+import { openDmEntry } from '../../lib/chatActions'
 
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
@@ -21,12 +28,14 @@ export default function ChatArea(props) {
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState([]);
-  const [pendingPreviewUrl, setPendingPreviewUrl] = useState('');
+  const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
   
   const emojiPickerRef = useRef(null);
   const gifPickerRef = useRef(null);
   const attachMenuRef = useRef(null);
   const previousChatKeyRef = useRef('');
+  const initialPositionRef = useRef({ chatKey: '', positioned: false });
+  const [positionedChatKey, setPositionedChatKey] = useState('');
   const formatPendingFileSize = (bytes) => {
     if (!Number.isFinite(bytes) || bytes <= 0) return ''
     const units = ['B', 'KB', 'MB', 'GB']
@@ -49,17 +58,51 @@ export default function ChatArea(props) {
   }, [props.session.user.id, props.visibleMessages])
   const validMessagesById = useMemo(() => new Map(props.validMessages.map(message => [message.id, message])), [props.validMessages])
   const activeChatKey = `${props.view}:${props.activeChannel?.id || props.activeDm?.dm_room_id || 'none'}`
+  const isInitialPositionReady = positionedChatKey === activeChatKey
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
   const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
   const messageListStyle = props.isCallMinimized
     ? { paddingBottom: 'calc(9.5rem + env(safe-area-inset-bottom, 0px))' }
     : undefined
 
+  useLayoutEffect(() => {
+    if (initialPositionRef.current.chatKey !== activeChatKey) {
+      initialPositionRef.current = { chatKey: activeChatKey, positioned: false }
+      setPositionedChatKey('')
+    }
+
+    if (initialPositionRef.current.positioned) return
+    const container = props.scrollContainerRef.current
+    if (!container) return
+
+    if (props.visibleMessages.length > 0) {
+      container.scrollTop = container.scrollHeight
+      initialPositionRef.current.positioned = true
+      setPositionedChatKey(activeChatKey)
+      return
+    }
+
+    if (props.initialMessagesLoaded && !props.messagesLoading) {
+      initialPositionRef.current.positioned = true
+      setPositionedChatKey(activeChatKey)
+    }
+  }, [activeChatKey, props.initialMessagesLoaded, props.messagesLoading, props.scrollContainerRef, props.visibleMessages.length])
+
   const closeMessageActionMenu = useCallback((reason, payload = {}) => {
     if (!props.messageActionMenuId) return
     logMenuDebug('menu closed', { reason, messageId: props.messageActionMenuId, ...payload })
     props.setMessageActionMenuId(null)
   }, [props.messageActionMenuId, props.setMessageActionMenuId])
+
+  // Dashboard owns the maintained create_or_get_dm flow; ChatArea only routes
+  // validated contacts to that canonical handler.
+  const openDmContact = useCallback((entry) => openDmEntry(entry, {
+    selectDm: props.selectDm,
+    createOrOpenDm: props.createOrOpenDm,
+    onMissing: metadata => {
+      if (import.meta.env.DEV) debug.warn('DM_LIST', { operation: 'missing-open-handler', ...metadata })
+    }
+  }), [props.createOrOpenDm, props.selectDm])
 
   const toggleEmojiPicker = () => {
     if (document.activeElement) document.activeElement.blur();
@@ -128,15 +171,10 @@ useEffect(() => {
   }, [props.pinnedMessages]);
 
   useEffect(() => {
-    if (!props.pendingFile?.file || !props.pendingFile?.file?.type?.startsWith('image/')) {
-      setPendingPreviewUrl('');
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(props.pendingFile.file);
-    setPendingPreviewUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [props.pendingFile]);
+    const urls = (props.pendingFiles || []).map(item => item.file?.type?.startsWith('image/') ? URL.createObjectURL(item.file) : '')
+    setPendingPreviewUrls(urls)
+    return () => urls.filter(Boolean).forEach(url => URL.revokeObjectURL(url))
+  }, [props.pendingFiles]);
 
   const handleEmojiSelect = (emojiData) => {
     const input = props.messageInputRef.current;
@@ -174,7 +212,7 @@ useEffect(() => {
 
   return (
       <main
-        className="flex-1 flex flex-col min-w-0 max-w-full overflow-x-hidden relative bg-[var(--bg-base)]"
+        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)]"
         style={props.scopedChatStyle}
         onPaste={props.handlePaste}
         onPointerDownCapture={(e) => {
@@ -242,6 +280,12 @@ useEffect(() => {
           createClient={props.screenShareClientFactory}
           variant={props.isViewingActiveVoiceChannel ? 'full' : 'mini'}
           title={`${props.activeVoiceSession.serverName} / ${props.activeVoiceSession.channelName}`}
+          currentUser={{
+            id: props.session.user.id,
+            displayName: props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0],
+            avatarUrl: props.session.user.user_metadata?.avatar_url
+          }}
+          focusRequest={props.voiceFocusRequest}
           muted={props.voiceMuted}
           deafened={props.voiceDeafened}
           onToggleMute={() => props.setVoiceMuted?.(value => !value)}
@@ -369,10 +413,10 @@ useEffect(() => {
                         <div className="flex flex-col items-center justify-center py-12 opacity-50"><Users size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">It's quiet in here.</p></div>
                       )}
                       {(props.homeTab === 'online' || props.homeTab === 'all') && (props.homeTab === 'all' ? props.allFriends : props.onlineFriends).map((dm, i) => {
-                        const isMenuOpen = props.dmActionMenuId === `main-${dm.dm_room_id}`;
+                        const isMenuOpen = Boolean(dm.dm_room_id && props.dmActionMenuId === `main-${dm.dm_room_id}`);
                         return (
                           <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="relative flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
-                            <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => props.selectDm(dm)}>
+                            <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => openDmContact(dm)}>
                               <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={props.getPresenceStatus?.(dm.profiles.id)} className="w-10 h-10" />
                               <div>
                                 <div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles?.unique_tag}</span></div>
@@ -380,10 +424,10 @@ useEffect(() => {
                               </div>
                             </div>
                             <div className="flex items-center gap-2 opacity-100 transition-opacity">
-                              <button className="p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-[var(--bg-element)] text-gray-300 transition-colors" onClick={(e) => { e.stopPropagation(); props.selectDm(dm); }}><MessageSquare size={18} /></button>
-                              <button data-dm-action-menu="main-trigger" onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dm.dm_room_id}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
+                              <button disabled={props.startingDmProfileId === dm.profiles.id || (!dm.dm_room_id && typeof props.createOrOpenDm !== 'function')} className="p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-[var(--bg-element)] text-gray-300 transition-colors disabled:opacity-50" onClick={(e) => { e.stopPropagation(); openDmContact(dm); }}><MessageSquare size={18} /></button>
+                              {dm.dm_room_id && <button data-dm-action-menu="main-trigger" onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dm.dm_room_id}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
                                 <MoreVertical size={18} />
-                              </button>
+                              </button>}
                             </div>
                             {isMenuOpen && (
                               <div data-dm-action-menu="main-panel" className="premium-menu absolute right-12 top-12 w-48 rounded-xl z-[70] py-1 animate-fade-in origin-top-right">
@@ -427,10 +471,10 @@ useEffect(() => {
           ) : (
             <>
               <div 
-                className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-8 animate-fade-in relative z-10 transition-all duration-300 ease-out transform" 
+                className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-8 relative z-10 transition-[padding] duration-300 ease-out"
                 ref={props.scrollContainerRef} 
                 onScroll={props.handleScroll}
-                style={messageListStyle}
+                style={{ ...messageListStyle, visibility: isInitialPositionReady ? 'visible' : 'hidden' }}
                 data-call-minimized={props.isCallMinimized ? 'true' : undefined}
               >
                 {props.isLoadingMore && (
@@ -438,7 +482,20 @@ useEffect(() => {
                     <Loader2 className="animate-spin text-[var(--theme-base)]" size={24} />
                   </div>
                 )}
-                {props.visibleMessages.length === 0 && (props.activeChannel || props.activeDm) && !props.isLoadingMore && (
+                {props.messagesLoading && props.visibleMessages.length === 0 && (
+                  <div className="flex min-h-full flex-col justify-end gap-4 pb-6" aria-label="Loading messages">
+                    {Array.from({ length: 7 }, (_, index) => {
+                      const isOwn = index % 3 === 1
+                      return (
+                        <div key={`message-skeleton-${index}`} className={`flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : ''}`} aria-hidden="true">
+                          <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[var(--bg-element)]" />
+                          <div className={`animate-pulse rounded-2xl bg-[var(--bg-element)] ${index % 2 === 0 ? 'h-14 w-[min(72%,28rem)]' : 'h-10 w-[min(52%,20rem)]'}`} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {props.visibleMessages.length === 0 && (props.activeChannel || props.activeDm) && !props.isLoadingMore && !props.messagesLoading && (
                   <div className="flex flex-col justify-end h-full min-h-[300px] max-w-2xl pb-10">
                     <h3 className="font-headline text-3xl font-bold tracking-tight mb-2 text-[var(--chat-text,var(--text-main))]">Welcome to {props.view === 'home' ? 'the beginning' : `#${props.activeChannel?.name}`}</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
@@ -533,27 +590,25 @@ useEffect(() => {
                       <button onClick={() => props.setReplyingTo(null)} className="text-gray-400 hover:text-[var(--text-main)] ml-2 p-1 rounded-md hover:bg-white/10 transition-colors cursor-pointer shrink-0"><X size={14}/></button>
                     </div>
                   )}
-                  {props.pendingFile && (
-                    <div className="premium-section mx-2 mb-3 p-3 rounded-2xl flex items-center gap-4 animate-slide-up relative">
-                      <div className="w-16 h-16 rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-base)] flex items-center justify-center shrink-0">
-                        {props.isUploading ? (
-                          <Loader2 size={28} className="text-[var(--theme-base)] animate-spin" />
-                        ) : pendingPreviewUrl ? (
-                          <img src={pendingPreviewUrl} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <FileText size={28} className="text-[var(--theme-base)]" />
-                        )}
+                  {props.pendingFiles?.length > 0 && (
+                    <div className="premium-section mx-2 mb-3 rounded-2xl p-3 animate-slide-up">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold uppercase tracking-tighter text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
+                          <p className="truncate text-[11px] italic text-gray-500">{props.pendingFiles.length} {props.pendingFiles.length === 1 ? 'attachment' : 'images'} • Add a caption below</p>
+                        </div>
+                        <button type="button" onClick={() => props.setPendingFiles([])} className="rounded-full bg-red-500/10 p-2 text-red-500 transition-colors hover:bg-red-500 hover:text-white" aria-label="Remove all attachments"><X size={18}/></button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-bold text-[var(--theme-base)] uppercase tracking-tighter">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
-                        <p className="text-sm text-[var(--text-main)] truncate font-semibold">{props.pendingFile.name || 'Attachment'}</p>
-                        <p className="text-[11px] text-gray-500 italic">
-                          {formatPendingFileSize(props.pendingFile.size)}
-                          {props.pendingFile.size ? ' • ' : ''}
-                          Add a caption below or hit Enter
-                        </p>
+                      <div className="flex max-w-full gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                        {props.pendingFiles.map((item, index) => (
+                          <div key={`${item.name}-${item.size}-${index}`} className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]">
+                            {pendingPreviewUrls[index] ? <img src={pendingPreviewUrls[index]} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><FileText size={28} className="text-[var(--theme-base)]" /></div>}
+                            <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label={`Remove ${item.name}`}><X size={12}/></button>
+                            {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
+                            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/65 px-1 py-0.5 text-[9px] text-white">{formatPendingFileSize(item.size)}</span>
+                          </div>
+                        ))}
                       </div>
-                      <button onClick={() => props.setPendingFile(null)} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors"><X size={18}/></button>
                     </div>
                   )}
                   {props.editingMessageId && (
@@ -640,7 +695,7 @@ useEffect(() => {
                         {props.isUploading ? <Loader2 className="animate-spin text-[var(--text-main)]" size={20} /> : <Plus size={22} className="transition-transform duration-200" />}
                       </button>
                     </div>
-                    <input type="file" accept="image/*,.gif" ref={props.fileInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
+                    <input type="file" accept="image/*,.gif" multiple ref={props.fileInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <input type="file" accept="*/*" ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex items-center bg-[var(--chat-bg-element)] rounded-[22px] relative min-w-0 border border-transparent min-h-[44px]">
@@ -658,7 +713,7 @@ useEffect(() => {
                         placeholder={
                           props.editingMessageId
                             ? 'Edit message...'
-                            : props.pendingFile
+                            : props.pendingFiles?.length > 0
                               ? 'Add a caption...'
                               : `Message ${props.view === 'home' ? '@' + props.activeDm?.profiles?.username : '#' + props.activeChannel?.name}`
                         }

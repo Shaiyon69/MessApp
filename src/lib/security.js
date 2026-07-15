@@ -1,3 +1,4 @@
+/** URL and profile-name validation shared by untrusted rendered content. */
 export function safeHttpUrl(value) {
   if (typeof value !== 'string') return null
   try {

@@ -1,3 +1,4 @@
+/** Presents rename/delete controls; Dashboard owns authorization and mutations. */
 import { trackSpotlight } from '../../lib/uiEffects'
 
 export default function ChannelSettingsModal({ handleUpdate, handleDelete, onClose, name, setName }) {
