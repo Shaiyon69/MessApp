@@ -16,9 +16,11 @@ MessApp is a React/Vite messaging client packaged for the web, Capacitor mobile,
 
 `src/supabaseClient.js` creates one browser client using `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The app accesses profiles, DMs, servers, channels, messages, reactions, reads, friendships, call state, and Storage through table queries and RPCs. Client-side visibility checks improve UX but are not security controls; deployed RLS and function grants must authorize every operation.
 
-The repository's authored backend security delta is `supabase/migrations/20260715000100_harden_conversation_rls.sql`. It removes permissive legacy policies, restricts direct membership and room creation, corrects channel membership checks, makes `chat-attachments` private, and scopes attachment access to authenticated conversation participants. Normal DM creation must use `create_or_get_dm(peer_id)` and server joins must use `join_server_by_code` rather than direct client inserts.
+The migration chain starts with the pre-hardening Supabase baseline: `20260713200000_extensions_helpers.sql`, `20260713200127_remote_schema.sql`, Realtime publication membership, the application Storage baseline, and the `leave_server` lint correction. Later migrations depend on that baseline and must remain in timestamp order. Rebuild only the disposable local stack with `npx supabase db reset --local`; never run `db reset --linked`, because a linked reset targets hosted state.
 
-`supabase/tests/conversation_isolation.sql` is the matching transactional A/B/C isolation test. It verifies that participants can access their own conversation while an unrelated user cannot read, send, join, view attachments, or upload into it. Keep migrations and tests in version control. `supabase/schema.sql` and `supabase/storage_schema.sql` are generated snapshots of linked state for local inspection only and are intentionally ignored; they are not migration history.
+The repository's authored conversation-security delta is `supabase/migrations/20260715000100_harden_conversation_rls.sql`. It removes permissive legacy policies, restricts direct membership and room creation, corrects channel membership checks, makes `chat-attachments` private, and scopes attachment access to authenticated conversation participants. Normal DM creation must use `create_or_get_dm(peer_id)` and server joins must use `join_server_by_code` rather than direct client inserts.
+
+`supabase/tests/conversation_isolation.sql` is the matching transactional A/B/C isolation test. It verifies that participants can access their own conversation while an unrelated user cannot read, send, join, view attachments, or upload into it. The complete `supabase/` workspace is intentionally local-only and ignored by Git, including configuration, functions, migrations, tests, reference exports, and generated schema snapshots.
 
 The hardening migration has been validated against a locally hydrated schema, but it has not been deployed to the linked remote project. Until an explicit reviewed deployment occurs, the remote backend may still have the older permissive policies. Never treat a passing frontend build as proof that remote RLS is current.
 
@@ -38,9 +40,37 @@ Never log auth tokens, recovery fragments, passwords, push tokens, or private ke
 
 Pagination prepends older rows without disturbing newer optimistic/realtime entries. The bounded local cache is an availability optimization, not authoritative state. Delivery/read markers derive from backend timestamps and current visibility.
 
+### Hosted message push setup
+
+Message push delivery is implemented by `supabase/functions/send-message-push`. Hosted setup is manual and must be reviewed separately from repository changes:
+
+1. Apply the authored `push_devices` and `push_delivery_events` migrations.
+2. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MESSAPP_PUSH_WEBHOOK_SECRET`, `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, and `FCM_PRIVATE_KEY` as hosted Edge Function secrets. Use `supabase/functions/.env.example` only as a name/format reference.
+3. Deploy `send-message-push`. JWT verification is disabled for this function because Supabase Database Webhooks do not carry a user session JWT; the function instead requires the shared `MESSAPP_PUSH_WEBHOOK_SECRET` in `Authorization: Bearer <secret>` or `x-messapp-webhook-secret`.
+4. Create a Database Webhook for `INSERT` on `public.messages` whose destination is the deployed `send-message-push` Edge Function, and configure the same shared-secret header.
+
+The webhook record supplies only the message ID trust input. The function reloads the message and derives recipients from DM or server membership, applies DM block relationships, and reads only enabled `push_devices`; it never uses legacy `profiles.fcm_token`. Notification bodies deliberately exclude message content, encrypted payloads, and attachment URLs. String-only data fields carry `message_id` plus DM room or channel/server identifiers so a receiving client can deep-link to the authoritative conversation after normal authentication and authorization checks.
+
+Operational commands must be run from the linked repository and reviewed before execution:
+
+```text
+npx supabase migration list
+npx supabase db push --dry-run
+npx supabase secrets set --env-file supabase/functions/.env --project-ref <project-ref>
+npx supabase functions deploy send-message-push --project-ref <project-ref>
+```
+
+Run `db push` only when its dry run contains exclusively reviewed migrations. Configure exactly one `INSERT` webhook on `public.messages` with `x-messapp-webhook-secret`; never place the value in source control or command output. Safe function diagnostics are `PUSH_WEBHOOK_AUTH`, `PUSH_MESSAGE_RESOLVE`, `PUSH_RECIPIENT_RESOLVE`, `PUSH_DEVICE_RESOLVE`, `PUSH_DELIVERY_CLAIM`, `PUSH_FCM_AUTH`, `PUSH_FCM_RESULT`, `PUSH_DEVICE_DISABLE`, `PUSH_DELIVERY_COMPLETE`, and `PUSH_DELIVERY_ERROR`.
+
+A failed delivery row may be retried by replaying the same authenticated webhook after its status is `failed`; confirmed `sent` rows must not be reset because their event key prevents duplicate delivery. To disable a compromised webhook, disable or remove the hosted Database Webhook first, rotate `MESSAPP_PUSH_WEBHOOK_SECRET`, update its header, and only then re-enable it. Rotate Firebase credentials by creating a new service-account key, updating `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY` together, verifying delivery, and revoking the old Google key. Never retain retired credentials in repository files or logs.
+
 ## Attachments
 
-The chat hook validates type and size, encrypts DM attachment bytes where configured, uploads to the private `chat-attachments` bucket, and stores object metadata with the message. Object paths use the uploader and conversation identifier as authorization inputs. Read paths resolve stored object paths to temporary signed URLs and decrypt bytes at the client boundary. Signed URLs, file contents, plaintext, and encrypted key material must not be persisted in diagnostics. The frontend may cache resolved media for performance, but access is ultimately controlled by deployed Storage policies and conversation membership.
+The chat hook maintains one composer attachment queue capped at 10 items. Images, GIFs, videos, and general files may be mixed in one outgoing message with one optional caption. Selection, paste, Android keyboard media, and GIF search all feed that same queue; each item is validated before it enters the queue. Images and videos receive local previews, files show name/type/size metadata, and removing one item does not clear the rest.
+
+On send, the hook validates type and size, encrypts DM attachment bytes where configured, uploads every item to the private `chat-attachments` bucket, creates one message, and inserts all corresponding `message_attachments` rows. Receiving clients resolve and decrypt every attachment independently so one unavailable object does not hide the remaining media. Object paths use the uploader and conversation identifier as authorization inputs. Read paths resolve stored object paths to temporary signed URLs and decrypt bytes at the client boundary. Signed URLs, file contents, plaintext, and encrypted key material must not be persisted in diagnostics. The frontend may cache resolved media for performance, but access is ultimately controlled by deployed Storage policies and conversation membership.
+
+Plain HTTP(S) links remain message content rather than Storage attachments. A message can render up to 10 distinct safe link previews; YouTube links use privacy-enhanced embeds and other URLs fall back to a safe clickable card if metadata lookup fails.
 
 ## Reactions
 
@@ -99,7 +129,8 @@ Confirm exact columns, constraints, RPC contracts, and policy behavior against b
 ## Repository and deployment hygiene
 
 - `SYSTEM_DOCUMENTATION.md` is the project-level system reference. Do not recreate a root `AGENTS.md`.
-- Commit authored Supabase migrations and tests. Do not commit `.temp`, `.branches`, linked schema snapshots, database dumps, or local credentials.
+- Keep the entire `supabase/` directory local-only. Its configuration, Edge Functions, migrations, tests, reference exports, generated schemas, and local state must not be staged or committed.
+- Keep database dumps, environment files, service-account material, signing keys, and local credential files out of Git.
 - Keep `.env.example` limited to variable names and safe placeholders. Real `.env*` files remain local.
 - Do not edit generated build directories. Android, iOS, and Tauri source projects are tracked; their build caches, local SDK paths, signing files, and platform service credentials are ignored.
 - Database deployment is a separate, explicit operation. Review the migration diff and run local isolation checks before applying it to any remote project.

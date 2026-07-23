@@ -16,7 +16,7 @@ const KeyboardImage =
 window.__messappKeyboardImagePlugin = KeyboardImage
 const MESSAGE_SELECT_BASE = '*, profiles!fk_messages_profile(username, avatar_url, public_key), message_reactions(*)'
 const MESSAGE_SELECT = `${MESSAGE_SELECT_BASE}, message_attachments(*)`
-const INITIAL_MESSAGE_LIMIT = 50
+const INITIAL_MESSAGE_LIMIT = 30
 const SESSION_MEDIA_CACHE_MAX_ROOMS = 8
 const SESSION_MEDIA_CACHE_MAX_BYTES = 96 * 1024 * 1024
 const sessionHydratedRoomCache = new Map()
@@ -110,11 +110,18 @@ const mergeMessageLists = (previous = [], incoming = [], field, targetId) => {
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
 }
 
-const getAttachmentKind = (file) => file.type?.startsWith('image/') ? 'image' : 'file'
+const getAttachmentKind = (file) => {
+  if (file?.type?.startsWith('image/')) return 'image'
+  if (file?.type?.startsWith('video/')) return 'video'
+  return 'file'
+}
 const isReadableDecryptedContent = (value) => value !== null && value !== undefined && !String(value).includes('[Encrypted Message - Unreadable]')
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+const MAX_PENDING_ATTACHMENTS = 10
+const getPendingFileFingerprint = (file) => [file?.name, file?.size, file?.type, file?.lastModified].join(':')
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
+const ALLOWED_VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'])
 const BLOCKED_FILE_TYPES = new Set(['image/svg+xml', 'text/html', 'application/xhtml+xml', 'application/javascript', 'text/javascript'])
 const BLOCKED_FILE_EXTENSIONS = /\.(?:svg|html?|xhtml|js|mjs)$/i
 const isNativeAndroidKeyboardImageCandidate = () =>
@@ -225,7 +232,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [selectedImage, setSelectedImage] = useState(null)
   const [showGifPicker, setShowGifPicker] = useState(false)
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
-  const [pendingFile, setPendingFile] = useState(null)
+  const [pendingFiles, setPendingFiles] = useState([])
   const [keyboardImageFallbackMessage, setKeyboardImageFallbackMessage] = useState('')
   const [showLatestMessagesButton, setShowLatestMessagesButton] = useState(false)
   const [peerReadAt, setPeerReadAt] = useState(null)
@@ -464,56 +471,57 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }, [activeDm, dms, session.user.id, view]);
 
-  const decryptMessageList = useCallback(async (msgList, sharedKeys) => {
+  const decryptMessageList = useCallback(async (msgList, sharedKeys, { hydrateAttachments = true } = {}) => {
     return await Promise.all(msgList.map(async (msg) => {
       const attachments = msg.message_attachments || []
       let attachmentPatch = {}
       let resolvedAttachments = attachments
-      if (attachments.length > 0) {
-        const attachment = attachments[0]
-        const encryptedAttachment = attachment.file_type?.startsWith('encrypted:')
-        try {
-          const objectPath = getChatAttachmentObjectPath(attachment.file_url)
-          let attachmentUrl = attachment.file_url
-          if (objectPath) {
-            const { data: signedData, error: signedError } = await supabase.storage
-              .from('chat-attachments')
-              .createSignedUrl(objectPath, 3600)
-            if (signedError) throw signedError
-            attachmentUrl = signedData.signedUrl
-          }
-          if (encryptedAttachment) {
+      if (hydrateAttachments && attachments.length > 0) {
+        resolvedAttachments = await Promise.all(attachments.map(async attachment => {
+          const encryptedAttachment = attachment.file_type?.startsWith('encrypted:')
+          try {
+            const objectPath = getChatAttachmentObjectPath(attachment.file_url)
+            let attachmentUrl = attachment.file_url
+            if (objectPath) {
+              const { data: signedData, error: signedError } = await supabase.storage
+                .from('chat-attachments')
+                .createSignedUrl(objectPath, 3600)
+              if (signedError) throw signedError
+              attachmentUrl = signedData.signedUrl
+            }
+            if (!encryptedAttachment) return { ...attachment, file_url: attachmentUrl, is_unavailable: false }
+
             const response = await fetch(attachmentUrl)
             if (!response.ok) throw new Error(`Attachment fetch failed: ${response.status}`)
             const encryptedPayload = await response.json()
             const decryptedBuffer = await decryptAttachmentPayload(sharedKeys, encryptedPayload)
             const originalType = normalizeFileType(attachment.file_type.replace('encrypted:', '') || encryptedPayload.type || 'application/octet-stream')
-            const safeType = ALLOWED_IMAGE_TYPES.has(originalType) ? originalType : 'application/octet-stream'
-            const dataUrl = bufferToDataUrl(decryptedBuffer, safeType)
-            const resolvedSize = encryptedPayload.size || attachment.file_size
-            const resolvedAttachment = {
+            const safeType = ALLOWED_IMAGE_TYPES.has(originalType) || ALLOWED_VIDEO_TYPES.has(originalType)
+              ? originalType
+              : 'application/octet-stream'
+            return {
               ...attachment,
-              file_url: dataUrl,
+              file_url: bufferToDataUrl(decryptedBuffer, safeType),
               file_type: safeType,
               file_name: encryptedPayload.name || attachment.file_name,
-              file_size: resolvedSize
+              file_size: encryptedPayload.size || attachment.file_size,
+              is_unavailable: false
             }
-            resolvedAttachments = attachments.map(item => item.id === attachment.id ? resolvedAttachment : item)
-            attachmentPatch = safeType.startsWith('image/')
-              ? { image_url: dataUrl, file_name: resolvedAttachment.file_name, file_size: formatBytes(resolvedSize), decrypted_attachment_url: dataUrl }
-              : { file_url: dataUrl, file_name: resolvedAttachment.file_name, file_size: formatBytes(resolvedSize), decrypted_attachment_url: dataUrl }
-          } else if (!encryptedAttachment) {
-            const resolvedAttachment = { ...attachment, file_url: attachmentUrl }
-            resolvedAttachments = attachments.map(item => item.id === attachment.id ? resolvedAttachment : item)
-            attachmentPatch = attachment.file_type?.startsWith('image/')
-              ? { image_url: attachmentUrl, file_name: attachment.file_name, file_size: formatBytes(attachment.file_size) }
-              : { file_url: attachmentUrl, file_name: attachment.file_name, file_size: formatBytes(attachment.file_size) }
+          } catch (_err) {
+            return { ...attachment, file_url: '', is_unavailable: true }
           }
-        } catch (_err) {
-          resolvedAttachments = attachments.map(item => item.id === attachment.id ? { ...item, file_url: '', is_unavailable: true } : item)
-          attachmentPatch = { message_attachments: resolvedAttachments, attachment_error: true }
+        }))
+        const firstResolved = resolvedAttachments.find(attachment => attachment.file_url)
+        attachmentPatch = {
+          message_attachments: resolvedAttachments,
+          attachment_error: resolvedAttachments.some(attachment => attachment.is_unavailable)
         }
-        attachmentPatch = { ...attachmentPatch, message_attachments: resolvedAttachments }
+        if (firstResolved) {
+          const legacyUrlKey = firstResolved.file_type?.startsWith('image/') ? 'image_url' : 'file_url'
+          attachmentPatch[legacyUrlKey] = firstResolved.file_url
+          attachmentPatch.file_name = firstResolved.file_name
+          attachmentPatch.file_size = formatBytes(firstResolved.file_size)
+        }
       }
       const contentStr = typeof msg.content === 'object' && msg.content !== null ? JSON.stringify(msg.content) : msg.content;
       
@@ -598,22 +606,45 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }));
   }, [session.user.id]);
 
-  const queuePendingAttachmentFromFile = useCallback((file) => {
-    if (!file) return false
-    const kind = getAttachmentKind(file)
-    try {
-      validateAttachmentFile(file, kind)
-      setPendingFile({
-        file,
-        type: kind,
-        name: file.name || (kind === 'image' ? 'keyboard-image.png' : 'attachment'),
-        size: file.size
-      })
-      return true
-    } catch (error) {
-      toast.error(error.message)
-      return false
+  const queuePendingAttachments = useCallback((candidates) => {
+    const valid = []
+    for (const candidate of Array.from(candidates || [])) {
+      const file = candidate?.file || candidate
+      if (!file) continue
+      const kind = getAttachmentKind(file)
+      try {
+        validateAttachmentFile(file, kind)
+        valid.push({
+          id: crypto.randomUUID(),
+          file,
+          fingerprint: getPendingFileFingerprint(file),
+          type: kind,
+          name: file.name || (kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'attachment'),
+          size: file.size
+        })
+      } catch (error) {
+        toast.error(`${file.name || 'Attachment'}: ${error.message}`)
+      }
     }
+    if (!valid.length) return false
+    setPendingFiles(previous => {
+      const existingFingerprints = new Set(previous.map(item => item.fingerprint).filter(Boolean))
+      const unique = valid.filter(item => {
+        if (!item.fingerprint || existingFingerprints.has(item.fingerprint)) return false
+        existingFingerprints.add(item.fingerprint)
+        return true
+      })
+      const available = Math.max(0, MAX_PENDING_ATTACHMENTS - previous.length)
+      if (unique.length > available) toast.error(`You can send up to ${MAX_PENDING_ATTACHMENTS} attachments at once.`)
+      return [...previous, ...unique.slice(0, available)]
+    })
+    return true
+  }, [])
+
+  const queuePendingAttachmentFromFile = useCallback((file) => queuePendingAttachments([file]), [queuePendingAttachments])
+
+  const removePendingFile = useCallback((index) => {
+    setPendingFiles(previous => previous.filter((_, itemIndex) => itemIndex !== index))
   }, [])
 
   const fileFromNativeKeyboardImage = useCallback(async ({ uri, path, filename, mimeType }) => {
@@ -677,30 +708,28 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items || e.dataTransfer?.items;
     if (!items) return;
+    const files = []
     for (const item of items) {
       if (item.kind === 'file' || item.type.indexOf('image') !== -1) {
         const file = item.getAsFile();
-        if (file && queuePendingAttachmentFromFile(file)) {
-          e.preventDefault();
-          return;
-        }
+        if (file) files.push(file)
       }
     }
-  }, [queuePendingAttachmentFromFile]);
+    if (files.length && queuePendingAttachments(files)) e.preventDefault()
+  }, [queuePendingAttachments]);
 
   const handleBeforeInput = useCallback((e) => {
     const items = e.dataTransfer?.items;
     if (!items) return;
+    const files = []
     for (const item of items) {
       if (item.kind === 'file' || item.type?.startsWith('image/')) {
         const file = item.getAsFile();
-        if (file && queuePendingAttachmentFromFile(file)) {
-          e.preventDefault();
-          return;
-        }
+        if (file) files.push(file)
       }
     }
-  }, [queuePendingAttachmentFromFile]);
+    if (files.length && queuePendingAttachments(files)) e.preventDefault()
+  }, [queuePendingAttachments]);
 
   const fetchSurroundingMessages = async (targetMessage) => {
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
@@ -847,9 +876,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           : message
       })
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', chronoData);
-      const decryptedData = await decryptMessageList(chronoWithHydratedMedia, sharedKeys);
+      const decryptedData = await decryptMessageList(chronoWithHydratedMedia, sharedKeys, { hydrateAttachments: false });
       if (!isCurrentScope()) return
-      cacheSessionHydratedMessages(session.user.id, view, targetId, decryptedData)
 
       setMessages(prev => {
         const updated = mergeMessageLists(prev, decryptedData, field, targetId)
@@ -862,6 +890,19 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           instantScrollToBottom('initial_fetch_loaded')
         }, 80)
       })
+
+      // Media access can involve signed-URL requests plus downloads and DM
+      // decryption. Keep it outside the first-render critical path, and merge
+      // only if this conversation still owns the active scope.
+      void decryptMessageList(chronoWithHydratedMedia, sharedKeys).then(hydratedData => {
+        if (!isCurrentScope()) return
+        cacheSessionHydratedMessages(session.user.id, view, targetId, hydratedData)
+        setMessages(prev => {
+          const updated = mergeMessageLists(prev, hydratedData, field, targetId)
+          safeCacheSave(session.user.id, targetId, updated)
+          return isCurrentScope() ? updated : prev
+        })
+      }).catch(() => {})
       }
     } finally {
       if (isCurrentScope()) {
@@ -1184,18 +1225,18 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }
 
-  const insertMessageAttachment = async (messageId, attachment) => {
+  const insertMessageAttachments = async (messageId, attachments) => {
     if (!messageId) throw new Error('Message ID missing for attachment')
-    const payload = {
+    const payload = attachments.map(attachment => ({
       message_id: messageId,
       file_url: attachment.file_url,
       file_type: attachment.file_type,
       file_name: attachment.file_name,
       file_size: attachment.file_size
-    }
-    const { data: createdAttachment, error: attachmentError } = await supabase.from('message_attachments').insert(payload).select().single()
+    }))
+    const { data: createdAttachments, error: attachmentError } = await supabase.from('message_attachments').insert(payload).select()
     if (attachmentError) throw attachmentError
-    return createdAttachment
+    return createdAttachments || []
   }
 
   const replaceLocalMessage = useCallback((targetId, localId, nextMessage) => {
@@ -1222,12 +1263,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
   }, [])
 
-  const uploadPendingFile = async (file, caption) => {
+  const uploadPendingFiles = async (items, caption) => {
+    const attachmentsToSend = (items || []).slice(0, MAX_PENDING_ATTACHMENTS)
+    if (!attachmentsToSend.length) return false
     setIsUploading(true);
-    const toastId = toast.loading('Uploading attachment...');
+    const toastId = toast.loading(`Uploading ${attachmentsToSend.length} ${attachmentsToSend.length === 1 ? 'attachment' : 'attachments'}...`);
     let targetId = null
     let localId = null
-    let localAttachmentUrl = ''
+    const localAttachmentUrls = []
     try {
       const field = view === 'server' ? 'channel_id' : 'dm_room_id';
       targetId = asMessageId(view === 'server' ? activeChannel?.id : activeDm?.dm_room_id);
@@ -1238,22 +1281,26 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const replyToMessageId = asMessageId(replyingTo)
 
       localId = createLocalMessageId()
-      const attachmentKind = getAttachmentKind(file)
-      localAttachmentUrl = attachmentKind === 'image' ? URL.createObjectURL(file) : ''
-      const localAttachment = {
-        id: `${localId}-attachment`,
-        file_url: localAttachmentUrl,
-        file_type: file.type || 'application/octet-stream',
-        file_name: file.name || (attachmentKind === 'image' ? 'image' : 'attachment'),
-        file_size: file.size
-      }
+      const localAttachments = attachmentsToSend.map((item, index) => {
+        const file = item.file
+        const kind = item.type || getAttachmentKind(file)
+        const localUrl = item.gifUrl || (kind === 'image' || kind === 'video' ? URL.createObjectURL(file) : '')
+        if (localUrl.startsWith('blob:')) localAttachmentUrls.push(localUrl)
+        return {
+          id: `${localId}-attachment-${index}`,
+          file_url: localUrl,
+          file_type: item.gifUrl ? 'image/gif' : file?.type || 'application/octet-stream',
+          file_name: item.name || file?.name || 'attachment',
+          file_size: item.size || file?.size || 0
+        }
+      })
       const localCreatedAt = new Date().toISOString()
       setMessages(prev => {
         const updated = [...prev, {
           id: localId,
           __local: true,
           __delivery_status: 'sending',
-          __retry_payload: { type: 'attachment', file, caption },
+          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption },
           profile_id: session.user.id,
           profiles: getLocalProfile(session, myUsername),
           content: caption || '',
@@ -1263,7 +1310,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           [field]: targetId,
           reply_to_message_id: replyToMessageId,
           message_reactions: [],
-          message_attachments: [localAttachment]
+          message_attachments: localAttachments
         }]
         updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
         safeCacheSave(session.user.id, targetId, updated)
@@ -1274,7 +1321,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
       const contentToSave = await buildEncryptedPayload(caption || '', targetId, sharedKeys, messages);
-      const attachment = await prepareMessageAttachment({ file, sharedKeys, targetId })
+      const preparedAttachments = await Promise.all(attachmentsToSend.map(item => prepareMessageAttachment({
+        file: item.file,
+        gifUrl: item.gifUrl,
+        sharedKeys,
+        targetId
+      })))
 
       const messagePayload = {
         profile_id: session.user.id,
@@ -1290,10 +1342,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
       if (!createdMsg?.id) throw new Error('Message creation did not return an ID')
 
-      const createdAttachment = await insertMessageAttachment(createdMsg.id, attachment)
+      const createdAttachments = await insertMessageAttachments(createdMsg.id, preparedAttachments)
       const newMsg = {
         ...createdMsg,
-        message_attachments: createdMsg.message_attachments?.length ? createdMsg.message_attachments : [createdAttachment]
+        message_attachments: createdAttachments
       }
 
       const [decryptedMsg] = await decryptMessageList([newMsg], sharedKeys);
@@ -1305,14 +1357,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       toast.success('Sent!', { id: toastId });
       return true
     } catch (err) {
-      logMessageSendError('attachment-send', err, { targetId, hasFile: Boolean(file), fileName: file?.name, captionLength: caption?.length || 0 })
+      logMessageSendError('attachment-send', err, { targetId, attachmentCount: attachmentsToSend.length, captionLength: caption?.length || 0 })
       toast.error('Upload failed', { id: toastId });
       ownSendScrollRef.current = { targetId: null, active: false }
-      if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachment', file, caption })
+      if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachments', items: attachmentsToSend, caption })
       return false
     } finally {
       setIsUploading(false);
-      if (localAttachmentUrl) setTimeout(() => URL.revokeObjectURL(localAttachmentUrl), 30000)
+      if (localAttachmentUrls.length) setTimeout(() => localAttachmentUrls.forEach(url => URL.revokeObjectURL(url)), 30000)
     }
   };
 
@@ -1320,11 +1372,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (e) e.preventDefault()
     const text = messageInputRef.current?.value.trim()
     
-    if (pendingFile) {
-      const fileToSend = pendingFile.file
-      setPendingFile(null)
+    if (pendingFiles.length) {
+      const itemsToSend = pendingFiles
+      setPendingFiles([])
       if (messageInputRef.current) messageInputRef.current.value = ''
-      await uploadPendingFile(fileToSend, text);
+      await uploadPendingFiles(itemsToSend, text)
       return;
     }
 
@@ -1398,86 +1450,23 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }
 
-  const handleSendGif = async (gifUrl) => {
+  const handleSendGif = (gifUrl) => {
     setShowGifPicker(false)
-    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
-    const targetId = asMessageId(view === 'server' ? activeChannel?.id : activeDm?.dm_room_id)
-
-    if (!targetId) return toast.error('Select a channel or DM before sending a GIF.')
-    const replyToMessageId = asMessageId(replyingTo)
-    const localId = createLocalMessageId()
-    const localCreatedAt = new Date().toISOString()
-
-    setMessages(prev => {
-      const updated = [...prev, {
-        id: localId,
-        __local: true,
-        __delivery_status: 'sending',
-        __retry_payload: { type: 'gif', gifUrl },
-        profile_id: session.user.id,
-        profiles: getLocalProfile(session, myUsername),
-        content: '',
-        created_at: localCreatedAt,
-        updated_at: localCreatedAt,
-        is_encrypted: view === 'home',
-        [field]: targetId,
-        reply_to_message_id: replyToMessageId,
-        message_reactions: [],
-        message_attachments: [{
-          id: `${localId}-attachment`,
-          file_url: gifUrl,
-          file_type: 'image/gif',
-          file_name: 'animation.gif',
-          file_size: 0
-        }]
+    const safeGifUrl = safeHttpUrl(gifUrl)
+    if (!safeGifUrl) return toast.error('That GIF URL is invalid.')
+    setPendingFiles(previous => {
+      if (previous.length >= MAX_PENDING_ATTACHMENTS) {
+        toast.error(`You can send up to ${MAX_PENDING_ATTACHMENTS} attachments at once.`)
+        return previous
+      }
+      return [...previous, {
+        id: crypto.randomUUID(),
+        gifUrl: safeGifUrl,
+        type: 'image',
+        name: 'animation.gif',
+        size: 0
       }]
-      updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      safeCacheSave(session.user.id, targetId, updated)
-      return updated
     })
-    ownSendScrollRef.current = { targetId, active: true }
-    instantScrollToBottom('own-gif-optimistic')
-
-    try {
-      const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
-      const contentToSave = await buildEncryptedPayload('', targetId, sharedKeys, messages);
-      const attachment = await prepareMessageAttachment({ sharedKeys, targetId, gifUrl })
-
-      const messagePayload = {
-        profile_id: session.user.id,
-        content: contentToSave,
-        is_encrypted: view === 'home',
-        [field]: targetId,
-        reply_to_message_id: replyToMessageId
-      }
-      const { data: createdMsg, error: insertError } = await supabase.from('messages')
-        .insert(messagePayload)
-        .select(MESSAGE_SELECT)
-        .single()
-        
-      if (insertError) {
-        logMessageSendError('gif-message-insert', insertError, messagePayload)
-        throw insertError
-      }
-      if (!createdMsg?.id) throw new Error('Message creation did not return an ID')
-      const createdAttachment = await insertMessageAttachment(createdMsg.id, attachment)
-      const newMsg = {
-        ...createdMsg,
-        message_attachments: createdMsg.message_attachments?.length ? createdMsg.message_attachments : [createdAttachment]
-      }
-
-      const [decryptedMsg] = await decryptMessageList([newMsg], sharedKeys);
-
-      replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
-      ownSendScrollRef.current = { targetId: null, active: false }
-      audioSys.playMessageSent()
-      setReplyingTo(null)
-    } catch (err) {
-      logMessageSendError('gif-send', err, { targetId, gifUrl })
-      toast.error('Failed to send GIF.')
-      ownSendScrollRef.current = { targetId: null, active: false }
-      failLocalMessage(targetId, localId, { type: 'gif', gifUrl })
-    }
   }
 
   const retryFailedMessage = async (message) => {
@@ -1495,13 +1484,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       return updated
     })
 
-    if (retryPayload.type === 'attachment' && retryPayload.file) {
-      await uploadPendingFile(retryPayload.file, retryPayload.caption || '')
-      return
-    }
-
-    if (retryPayload.type === 'gif' && retryPayload.gifUrl) {
-      await handleSendGif(retryPayload.gifUrl)
+    if (retryPayload.type === 'attachments' && retryPayload.items?.length) {
+      await uploadPendingFiles(retryPayload.items, retryPayload.caption || '')
       return
     }
 
@@ -1559,16 +1543,16 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   }
 
   const handleGenericFileUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    queuePendingAttachmentFromFile(file)
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    queuePendingAttachments(files)
     if (genericFileInputRef.current) genericFileInputRef.current.value = ''
   }
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    queuePendingAttachmentFromFile(file)
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    queuePendingAttachments(files)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -1671,7 +1655,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     typingUsers,
     isUploading, selectedImage, setSelectedImage,
     showGifPicker, setShowGifPicker,
-    pendingFile, setPendingFile, handlePaste, handleBeforeInput,
+    pendingFiles, setPendingFiles, removePendingFile, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
     keyboardImageFallbackMessage,
     showLatestMessagesButton, scrollToLatestMessages,
     fileInputRef, genericFileInputRef, messageInputRef, messagesEndRef, scrollContainerRef,

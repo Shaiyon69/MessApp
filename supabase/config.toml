@@ -382,6 +382,11 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
+# Database Webhooks do not carry a user JWT. This function disables platform JWT
+# verification and authenticates every request with MESSAPP_PUSH_WEBHOOK_SECRET.
+[functions.send-message-push]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

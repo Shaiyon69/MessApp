@@ -18,18 +18,31 @@
 .env.*
 !.env.example
 *.local
+*.pem
+*.key
+*.p12
+*.pfx
 *.keystore
 *.jks
+*.mobileprovision
 keystore.properties
+key.properties
 google-services.json
 GoogleService-Info.plist
+*firebase*service*account*.json
+*service-account*.json
+credentials*.json
+secrets*.json
+.npmrc
+.yarnrc
+.netrc
+.pypirc
+*.db
+*.sqlite
+*.sqlite3
 
-# Supabase local state and generated linked-schema snapshots
-# Migrations and tests are authored source and must remain trackable.
-/supabase/.branches/
-/supabase/.temp/
-/supabase/schema.sql
-/supabase/storage_schema.sql
+# Supabase backend workspace is local-only and must never be staged.
+/supabase/
 *.dump.sql
 *.backup.sql
 

@@ -10,6 +10,8 @@ import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, 
 import toast from 'react-hot-toast'
 import { THEME_MODES, applyThemeMode, normalizeThemeMode } from '../../lib/theme'
 import { audioSys } from '../../lib/SoundEngine'
+import { debug } from '../../lib/debug'
+import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
 
 const BANNER_OPTIONS = [
   { id: 'indigo', value: 'linear-gradient(to right, #4f46e5, #9333ea)' },
@@ -190,6 +192,12 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     if (!enabled) { 
       setDesktopNotifs(false); 
       localStorage.setItem('notificationsEnabled', 'false');
+      try {
+        await stopNativePushRegistration()
+        await disableCurrentPushDevice({ profileId: session.user.id, reason: 'notifications_disabled' })
+      } catch (error) {
+        reportPushError('disable_notifications', error)
+      }
       return toast.success("Notifications disabled."); 
     }
     
@@ -200,51 +208,41 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
         }
 
         try {
-          const { PushNotifications } = await import('@capacitor/push-notifications');
-          let permStatus = await PushNotifications.checkPermissions();
-          if (permStatus.receive === 'prompt') {
-            permStatus = await PushNotifications.requestPermissions();
-          }
-          if (permStatus.receive !== 'granted') {
+          const registration = await configureNativePushRegistration({ profileId: session.user.id, requestPermission: true })
+          if (registration.permission !== 'granted') {
             toast.error("Permission denied by device settings.");
             return;
           }
-
-          await PushNotifications.register();
-
-          PushNotifications.addListener('registration', async (token) => {
-            await supabase.from('profiles').update({ fcm_token: token.value }).eq('id', session.user.id);
-          });
-
-          PushNotifications.addListener('registrationError', (_error) => {
-            toast.error("Firebase missing! You must add google-services.json to build.");
-          });
 
           setDesktopNotifs(true);
           localStorage.setItem('notificationsEnabled', 'true');
           toast.success("Native push initialized!");
 
         } catch (nativeError) {
-          console.warn("Native Push Error:", nativeError);
+          reportPushError('native_setup', nativeError)
           toast.error("Native push requires Firebase config.");
         }
 
       } else {
         if (!("Notification" in window)) return toast.error("This browser does not support notifications.");
-        if (Notification.permission === "granted") {
-          setDesktopNotifs(true);
-          localStorage.setItem('notificationsEnabled', 'true');
-        } else if (Notification.permission !== "denied") {
-          const permission = await Notification.requestPermission();
-          if (permission === "granted") { 
-            setDesktopNotifs(true); 
-            localStorage.setItem('notificationsEnabled', 'true');
-            toast.success("Desktop notifications enabled!"); 
-          }
-          else toast.error("Permission denied.");
+        const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
+        debug.info('PUSH_PERMISSION', { platform: 'web', state: permission })
+        if (permission !== 'granted') {
+          await disableCurrentPushDevice({ profileId: session.user.id, reason: 'permission_denied' }).catch(error => reportPushError('permission_denied_disable', error))
+          return toast.error("Permission denied.")
         }
+        const vapidPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
+        if (vapidPublicKey) {
+          await registerWebPushDevice({ profileId: session.user.id, vapidPublicKey })
+        } else {
+          reportPushError('web_setup', new Error('VITE_WEB_PUSH_PUBLIC_KEY is not configured'))
+        }
+        setDesktopNotifs(true);
+        localStorage.setItem('notificationsEnabled', 'true');
+        toast.success("Desktop notifications enabled!");
       }
-    } catch (_e) {
+    } catch (error) {
+      reportPushError('permission_or_registration', error)
       toast.error("Notifications are blocked on this device.");
     }
   }
@@ -338,12 +336,14 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   
   const handleLogout = async () => { 
     try { 
+      await disableCurrentPushDevice({ profileId: session.user.id, reason: 'logout' }).catch(error => reportPushError('logout_disable', error))
+      await stopNativePushRegistration().catch(error => reportPushError('logout_listener_cleanup', error))
       await supabase.auth.signOut(); 
       
       const keysToKeep = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('e2ee_') || key === 'appTheme' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'notificationsEnabled')) {
+        if (key && (key.startsWith('e2ee_') || key === PUSH_INSTALLATION_ID_KEY || key === 'appTheme' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'notificationsEnabled')) {
           keysToKeep[key] = localStorage.getItem(key);
         }
       }
@@ -365,7 +365,9 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const { error } = await supabase.rpc('delete_user_account')
       if (error) throw error
       await supabase.auth.signOut()
+      const installationId = localStorage.getItem(PUSH_INSTALLATION_ID_KEY)
       localStorage.clear()
+      if (installationId) localStorage.setItem(PUSH_INSTALLATION_ID_KEY, installationId)
       window.location.reload()
     } catch (error) {
       toast.error(error.message || 'Failed to delete account.')

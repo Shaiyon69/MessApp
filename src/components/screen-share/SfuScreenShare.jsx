@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { audioSys } from '../../lib/SoundEngine'
+import { supabase } from '../../supabaseClient'
 
 const VIEW_MODES = {
   PINNED: 'pinned',
@@ -62,6 +63,7 @@ function normalizeRemoteParticipant(participant, fallbackId) {
     displayName: getParticipantValue(participant, ['displayName', 'username', 'name', 'identity'], 'Participant'),
     avatarUrl: getParticipantValue(participant, ['avatarUrl', 'avatar_url', 'picture'], ''),
     speaking: Boolean(participant?.speaking || participant?.isSpeaking),
+    voiceLevel: Math.max(0, Math.min(1, Number(participant?.voiceLevel || participant?.voice_level) || 0)),
     muted: Boolean(participant?.muted || participant?.isMuted),
     deafened: Boolean(participant?.deafened || participant?.isDeafened)
   }
@@ -196,14 +198,29 @@ function AvatarParticipantTile({ participant, onPin }) {
     <button
       type="button"
       onClick={() => onPin?.(participant?.id)}
-      className={`relative flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden rounded-lg border bg-[radial-gradient(circle_at_center,var(--theme-20),#090a0f_64%)] px-4 text-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant?.speaking ? 'border-green-300 shadow-lg shadow-green-500/15 ring-2 ring-green-400/30' : 'border-[var(--border-subtle)]'}`}
+      className={`relative flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden rounded-2xl border bg-[radial-gradient(circle_at_center,var(--theme-20),#12131c_68%)] px-4 text-center shadow-xl outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant?.speaking ? 'border-green-300 shadow-green-500/20 ring-1 ring-green-400/40' : 'border-[var(--border-subtle)]'}`}
       aria-label={`${participant?.displayName || 'Participant'}: ${statusText}`}
       title={statusText}
     >
-      <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} status="online" className="h-16 w-16 sm:h-20 sm:w-20" />
-      {participant?.speaking && (
-        <span className="mt-3 rounded-full bg-green-500/15 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-green-200">Speaking</span>
-      )}
+      <div className="relative flex items-center justify-center">
+        <span className={`absolute h-24 w-24 rounded-full border border-green-400/50 transition-opacity duration-200 ${participant?.speaking ? 'animate-ping opacity-100' : 'opacity-0'}`} aria-hidden="true" />
+        <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} status="online" className={`h-16 w-16 sm:h-20 sm:w-20 ${participant?.speaking ? 'ring-2 ring-green-400 ring-offset-4 ring-offset-[#12131c]' : ''}`} />
+      </div>
+      <div className="mt-4 flex h-5 items-end gap-1" aria-label={participant?.speaking ? 'Microphone activity detected' : 'No microphone activity'}>
+        {[0.55, 1, 0.72, 0.9].map((weight, index) => (
+          <span
+            key={`voice-bar-${index}`}
+            className={`w-1 rounded-full transition-[height,background-color] duration-150 ease-out ${participant?.speaking ? 'bg-green-400' : 'bg-gray-700'}`}
+            style={{ height: `${Math.max(3, Math.round((participant?.voiceLevel || 0) * 20 * weight))}px` }}
+          />
+        ))}
+      </div>
+      <span
+        className={`mt-3 min-h-6 rounded-full bg-green-500/15 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-green-200 transition-opacity duration-200 ${participant?.speaking ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        aria-hidden={!participant?.speaking}
+      >
+        Speaking
+      </span>
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 sm:p-3">
         <div className="flex min-w-0 items-end justify-between gap-2">
           <div className="min-w-0 text-left">
@@ -230,7 +247,9 @@ function useElementSize() {
     if (!ref.current || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(([entry]) => {
       const rect = entry.contentRect
-      setSize({ width: rect.width, height: rect.height })
+      setSize(current => current.width === rect.width && current.height === rect.height
+        ? current
+        : { width: rect.width, height: rect.height })
     })
     observer.observe(ref.current)
     return () => observer.disconnect()
@@ -284,7 +303,11 @@ export default function SfuScreenShare({
   const [client, setClient] = useState(null)
   const [localScreenStream, setLocalScreenStream] = useState(null)
   const [localCameraStream, setLocalCameraStream] = useState(null)
+  const [localAudioStream, setLocalAudioStream] = useState(null)
+  const [voiceLevel, setVoiceLevel] = useState(0)
+  const [voiceSpeaking, setVoiceSpeaking] = useState(false)
   const [remoteStreams, setRemoteStreams] = useState([])
+  const [voicePresenceParticipants, setVoicePresenceParticipants] = useState([])
   const [viewMode, setViewMode] = useState(VIEW_MODES.PINNED)
   const [pinnedStreamId, setPinnedStreamId] = useState(null)
   const [carouselStreamId, setCarouselStreamId] = useState(null)
@@ -293,16 +316,76 @@ export default function SfuScreenShare({
   const [status, setStatus] = useState('idle')
   const localScreenRef = useRef(null)
   const localCameraRef = useRef(null)
+  const localAudioRef = useRef(null)
+  const mutedRef = useRef(muted)
+  const voiceSpeakingRef = useRef(false)
+  const voicePresenceChannelRef = useRef(null)
+  const localParticipantRef = useRef(null)
+  const lastReportedStateRef = useRef('')
   const [stageRef, stageSize] = useElementSize()
 
   const localParticipant = useMemo(() => ({
     id: currentUser?.id || 'local',
     displayName: currentUser?.displayName || currentUser?.username || 'You',
     avatarUrl: currentUser?.avatarUrl || currentUser?.avatar_url || '',
-    speaking: false,
+    speaking: !muted && voiceSpeaking,
+    voiceLevel,
     muted,
     deafened
-  }), [currentUser, deafened, muted])
+  }), [currentUser?.avatarUrl, currentUser?.avatar_url, currentUser?.displayName, currentUser?.id, currentUser?.username, deafened, muted, voiceLevel, voiceSpeaking])
+  localParticipantRef.current = localParticipant
+  mutedRef.current = muted
+
+  useEffect(() => {
+    if (!roomId || !localParticipant.id) return undefined
+    const channel = supabase.channel(`voice-presence:${roomId}`, { config: { presence: { key: localParticipant.id } } })
+    voicePresenceChannelRef.current = channel
+    const syncParticipants = () => {
+      const entries = Object.values(channel.presenceState()).flatMap(value => value)
+      const byId = new Map()
+      entries.forEach(entry => {
+        const participant = normalizeRemoteParticipant(entry, entry?.profile_id || entry?.id)
+        if (participant.id) byId.set(participant.id, participant)
+      })
+      setVoicePresenceParticipants(Array.from(byId.values()))
+    }
+    channel.on('presence', { event: 'sync' }, syncParticipants)
+    channel.subscribe(statusValue => {
+      if (statusValue !== 'SUBSCRIBED') return
+      const participant = localParticipantRef.current
+      channel.track({
+        profile_id: participant.id,
+        displayName: participant.displayName,
+        avatarUrl: participant.avatarUrl,
+        muted: participant.muted,
+        deafened: participant.deafened,
+        speaking: participant.speaking,
+        voiceLevel: participant.voiceLevel,
+        joined_at: new Date().toISOString()
+      }).catch(() => {})
+    })
+    return () => {
+      voicePresenceChannelRef.current = null
+      setVoicePresenceParticipants([])
+      channel.untrack().catch(() => {})
+      supabase.removeChannel(channel)
+    }
+  }, [localParticipant.avatarUrl, localParticipant.displayName, localParticipant.id, roomId])
+
+  useEffect(() => {
+    const channel = voicePresenceChannelRef.current
+    if (!channel) return
+    channel.track({
+      profile_id: localParticipant.id,
+      displayName: localParticipant.displayName,
+      avatarUrl: localParticipant.avatarUrl,
+      muted: localParticipant.muted,
+      deafened: localParticipant.deafened,
+      speaking: localParticipant.speaking,
+      voiceLevel: localParticipant.voiceLevel,
+      joined_at: new Date().toISOString()
+    }).catch(() => {})
+  }, [localParticipant])
 
   useEffect(() => {
     if (!roomId || !createClient) return undefined
@@ -366,6 +449,98 @@ export default function SfuScreenShare({
     }
   }, [roomId, createClient])
 
+  useEffect(() => {
+    if (status !== 'connected' || !client || !navigator.mediaDevices?.getUserMedia) return undefined
+    let active = true
+    let audioContext = null
+    let animationFrame = 0
+    let stream = null
+    let smoothedLevel = 0
+    let lastPublishedAt = 0
+
+    navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false
+    }).then(async nextStream => {
+      if (!active) {
+        nextStream.getTracks().forEach(track => track.stop())
+        return
+      }
+      stream = nextStream
+      localAudioRef.current = nextStream
+      setLocalAudioStream(nextStream)
+      nextStream.getAudioTracks().forEach(track => { track.enabled = !mutedRef.current })
+      await client.publish?.(nextStream, { type: 'audio', streamType: 'audio', participant: localParticipantRef.current })
+
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext
+      if (!AudioContextClass) return
+      audioContext = new AudioContextClass()
+      if (audioContext.state === 'suspended') await audioContext.resume().catch(() => {})
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.72
+      audioContext.createMediaStreamSource(nextStream).connect(analyser)
+      const samples = new Uint8Array(analyser.fftSize)
+      const measure = timestamp => {
+        if (!active) return
+        analyser.getByteTimeDomainData(samples)
+        let sum = 0
+        for (const sample of samples) {
+          const normalized = (sample - 128) / 128
+          sum += normalized * normalized
+        }
+        const rms = Math.sqrt(sum / samples.length)
+        const rawLevel = mutedRef.current ? 0 : Math.min(1, Math.max(0, (rms - 0.015) * 8))
+        smoothedLevel = (smoothedLevel * 0.72) + (rawLevel * 0.28)
+
+        // Separate thresholds prevent the speaking state from rapidly flickering near the noise floor.
+        const nextSpeaking = !mutedRef.current && (voiceSpeakingRef.current ? smoothedLevel >= 0.035 : smoothedLevel >= 0.075)
+        if (nextSpeaking !== voiceSpeakingRef.current) {
+          voiceSpeakingRef.current = nextSpeaking
+          setVoiceSpeaking(nextSpeaking)
+        }
+
+        // The analyser still samples every frame, but React and Presence only receive a smooth,
+        // quantized meter value at a UI-friendly rate.
+        if (timestamp - lastPublishedAt >= 100) {
+          lastPublishedAt = timestamp
+          const nextLevel = mutedRef.current ? 0 : Math.round(smoothedLevel * 20) / 20
+          setVoiceLevel(current => current === nextLevel ? current : nextLevel)
+        }
+        animationFrame = requestAnimationFrame(measure)
+      }
+      animationFrame = requestAnimationFrame(measure)
+    }).catch(() => {
+      if (active) {
+        voiceSpeakingRef.current = false
+        setVoiceSpeaking(false)
+        setVoiceLevel(0)
+      }
+    })
+
+    return () => {
+      active = false
+      if (animationFrame) cancelAnimationFrame(animationFrame)
+      if (stream) client.unpublish?.(stream, { type: 'audio', streamType: 'audio' })
+      stream?.getTracks().forEach(track => track.stop())
+      if (localAudioRef.current === stream) localAudioRef.current = null
+      setLocalAudioStream(null)
+      voiceSpeakingRef.current = false
+      setVoiceSpeaking(false)
+      setVoiceLevel(0)
+      audioContext?.close().catch(() => {})
+    }
+  }, [client, status])
+
+  useEffect(() => {
+    localAudioStream?.getAudioTracks().forEach(track => { track.enabled = !muted })
+    if (muted) {
+      voiceSpeakingRef.current = false
+      setVoiceSpeaking(false)
+      setVoiceLevel(0)
+    }
+  }, [localAudioStream, muted])
+
   const localStreams = useMemo(() => {
     const streams = []
     if (localScreenStream) {
@@ -408,6 +583,15 @@ export default function SfuScreenShare({
 
   const participants = useMemo(() => {
     const map = new Map()
+    voicePresenceParticipants.forEach(participant => {
+      map.set(participant.id, {
+        ...participant,
+        connectedChannelId: roomId,
+        cameraActive: false,
+        screenShareActive: false,
+        watching: false
+      })
+    })
     map.set(localParticipant.id, {
       ...localParticipant,
       connectedChannelId: roomId,
@@ -435,10 +619,10 @@ export default function SfuScreenShare({
     })
 
     return Array.from(map.values())
-  }, [localCameraStream, localParticipant, localScreenStream, remoteStreams, roomId, watchedStreams])
+  }, [localCameraStream, localParticipant, localScreenStream, remoteStreams, roomId, voicePresenceParticipants, watchedStreams])
 
   useEffect(() => {
-    onStateChange?.({
+    const nextState = {
       status,
       isSharing: Boolean(localScreenStream),
       isCameraOn: Boolean(localCameraStream),
@@ -453,7 +637,11 @@ export default function SfuScreenShare({
         pinned: item.id === pinnedStreamId,
         available: mediaTracksAreLive(item.stream)
       }))
-    })
+    }
+    const signature = JSON.stringify(nextState)
+    if (signature === lastReportedStateRef.current) return
+    lastReportedStateRef.current = signature
+    onStateChange?.(nextState)
   }, [allStreams, hiddenStreamIds, localCameraStream, localScreenStream, onStateChange, participants, pinnedStreamId, status])
 
   useEffect(() => {
@@ -611,35 +799,35 @@ export default function SfuScreenShare({
   const renderControls = (compact = false) => (
     <div className={`flex items-center gap-2 ${compact ? 'flex-wrap justify-between' : 'justify-center'}`}>
       {onToggleMute && (
-        <button type="button" onClick={onToggleMute} className={`rounded-xl p-2 sm:p-2.5 ${muted ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
+        <button type="button" onClick={onToggleMute} className={`rounded-full border border-[var(--border-subtle)] p-2.5 sm:p-3 ${muted ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOff size={compact ? 16 : 18} /> : <Mic size={compact ? 16 : 18} />}
         </button>
       )}
       {onToggleDeafen && (
-        <button type="button" onClick={onToggleDeafen} className={`rounded-xl p-2 sm:p-2.5 ${deafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
+        <button type="button" onClick={onToggleDeafen} className={`rounded-full border border-[var(--border-subtle)] p-2.5 sm:p-3 ${deafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
           {deafened ? <VolumeX size={compact ? 16 : 18} /> : <Volume2 size={compact ? 16 : 18} />}
         </button>
       )}
       {localCameraStream ? (
-        <button type="button" onClick={() => stopCamera()} className="rounded-xl bg-red-500/15 p-2 text-red-300 sm:p-2.5" aria-label="Turn camera off" title="Turn camera off">
+        <button type="button" onClick={() => stopCamera()} className="rounded-full border border-red-500/30 bg-red-500/15 p-2.5 text-red-300 sm:p-3" aria-label="Turn camera off" title="Turn camera off">
           <CameraOff size={compact ? 16 : 18} />
         </button>
       ) : (
-        <button type="button" onClick={startCamera} disabled={status !== 'connected'} className="rounded-xl bg-[var(--bg-element)] p-2 text-gray-300 disabled:opacity-50 sm:p-2.5" aria-label="Turn camera on" title="Turn camera on">
+        <button type="button" onClick={startCamera} disabled={status !== 'connected'} className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2.5 text-gray-300 disabled:opacity-50 sm:p-3" aria-label="Turn camera on" title="Turn camera on">
           <Camera size={compact ? 16 : 18} />
         </button>
       )}
       {localScreenStream ? (
-        <button type="button" onClick={() => stopShare()} className="rounded-xl bg-red-500/15 p-2 text-red-300 sm:p-2.5" aria-label="Stop sharing screen" title="Stop sharing screen">
+        <button type="button" onClick={() => stopShare()} className="rounded-full border border-red-500/30 bg-red-500/15 p-2.5 text-red-300 sm:p-3" aria-label="Stop sharing screen" title="Stop sharing screen">
           <MonitorX size={compact ? 16 : 18} />
         </button>
       ) : (
-        <button type="button" onClick={startShare} disabled={status !== 'connected'} className="rounded-xl bg-[var(--theme-base)] p-2 text-white disabled:opacity-50 sm:p-2.5" aria-label="Share screen" title="Share screen">
+        <button type="button" onClick={startShare} disabled={status !== 'connected'} className="rounded-full border border-[var(--theme-50)] bg-[var(--theme-base)] p-2.5 text-white disabled:opacity-50 sm:p-3" aria-label="Share screen" title="Share screen">
           <MonitorUp size={compact ? 16 : 18} />
         </button>
       )}
       {onLeave && (
-        <button type="button" onClick={onLeave} className="rounded-xl bg-red-500 p-2 text-white sm:p-2.5" aria-label="Leave voice" title="Leave voice">
+        <button type="button" onClick={onLeave} className="rounded-full bg-red-500 px-4 py-2.5 text-white sm:px-5 sm:py-3" aria-label="Leave voice" title="Leave voice">
           <PhoneOff size={compact ? 16 : 18} />
         </button>
       )}
@@ -648,7 +836,7 @@ export default function SfuScreenShare({
 
   if (variant === 'mini') {
     return (
-      <section className={`fixed left-3 right-3 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] w-auto max-w-[calc(100vw-1.5rem)] rounded-2xl border border-[var(--border-subtle)] bg-[#111214]/95 p-2.5 shadow-2xl backdrop-blur-xl md:left-auto md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:w-[420px] ${className}`}>
+      <section className={`fixed left-2 right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[46dvh] w-auto overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[#111214]/95 p-2.5 shadow-2xl backdrop-blur-xl sm:left-3 sm:right-3 md:left-auto md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(420px,calc(100vw-2.5rem))] ${className}`}>
         <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`Return to ${title}`}>
           <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${status === 'connected' ? 'bg-green-500/15 text-green-300' : 'bg-amber-500/15 text-amber-300'}`}>
             <Volume2 size={20} aria-hidden="true" />
@@ -677,24 +865,25 @@ export default function SfuScreenShare({
   if (variant === 'full') {
     return (
       <section className={`grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-[var(--bg-base)] ${className}`}>
-        <header className="min-h-0 shrink-0 border-b border-[var(--border-subtle)] bg-[#15161a] px-3 py-2 md:px-5">
+        <header className="min-h-14 shrink-0 border-b border-[var(--border-subtle)] bg-[#12131c]/95 px-3 py-2.5 md:px-5">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-black text-[var(--text-main)] md:text-base">{title}</h2>
-              <p className={`truncate text-[11px] font-bold ${status === 'connected' ? 'text-green-300' : 'text-amber-300'}`}>
-                {connectionLabel} - {participantCount} {participantCount === 1 ? 'person' : 'people'} - {sharingCount} sharing - {cameraCount} camera{cameraCount === 1 ? '' : 's'} - {viewMode}
+              <h2 className="flex items-center gap-2 truncate text-sm font-black text-[var(--text-main)] md:text-base"><Volume2 size={16} className="shrink-0 text-green-400" />{title}</h2>
+              <p className={`flex items-center gap-1.5 truncate font-mono text-[10px] font-bold ${status === 'connected' ? 'text-green-300' : 'text-amber-300'}`}>
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'connected' ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.8)]' : 'bg-amber-400'}`} />
+                {connectionLabel} · {participantCount} {participantCount === 1 ? 'person' : 'people'} · {sharingCount} sharing · {cameraCount} camera{cameraCount === 1 ? '' : 's'}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-element)] px-3 py-1.5">
               <Users size={16} className="text-gray-500" aria-hidden="true" />
               <span className="text-xs font-black text-gray-400">{participantCount}</span>
             </div>
           </div>
         </header>
 
-        <div ref={stageRef} className="min-h-0 overflow-hidden p-2 md:p-3" tabIndex={0} aria-label="Voice stage">
+        <div ref={stageRef} className="min-h-0 overflow-hidden bg-[radial-gradient(ellipse_at_top,rgba(109,95,253,0.10),transparent_60%)] p-2 sm:p-3 md:p-5" tabIndex={0} aria-label="Voice stage">
           {viewMode === VIEW_MODES.GRID || !pinnedStream ? (
-            <section className="relative h-full min-h-0 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[#07080c] p-2 shadow-2xl">
+            <section className="relative h-full min-h-0 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[#0a0b10] p-2 sm:p-3 shadow-2xl">
               <div
                 className="grid h-full min-h-0 gap-2"
                 style={{
@@ -732,7 +921,7 @@ export default function SfuScreenShare({
               )}
             </section>
           ) : (
-            <section className="grid h-full min-h-0 gap-2 overflow-hidden md:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)]">
+            <section className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_6.5rem] gap-2 overflow-hidden md:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)] md:grid-rows-1">
               <div className="relative min-h-0 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-black shadow-2xl">
                 <StreamTile
                   streamItem={pinnedStream}
@@ -757,7 +946,7 @@ export default function SfuScreenShare({
                 )}
               </div>
 
-              <div className="grid min-h-0 grid-cols-2 gap-2 overflow-hidden md:grid-cols-1" aria-label="Other participants">
+              <div className="grid min-h-0 grid-cols-2 gap-2 overflow-x-auto overflow-y-hidden md:grid-cols-1 md:overflow-hidden" aria-label="Other participants">
                 {secondaryStreams.slice(0, 3).map(item => (
                   <button
                     type="button"
@@ -783,7 +972,7 @@ export default function SfuScreenShare({
           )}
         </div>
 
-        <footer className="shrink-0 border-t border-[var(--border-subtle)] bg-[#111216]/95 px-2 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <footer className="shrink-0 border-t border-[var(--border-subtle)] bg-[#12131c]/95 px-2 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <div className="mx-auto flex max-w-3xl items-center justify-center gap-1 sm:gap-2">
             <div className="flex rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-element)] p-0.5 sm:p-1">
               <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} aria-label="Focus view" title="Focus view" className={`rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.PINNED ? 'bg-[var(--theme-base)] text-white' : 'text-gray-400 hover:text-white'}`}>
