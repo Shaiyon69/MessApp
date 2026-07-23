@@ -89,7 +89,7 @@ const uniquePreviewLinks = (links) => {
       seen.add(link.url)
       return true
     })
-    .slice(0, 3)
+    .slice(0, 10)
 }
 
 const stripPreviewLinks = (content, links) => {
@@ -111,6 +111,7 @@ const safeDownloadUrl = (value) => {
 
 const getAttachmentMediaType = (attachment) => String(attachment?.file_type || '').replace(/^encrypted:/i, '').toLowerCase()
 const isImageAttachment = (attachment) => getAttachmentMediaType(attachment).startsWith('image/')
+const isVideoAttachment = (attachment) => getAttachmentMediaType(attachment).startsWith('video/')
 
 const formatAttachmentSize = (value) => {
   if (typeof value === 'string' && value.trim()) return value
@@ -394,7 +395,14 @@ export const MemoizedMessage = React.memo(({
   const hasAttachments = message.message_attachments && message.message_attachments.length > 0
   const attachments = message.message_attachments || []
   const imageAttachments = attachments.filter(isImageAttachment)
+  const mediaAttachments = attachments.filter(attachment => isImageAttachment(attachment) || isVideoAttachment(attachment))
   const hasImageAttachments = imageAttachments.length > 0
+  const imageGallery = imageAttachments
+    .map(attachment => ({
+      url: resolveAttachmentUrl(attachment),
+      name: attachment.file_name || 'Image'
+    }))
+    .filter(item => item.url)
   const isActionMenuOpen = messageActionMenuId === m.id
   const { previewLinks, renderedContent } = useMemo(() => {
     if (!m.content || m.is_deleted || typeof m.content !== 'string') {
@@ -1168,15 +1176,19 @@ export const MemoizedMessage = React.memo(({
                   )}
 
                   {hasAttachments && (
-                    <div className={`${imageAttachments.length > 1 ? 'grid grid-cols-2 gap-1 max-w-[min(76vw,420px)]' : 'flex flex-col gap-0.5'} ${hasVisibleContent ? 'mt-1' : ''} w-full ${imageAttachments.length > 1 ? '' : alignRight ? 'items-end' : 'items-start'}`}>
+                    <div className={`${mediaAttachments.length > 1 ? 'grid grid-cols-2 gap-1 max-w-[min(86vw,520px)]' : 'flex flex-col gap-1'} ${hasVisibleContent ? 'mt-1' : ''} w-full ${mediaAttachments.length > 1 ? '' : alignRight ? 'items-end' : 'items-start'}`}>
                       {message.message_attachments.map((attachment, attachmentIndex) => {
                         const attachmentUrl = resolveAttachmentUrl(attachment, message)
                         const attachmentSize = formatAttachmentSize(attachment.file_size || message.file_size)
                         const attachmentIsImage = isImageAttachment(attachment)
+                        const attachmentIsVideo = isVideoAttachment(attachment)
+                        const attachmentIsMedia = attachmentIsImage || attachmentIsVideo
+                        const imageIndex = attachmentIsImage ? imageAttachments.indexOf(attachment) : -1
+                        if (imageIndex >= 4) return null
                         return (
-                        <div key={attachment.id || attachment.file_url || attachmentUrl} className="max-w-full text-[var(--theme-base)]">
+                        <div key={attachment.id || attachment.file_url || attachmentUrl} className={`max-w-full text-[var(--theme-base)] ${mediaAttachments.length > 1 && !attachmentIsMedia ? 'col-span-2' : ''}`}>
                           {!attachmentUrl && attachmentIsImage ? (
-                            <div className={`${imageAttachments.length > 1 ? 'aspect-square h-full w-full' : 'h-40 w-[min(68vw,260px)]'} animate-pulse scale-[0.98] rounded-2xl border bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md`} style={attachmentBorderStyle} aria-label="Image loading" />
+                            <div className={`${mediaAttachments.length > 1 ? 'aspect-square h-full w-full' : 'h-40 w-[min(68vw,260px)]'} animate-pulse scale-[0.98] rounded-2xl border bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md`} style={attachmentBorderStyle} aria-label="Image loading" />
                           ) : !attachmentUrl ? (
                             <div className="file-message-card flex min-w-[220px] max-w-[min(76vw,360px)] items-center gap-3 rounded-2xl border px-4 py-3.5 text-gray-500">
                               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-base)] border border-[var(--border-subtle)]">
@@ -1188,21 +1200,54 @@ export const MemoizedMessage = React.memo(({
                               </div>
                             </div>
                           ) : attachmentIsImage ? (
-                              <MessageImage
-                                src={attachmentUrl}
-                                mediaKey={`${message.id}:${attachment.id || attachment.file_name || attachmentIndex}`}
-                                alt={attachment.file_name || 'Attachment'}
-                                className={imageAttachments.length > 1
-                                  ? 'aspect-square h-full w-full rounded-xl border object-cover'
-                                  : 'w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border'}
-                                style={attachmentBorderStyle}
-                                blurWhileLoading={!isMe}
-                                fill={imageAttachments.length > 1}
-                                onOpen={(e) => {
-                                  e.stopPropagation()
-                                  setSelectedImage({ url: attachmentUrl, user: message.profiles?.username, time: exactTime })
-                                }}
-                              />
+                              <div className="relative h-full w-full">
+                                <MessageImage
+                                  src={attachmentUrl}
+                                  mediaKey={`${message.id}:${attachment.id || attachment.file_name || attachmentIndex}`}
+                                  alt={attachment.file_name || 'Attachment'}
+                                  className={mediaAttachments.length > 1
+                                    ? 'aspect-square h-full w-full rounded-xl border object-cover'
+                                    : 'w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border'}
+                                  style={attachmentBorderStyle}
+                                  blurWhileLoading={!isMe}
+                                  fill={mediaAttachments.length > 1}
+                                  onOpen={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedImage({
+                                      url: attachmentUrl,
+                                      items: imageGallery,
+                                      index: Math.max(0, imageGallery.findIndex(item => item.url === attachmentUrl)),
+                                      user: message.profiles?.username,
+                                      time: exactTime
+                                    })
+                                  }}
+                                />
+                                {imageIndex === 3 && imageAttachments.length > 4 && (
+                                  <button
+                                    type="button"
+                                    className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 text-2xl font-black text-white backdrop-blur-[1px]"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setSelectedImage({ url: attachmentUrl, items: imageGallery, index: 3, user: message.profiles?.username, time: exactTime })
+                                    }}
+                                    aria-label={`View ${imageAttachments.length - 4} more images`}
+                                  >
+                                    +{imageAttachments.length - 4}
+                                  </button>
+                                )}
+                              </div>
+                          ) : attachmentIsVideo ? (
+                            <video
+                              src={attachmentUrl}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className={`${mediaAttachments.length > 1 ? 'aspect-square h-full w-full rounded-xl object-cover' : 'max-h-[50vh] w-[min(78vw,420px)] rounded-2xl'} border bg-black`}
+                              style={attachmentBorderStyle}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              Your browser cannot play this video.
+                            </video>
                           ) : (
                             <a
                               href={attachmentUrl}

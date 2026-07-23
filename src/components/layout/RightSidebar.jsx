@@ -81,7 +81,7 @@ export default function RightSidebar({
     <>
       <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform md:hidden" onClick={closeRightSidebar}></div>
       
-      <aside className="fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-80 max-w-[85vw] bg-[var(--bg-surface)]/95 border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-96 md:max-w-none md:shadow-none md:backdrop-blur-none" style={scopedChatStyle}>
+      <aside className="fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--bg-surface)]/95 border-l border-[var(--border-subtle)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-72 md:max-w-none md:shadow-none md:backdrop-blur-none lg:w-80 xl:w-96" style={scopedChatStyle}>
         
         {rightTab === 'info' && activeServer && !activeDm && (
           <div className="flex h-full flex-col overflow-hidden">
