@@ -20,7 +20,7 @@ The migration chain starts with the pre-hardening Supabase baseline: `2026071320
 
 The repository's authored conversation-security delta is `supabase/migrations/20260715000100_harden_conversation_rls.sql`. It removes permissive legacy policies, restricts direct membership and room creation, corrects channel membership checks, makes `chat-attachments` private, and scopes attachment access to authenticated conversation participants. Normal DM creation must use `create_or_get_dm(peer_id)` and server joins must use `join_server_by_code` rather than direct client inserts.
 
-`supabase/tests/conversation_isolation.sql` is the matching transactional A/B/C isolation test. It verifies that participants can access their own conversation while an unrelated user cannot read, send, join, view attachments, or upload into it. Keep migrations and tests in version control. Files under `supabase/reference/`, plus `supabase/schema.sql` and `supabase/storage_schema.sql`, are generated linked-state evidence for inspection only; the timestamped files under `supabase/migrations/` are migration history.
+`supabase/tests/conversation_isolation.sql` is the matching transactional A/B/C isolation test. It verifies that participants can access their own conversation while an unrelated user cannot read, send, join, view attachments, or upload into it. The complete `supabase/` workspace is intentionally local-only and ignored by Git, including configuration, functions, migrations, tests, reference exports, and generated schema snapshots.
 
 The hardening migration has been validated against a locally hydrated schema, but it has not been deployed to the linked remote project. Until an explicit reviewed deployment occurs, the remote backend may still have the older permissive policies. Never treat a passing frontend build as proof that remote RLS is current.
 
@@ -129,8 +129,8 @@ Confirm exact columns, constraints, RPC contracts, and policy behavior against b
 ## Repository and deployment hygiene
 
 - `SYSTEM_DOCUMENTATION.md` is the project-level system reference. Do not recreate a root `AGENTS.md`.
-- Commit reviewed SQL under `supabase/migrations/` and `supabase/tests/`; these files are authored backend source and security coverage. Do not use a blanket `supabase/**/*.sql` ignore rule.
-- Do not commit generated linked-state SQL such as `supabase/schema.sql`, `supabase/storage_schema.sql`, anything under `supabase/reference/`, `*.dump.sql`, or `*.backup.sql`. Keep `.temp`, `.branches`, environment files, service-account material, signing keys, and local credential files out of Git.
+- Keep the entire `supabase/` directory local-only. Its configuration, Edge Functions, migrations, tests, reference exports, generated schemas, and local state must not be staged or committed.
+- Keep database dumps, environment files, service-account material, signing keys, and local credential files out of Git.
 - Keep `.env.example` limited to variable names and safe placeholders. Real `.env*` files remain local.
 - Do not edit generated build directories. Android, iOS, and Tauri source projects are tracked; their build caches, local SDK paths, signing files, and platform service credentials are ignored.
 - Database deployment is a separate, explicit operation. Review the migration diff and run local isolation checks before applying it to any remote project.
