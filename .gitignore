@@ -41,13 +41,8 @@ secrets*.json
 *.sqlite
 *.sqlite3
 
-# Supabase local state and generated linked-schema snapshots
-# Authored migrations and tests are source code and must remain trackable.
-/supabase/.branches/
-/supabase/.temp/
-/supabase/reference/
-/supabase/schema.sql
-/supabase/storage_schema.sql
+# Supabase backend workspace is local-only and must never be staged.
+/supabase/
 *.dump.sql
 *.backup.sql
 
