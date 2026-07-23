@@ -18,6 +18,10 @@ export function safeMediaUrl(value, { allowDataImages = true, allowBlob = true }
     return trimmed
   }
 
+  if (/^data:video\/(?:mp4|webm|ogg|quicktime);base64,[a-z0-9+/=\s]+$/i.test(trimmed)) {
+    return trimmed
+  }
+
   try {
     const parsed = new URL(trimmed)
     if (['http:', 'https:'].includes(parsed.protocol)) return parsed.href

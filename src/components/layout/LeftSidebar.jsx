@@ -337,12 +337,14 @@ export default function LeftSidebar(props) {
           </div>
         </nav>
 
-        <aside className="app-left-panel w-[min(20rem,calc(100vw-1rem))] h-full bg-[var(--bg-surface)]/95 flex flex-col border-r border-[var(--border-subtle)] shrink-0 z-10 relative backdrop-blur-xl" style={props.scopedChatStyle}>
-          <header className="h-14 md:h-16 px-6 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0 bg-[var(--bg-base)]/80 backdrop-blur-xl">
-            <h2 className="font-headline font-bold text-[var(--text-main)] tracking-tight truncate">MESSAPP</h2>
-          </header>
+        <aside className="app-left-panel h-full w-[calc(100vw-4rem)] max-w-80 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 backdrop-blur-xl md:w-64 md:max-w-none lg:w-72 xl:w-80 flex flex-col z-10 relative" style={props.scopedChatStyle}>
+          {props.view !== 'server' && (
+            <header className="h-14 md:h-16 px-6 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0 bg-[var(--bg-base)]/80 backdrop-blur-xl">
+              <h2 className="font-headline font-bold text-[var(--text-main)] tracking-tight truncate">MESSAPP</h2>
+            </header>
+          )}
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar py-6 space-y-8 px-4">
+          <div className={`flex-1 overflow-y-auto custom-scrollbar space-y-8 px-4 ${props.view === 'server' ? 'py-4' : 'py-6'}`}>
             {props.view === 'home' || props.view === 'notifications' ? (
               <div className="space-y-6">
                 <button onClick={() => { props.setShowQuickSwitcher(true); props.setMobileMenuOpen(false); }} className="w-full bg-[var(--bg-element)] ghost-border text-[var(--text-main)] font-bold py-3.5 px-6 rounded-xl hover:bg-[var(--border-subtle)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-sm cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
@@ -432,11 +434,11 @@ export default function LeftSidebar(props) {
                     </button>
                   </div>
                 )}
-                <div className="space-y-5">
+                <div className="space-y-4">
                   {(props.serverCategories || []).map(category => (
-                    <div key={category.id} className="space-y-1">
-                      <div className="relative flex items-center justify-between gap-2 px-2">
-                        <span className="min-w-0 truncate text-[10px] font-bold uppercase tracking-widest text-gray-500">{category.name}</span>
+                    <section key={category.id} className="space-y-1 rounded-xl border border-transparent px-1 py-1">
+                      <div className="relative flex min-h-8 items-center justify-between gap-2 px-2">
+                        <span className="min-w-0 truncate text-[11px] font-black uppercase tracking-[0.08em] text-gray-500">{category.name}</span>
                         {canManageServer && (
                           <div className="flex items-center gap-1">
                             <button type="button" onClick={() => openChannelModal(category.id)} className="rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`Create channel in ${category.name}`} title="Create Channel">
@@ -459,13 +461,16 @@ export default function LeftSidebar(props) {
                           const isActive = props.activeChannel?.id === channel.id
                           const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
                           return (
-                            <div key={channel.id} className="relative group">
-                              <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`flex w-full items-center gap-2 rounded-xl px-3.5 py-2.5 pr-9 text-left text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
-                                <span className="flex w-4 shrink-0 justify-center text-gray-500">{channel.type === 'voice' ? <Volume2 size={15} aria-hidden="true" /> : <Hash size={15} aria-hidden="true" />}</span>
-                                <span className="truncate">{channel.name}</span>
+                            <div key={channel.id} className={`relative overflow-hidden rounded-lg ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/65' : ''}`}>
+                              <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-3 py-2 pr-10 text-left text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)] shadow-inner' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
+                                <span className={`flex w-4 shrink-0 justify-center ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'text-green-400' : 'text-gray-500'}`}>{channel.type === 'voice' ? <Volume2 size={15} aria-hidden="true" /> : <Hash size={15} aria-hidden="true" />}</span>
+                                <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+                                {channel.type === 'voice' && voiceParticipants.length > 0 && (
+                                  <span className="shrink-0 rounded-full bg-green-500/10 px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-green-300">{voiceParticipants.length} live</span>
+                                )}
                               </button>
                               {canManageServer && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); setServerItemMenuId(serverItemMenuId === `channel-${channel.id}` ? null : `channel-${channel.id}`) }} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${channel.name} menu`} title="Channel menu">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); setServerItemMenuId(serverItemMenuId === `channel-${channel.id}` ? null : `channel-${channel.id}`) }} className="absolute right-2 top-2 rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${channel.name} menu`} title="Channel menu">
                                   <MoreVertical size={14} aria-hidden="true" />
                                 </button>
                               )}
@@ -476,7 +481,7 @@ export default function LeftSidebar(props) {
                                 </div>
                               )}
                               {voiceParticipants.length > 0 && (
-                                <div className="mt-1 space-y-1 pl-6 pr-1">
+                                <div className="space-y-1 px-2 pb-2 pl-7">
                                   {voiceParticipants.map(participant => {
                                     const hasStream = participant.cameraActive || participant.screenShareActive
                                     return (
@@ -487,13 +492,20 @@ export default function LeftSidebar(props) {
                                           props.onVoiceParticipantSelect?.(participant)
                                           props.setMobileMenuOpen(false)
                                         }}
-                                        className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'bg-green-500/10 text-green-200' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}
+                                        className={`flex min-h-8 w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'bg-green-500/10 text-green-200' : participant.muted ? 'text-gray-600' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}
                                         title={hasStream ? `Watch ${participant.displayName}` : participant.displayName}
                                       >
                                         <StatusAvatar url={participant.avatarUrl} username={participant.displayName} status="online" className="h-6 w-6" />
                                         <span className="min-w-0 flex-1 truncate font-bold">{participant.displayName}</span>
-                                        <span className="flex shrink-0 items-center gap-1 text-gray-500">
-                                          {participant.speaking && <Volume2 size={12} aria-label="Speaking" />}
+                                        <span className="flex h-3 shrink-0 items-end gap-0.5" aria-label={participant.speaking ? 'Speaking' : 'Listening'}>
+                                          {[0.6, 1, 0.75].map((weight, levelIndex) => (
+                                            <span key={`${participant.id}-level-${levelIndex}`} className={`w-0.5 rounded-full transition-[height,background-color] duration-150 ease-out ${participant.speaking ? 'bg-green-400' : 'bg-gray-700'}`} style={{ height: `${Math.max(2, Math.round((participant.voiceLevel || 0) * 12 * weight))}px` }} />
+                                          ))}
+                                        </span>
+                                        <span className="flex min-w-12 shrink-0 items-center justify-end gap-1 text-gray-500">
+                                          <span className="flex h-3 w-3 items-center justify-center" aria-hidden={!participant.speaking}>
+                                            {participant.speaking && <Volume2 size={12} aria-label="Speaking" />}
+                                          </span>
                                           {participant.muted && <MicOff size={12} aria-label="Muted" />}
                                           {participant.deafened && <VolumeX size={12} aria-label="Deafened" />}
                                           {participant.cameraActive && <Camera size={12} aria-label="Camera active" />}
@@ -508,7 +520,7 @@ export default function LeftSidebar(props) {
                           )
                         })}
                       </div>
-                    </div>
+                    </section>
                   ))}
                   {(props.serverCategories || []).length === 0 && (
                     <p className="px-2 text-sm text-gray-500">No categories yet.</p>

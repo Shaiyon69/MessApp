@@ -6,8 +6,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
+import { configureNativePushRegistration, registerWebPushDevice, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
-import { Search, X, Download, Shield, Key } from 'lucide-react'
+import { Search, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 
 import { audioSys } from '../lib/SoundEngine'
 import { useWebRTC } from '../hooks/useWebRTC'
@@ -249,6 +250,10 @@ export default function Dashboard({ session }) {
 
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms, handleCurrentUserRead)
   const webRTCProps = useWebRTC(session, activeDm)
+  const [imageZoom, setImageZoom] = useState(1)
+  const [imagePan, setImagePan] = useState({ x: 0, y: 0 })
+  const imagePointersRef = useRef(new Map())
+  const imageGestureRef = useRef({ pinchDistance: 0, pinchZoom: 1, dragStart: null })
   const screenShareClientFactory = useMemo(() => () => ({
     connect: async () => {},
     disconnect: () => {},
@@ -258,6 +263,78 @@ export default function Dashboard({ session }) {
   }), [])
   const hasConfirmAction = Boolean(confirmAction)
   const hasSelectedImage = Boolean(chatManagerProps.selectedImage)
+  const selectedImageItems = chatManagerProps.selectedImage?.items?.length
+    ? chatManagerProps.selectedImage.items
+    : chatManagerProps.selectedImage?.url
+      ? [{ url: chatManagerProps.selectedImage.url, name: 'Image' }]
+      : []
+  const selectedImageIndex = Math.min(
+    Math.max(Number(chatManagerProps.selectedImage?.index) || 0, 0),
+    Math.max(selectedImageItems.length - 1, 0)
+  )
+  const selectedImageItem = selectedImageItems[selectedImageIndex]
+  const moveSelectedImage = (direction) => {
+    if (selectedImageItems.length < 2) return
+    const index = (selectedImageIndex + direction + selectedImageItems.length) % selectedImageItems.length
+    chatManagerProps.setSelectedImage(previous => ({ ...previous, index, url: selectedImageItems[index].url }))
+  }
+
+  useEffect(() => {
+    setImageZoom(1)
+    setImagePan({ x: 0, y: 0 })
+    imagePointersRef.current.clear()
+    imageGestureRef.current = { pinchDistance: 0, pinchZoom: 1, dragStart: null }
+  }, [selectedImageItem?.url])
+
+  const clampImageZoom = value => Math.min(4, Math.max(1, value))
+  const setBoundedImageZoom = updater => {
+    setImageZoom(current => {
+      const next = clampImageZoom(typeof updater === 'function' ? updater(current) : updater)
+      if (next === 1) setImagePan({ x: 0, y: 0 })
+      return Number(next.toFixed(2))
+    })
+  }
+  const getPointerDistance = pointers => Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y)
+  const handleImagePointerDown = event => {
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    imagePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const pointers = Array.from(imagePointersRef.current.values())
+    if (pointers.length === 2) {
+      imageGestureRef.current.pinchDistance = getPointerDistance(pointers)
+      imageGestureRef.current.pinchZoom = imageZoom
+      imageGestureRef.current.dragStart = null
+    } else if (pointers.length === 1 && imageZoom > 1) {
+      imageGestureRef.current.dragStart = { x: event.clientX, y: event.clientY, pan: imagePan }
+    }
+  }
+  const handleImagePointerMove = event => {
+    if (!imagePointersRef.current.has(event.pointerId)) return
+    event.preventDefault()
+    event.stopPropagation()
+    imagePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const pointers = Array.from(imagePointersRef.current.values())
+    if (pointers.length >= 2 && imageGestureRef.current.pinchDistance > 0) {
+      const distance = getPointerDistance(pointers)
+      setBoundedImageZoom(imageGestureRef.current.pinchZoom * (distance / imageGestureRef.current.pinchDistance))
+      return
+    }
+    const dragStart = imageGestureRef.current.dragStart
+    if (pointers.length === 1 && dragStart && imageZoom > 1) {
+      setImagePan({ x: dragStart.pan.x + event.clientX - dragStart.x, y: dragStart.pan.y + event.clientY - dragStart.y })
+    }
+  }
+  const handleImagePointerEnd = event => {
+    event.stopPropagation()
+    imagePointersRef.current.delete(event.pointerId)
+    const remaining = Array.from(imagePointersRef.current.values())
+    imageGestureRef.current.pinchDistance = 0
+    if (remaining.length === 1 && imageZoom > 1) {
+      imageGestureRef.current.dragStart = { x: remaining[0].x, y: remaining[0].y, pan: imagePan }
+    } else {
+      imageGestureRef.current.dragStart = null
+    }
+  }
 
   const stateRef = useRef({});
   const activeDmRef = useRef(null);
@@ -486,12 +563,20 @@ export default function Dashboard({ session }) {
   }, []);
 
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) registration.unregister();
-      });
+    if (localStorage.getItem('notificationsEnabled') !== 'true') return undefined
+    configureNativePushRegistration({ profileId: session.user.id })
+      .then(result => {
+        const vapidPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
+        if (!result.supported && typeof Notification !== 'undefined' && Notification.permission === 'granted' && vapidPublicKey) {
+          return registerWebPushDevice({ profileId: session.user.id, vapidPublicKey })
+        }
+        return undefined
+      })
+      .catch(error => reportPushError('session_registration', error))
+    return () => {
+      stopNativePushRegistration().catch(error => reportPushError('session_listener_cleanup', error))
     }
-  }, []);
+  }, [session.user.id])
 
   useEffect(() => {
     applyThemeMode(localStorage.getItem('appTheme') || 'dark');
@@ -930,9 +1015,14 @@ export default function Dashboard({ session }) {
     let active = true
     supabase
       .from('server_members')
-      .select('id, profile_id, role, profiles(id, username, unique_tag, avatar_url, bio, pronouns)')
+      .select('server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)')
       .eq('server_id', activeServer.id)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[SERVER_MEMBERS]', { operation: 'load', code: error.code, message: error.message })
+          if (active) setServerMembers([])
+          return
+        }
         const members = data || []
         serverMembersCacheRef.current.set(activeServer.id, members)
         if (active) setServerMembers(members)
@@ -1179,14 +1269,23 @@ export default function Dashboard({ session }) {
       return []
     }
     const roomIds = myRooms.map(r => r.dm_room_id)
-    const [otherMembersRes, latestMessagesRes, readsRes] = await Promise.all([
-      supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id),
-      supabase.from('messages').select('dm_room_id, profile_id, created_at').in('dm_room_id', roomIds).order('created_at', { ascending: false }).limit(Math.max(roomIds.length * 5, 50)),
-      supabase.from('dm_reads').select('dm_room_id, last_read_at').eq('profile_id', session.user.id).in('dm_room_id', roomIds)
-    ])
+    const otherMembersPromise = Promise.resolve(supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id))
+    const latestMessagesPromise = Promise.resolve(supabase.from('messages').select('dm_room_id, profile_id, created_at').in('dm_room_id', roomIds).order('created_at', { ascending: false }).limit(Math.min(Math.max(roomIds.length * 2, 50), 500)))
+    const readsPromise = Promise.resolve(supabase.from('dm_reads').select('dm_room_id, last_read_at').eq('profile_id', session.user.id).in('dm_room_id', roomIds))
+    const otherMembersRes = await otherMembersPromise
     const otherMembers = otherMembersRes.data
-      
+
     if (otherMembers) {
+      const basicByPeer = new Map()
+      for (const dm of otherMembers) {
+        if (!basicByPeer.has(dm.profiles.id)) basicByPeer.set(dm.profiles.id, { ...dm, last_message_at: null, last_message_profile_id: null, last_read_at: null, is_unread: false })
+      }
+      const basicDms = Array.from(basicByPeer.values())
+      setDms(basicDms)
+      setDmsLoading(false)
+      writeNavigationCache(dmListCacheKey, basicDms)
+
+      const [latestMessagesRes, readsRes] = await Promise.all([latestMessagesPromise, readsPromise])
       const latestByRoom = new Map()
       const readByRoom = new Map((readsRes.data || []).map(item => [item.dm_room_id, item.last_read_at]))
       for (const message of latestMessagesRes.data || []) {
@@ -1476,6 +1575,8 @@ export default function Dashboard({ session }) {
         userPresence={userPresence}
         getPresenceStatus={getPresenceStatus}
         getPresenceLabel={getPresenceLabel}
+        myUsername={myUsername}
+        myAvatar={myAvatar}
         {...chatManagerProps}
       />
 
@@ -1591,7 +1692,7 @@ export default function Dashboard({ session }) {
           <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-3 bg-gradient-to-b from-black/80 to-transparent px-[max(1rem,env(safe-area-inset-left))] pb-6 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))]">
             <div className="flex flex-col">
               <span className="text-white font-bold">{chatManagerProps.selectedImage.user}</span>
-              <span className="text-gray-400 text-xs">{chatManagerProps.selectedImage.time}</span>
+              <span className="text-gray-400 text-xs">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
             </div>
             <button 
               className="text-white/50 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all cursor-pointer"
@@ -1601,31 +1702,63 @@ export default function Dashboard({ session }) {
             </button>
           </div>
           
-            <img 
-              src={chatManagerProps.selectedImage.url} 
-              alt="Expanded view" 
-              className="max-w-full max-h-[calc(100dvh-max(8rem,env(safe-area-inset-top))-max(6rem,env(safe-area-inset-bottom)))] object-contain rounded-lg shadow-[0_22px_70px_rgba(0,0,0,0.55)] cursor-default animate-slide-up"
-              onClick={e => e.stopPropagation()} 
+          <div
+            className={`flex h-[calc(100dvh-10rem)] w-full items-center justify-center overflow-hidden p-4 select-none touch-none ${imageZoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`}
+            onClick={event => event.stopPropagation()}
+            onDoubleClick={() => setBoundedImageZoom(imageZoom > 1 ? 1 : 2)}
+            onPointerDown={handleImagePointerDown}
+            onPointerMove={handleImagePointerMove}
+            onPointerUp={handleImagePointerEnd}
+            onPointerCancel={handleImagePointerEnd}
+            onWheel={event => {
+              event.preventDefault()
+              event.stopPropagation()
+              setBoundedImageZoom(value => value + (event.deltaY < 0 ? 0.25 : -0.25))
+            }}
+            aria-label="Image viewer. Pinch or use controls to zoom."
+          >
+            <img
+              src={selectedImageItem?.url}
+              alt="Expanded view"
+              className="pointer-events-none max-w-full max-h-[calc(100dvh-max(9rem,env(safe-area-inset-top))-max(7rem,env(safe-area-inset-bottom)))] origin-center rounded-lg object-contain shadow-[0_22px_70px_rgba(0,0,0,0.55)] animate-slide-up"
+              style={{ transform: `translate3d(${imagePan.x}px, ${imagePan.y}px, 0) scale(${imageZoom})` }}
+              onClick={event => event.stopPropagation()}
+              draggable="false"
               decoding="async"
               fetchPriority="high"
             />
-          
-          <button 
-            className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-colors border border-white/10 flex items-center gap-2 cursor-pointer shadow-lg"
-            onClick={(e) => { 
-              e.stopPropagation();
-              const a = document.createElement('a');
-              a.style.display = 'none';
-              a.href = chatManagerProps.selectedImage.url;
-              a.download = `messapp_image_${crypto.randomUUID().substring(0, 8)}.jpg`;
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-              toast.success('Image download started')
-            }}
-          >
-            <Download size={18} /> Save Image
-          </button>
+          </div>
+
+          <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] flex items-center gap-2 rounded-full border border-white/10 bg-black/45 p-1.5 text-white shadow-lg backdrop-blur-md" onClick={event => event.stopPropagation()}>
+            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => setBoundedImageZoom(value => value - 0.25)} disabled={imageZoom <= 1} aria-label="Zoom out">
+              <ZoomOut size={20} />
+            </button>
+            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => moveSelectedImage(-1)} disabled={selectedImageItems.length < 2} aria-label="Previous image">
+              <ChevronLeft size={22} />
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
+              onClick={() => {
+                const a = document.createElement('a')
+                a.style.display = 'none'
+                a.href = selectedImageItem?.url
+                a.download = selectedImageItem?.name || `messapp_image_${crypto.randomUUID().substring(0, 8)}.jpg`
+                document.body.appendChild(a)
+                a.click()
+                a.remove()
+                toast.success('Image download started')
+              }}
+            >
+              <Download size={18} /><span className="hidden sm:inline">Save Image</span><span className="sm:hidden">Save</span>
+            </button>
+            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => moveSelectedImage(1)} disabled={selectedImageItems.length < 2} aria-label="Next image">
+              <ChevronRight size={22} />
+            </button>
+            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => setBoundedImageZoom(value => value + 0.25)} disabled={imageZoom >= 4} aria-label="Zoom in">
+              <ZoomIn size={20} />
+            </button>
+          </div>
         </div>
       )}
 
