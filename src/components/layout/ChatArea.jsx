@@ -171,9 +171,12 @@ useEffect(() => {
   }, [props.pinnedMessages]);
 
   useEffect(() => {
-    const urls = (props.pendingFiles || []).map(item => item.file?.type?.startsWith('image/') ? URL.createObjectURL(item.file) : '')
+    const urls = (props.pendingFiles || []).map(item => {
+      if (item.gifUrl) return item.gifUrl
+      return item.file && /^(?:image|video)\//.test(item.file.type || '') ? URL.createObjectURL(item.file) : ''
+    })
     setPendingPreviewUrls(urls)
-    return () => urls.filter(Boolean).forEach(url => URL.revokeObjectURL(url))
+    return () => urls.filter(url => url.startsWith('blob:')).forEach(url => URL.revokeObjectURL(url))
   }, [props.pendingFiles]);
 
   const handleEmojiSelect = (emojiData) => {
@@ -282,8 +285,8 @@ useEffect(() => {
           title={`${props.activeVoiceSession.serverName} / ${props.activeVoiceSession.channelName}`}
           currentUser={{
             id: props.session.user.id,
-            displayName: props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0],
-            avatarUrl: props.session.user.user_metadata?.avatar_url
+            displayName: props.myUsername || props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0],
+            avatarUrl: props.myAvatar || props.session.user.user_metadata?.avatar_url
           }}
           focusRequest={props.voiceFocusRequest}
           muted={props.voiceMuted}
@@ -595,17 +598,23 @@ useEffect(() => {
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <span className="text-xs font-bold uppercase tracking-tighter text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
-                          <p className="truncate text-[11px] italic text-gray-500">{props.pendingFiles.length} {props.pendingFiles.length === 1 ? 'attachment' : 'images'} • Add a caption below</p>
+                          <p className="truncate text-[11px] text-gray-500">{props.pendingFiles.length}/{props.maxPendingAttachments || 10} {props.pendingFiles.length === 1 ? 'attachment' : 'attachments'} • Add a caption below</p>
                         </div>
                         <button type="button" onClick={() => props.setPendingFiles([])} className="rounded-full bg-red-500/10 p-2 text-red-500 transition-colors hover:bg-red-500 hover:text-white" aria-label="Remove all attachments"><X size={18}/></button>
                       </div>
                       <div className="flex max-w-full gap-2 overflow-x-auto pb-1 custom-scrollbar">
                         {props.pendingFiles.map((item, index) => (
-                          <div key={`${item.name}-${item.size}-${index}`} className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]">
-                            {pendingPreviewUrls[index] ? <img src={pendingPreviewUrls[index]} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><FileText size={28} className="text-[var(--theme-base)]" /></div>}
+                          <div key={item.id || `${item.name}-${item.size}-${index}`} className="group relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]">
+                            {pendingPreviewUrls[index] && item.type === 'video' ? (
+                              <video src={pendingPreviewUrls[index]} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                            ) : pendingPreviewUrls[index] ? (
+                              <img src={pendingPreviewUrls[index]} alt={item.name || 'Attachment preview'} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2"><FileText size={28} className="text-[var(--theme-base)]" /><span className="w-full truncate text-center text-[9px] text-gray-400">{item.name}</span></div>
+                            )}
                             <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label={`Remove ${item.name}`}><X size={12}/></button>
                             {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
-                            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/65 px-1 py-0.5 text-[9px] text-white">{formatPendingFileSize(item.size)}</span>
+                            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>
                           </div>
                         ))}
                       </div>
@@ -680,7 +689,7 @@ useEffect(() => {
                       {showAttachMenu && (
                         <div className="premium-menu absolute bottom-full left-0 mb-3 rounded-xl z-50 flex flex-col p-1.5 animate-slide-up origin-bottom-left min-w-[160px]" onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}>
                           <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.fileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <ImagePlus size={18} className="text-indigo-400" /> Upload Image
+                            <ImagePlus size={18} className="text-indigo-400" /> Upload Media
                           </button>
                           <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.genericFileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <Paperclip size={18} className="text-green-400" /> Upload File
@@ -695,8 +704,8 @@ useEffect(() => {
                         {props.isUploading ? <Loader2 className="animate-spin text-[var(--text-main)]" size={20} /> : <Plus size={22} className="transition-transform duration-200" />}
                       </button>
                     </div>
-                    <input type="file" accept="image/*,.gif" multiple ref={props.fileInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
-                    <input type="file" accept="*/*" ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
+                    <input type="file" accept="image/*,video/*,.gif" multiple ref={props.fileInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
+                    <input type="file" accept="*/*" multiple ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex items-center bg-[var(--chat-bg-element)] rounded-[22px] relative min-w-0 border border-transparent min-h-[44px]">
                       <textarea 
