@@ -4,7 +4,7 @@
  * with native keyboard and safe-area behavior.
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
-import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX } from 'lucide-react'
+import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import AddFriendView from '../modals/AddFriendView'
@@ -57,6 +57,7 @@ export default function ChatArea(props) {
     return null
   }, [props.session.user.id, props.visibleMessages])
   const validMessagesById = useMemo(() => new Map(props.validMessages.map(message => [message.id, message])), [props.validMessages])
+  const editingMessage = props.editingMessageId ? validMessagesById.get(props.editingMessageId) : null
   const activeChatKey = `${props.view}:${props.activeChannel?.id || props.activeDm?.dm_room_id || 'none'}`
   const isInitialPositionReady = positionedChatKey === activeChatKey
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
@@ -531,6 +532,8 @@ useEffect(() => {
                       editContent={props.editContent}
                       setEditContent={props.setEditContent}
                       handleUpdateMessage={props.handleUpdateMessage}
+                      handleToggleMessageSpoiler={props.handleToggleMessageSpoiler}
+                      handleToggleAttachmentSpoiler={props.handleToggleAttachmentSpoiler}
                       setEditingMessageId={props.setEditingMessageId}
                       inlineDeleteMessageId={props.inlineDeleteMessageId}
                       inlineDeleteStep={props.inlineDeleteStep}
@@ -588,7 +591,7 @@ useEffect(() => {
                     <div className="bg-[var(--theme-20)] backdrop-blur-md border-l-4 border-[var(--theme-base)] px-4 py-2 mb-2 mx-2 rounded-r-xl flex items-center justify-between text-sm animate-fade-in shadow-sm">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-bold text-[var(--theme-base)] whitespace-nowrap">Replying to {props.replyingTo.profiles?.username}</span>
-                        <span className="truncate text-gray-300 max-w-[150px] md:max-w-[300px]">{props.replyingTo.content || 'Attachment'}</span>
+                        <span className="truncate text-gray-300 max-w-[150px] md:max-w-[300px]">{props.replyingTo.is_spoiler ? 'Spoiler' : props.replyingTo.content || 'Attachment'}</span>
                       </div>
                       <button onClick={() => props.setReplyingTo(null)} className="text-gray-400 hover:text-[var(--text-main)] ml-2 p-1 rounded-md hover:bg-white/10 transition-colors cursor-pointer shrink-0"><X size={14}/></button>
                     </div>
@@ -608,11 +611,26 @@ useEffect(() => {
                             {pendingPreviewUrls[index] && item.type === 'video' ? (
                               <video src={pendingPreviewUrls[index]} className="h-full w-full object-cover" muted playsInline preload="metadata" />
                             ) : pendingPreviewUrls[index] ? (
-                              <img src={pendingPreviewUrls[index]} alt={item.name || 'Attachment preview'} className="h-full w-full object-cover" />
+                              <img src={pendingPreviewUrls[index]} alt={item.name || 'Attachment preview'} className={`h-full w-full object-cover ${item.isSpoiler ? 'scale-110 blur-lg' : ''}`} />
                             ) : (
                               <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2"><FileText size={28} className="text-[var(--theme-base)]" /><span className="w-full truncate text-center text-[9px] text-gray-400">{item.name}</span></div>
                             )}
                             <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label={`Remove ${item.name}`}><X size={12}/></button>
+                            {(item.type === 'image' || item.gifUrl) && (
+                              <button
+                                type="button"
+                                onClick={() => props.togglePendingFileSpoiler(index)}
+                                className={`absolute left-1 top-1 rounded-full p-1.5 text-white shadow ${item.isSpoiler ? 'bg-amber-500' : 'bg-black/70'}`}
+                                aria-pressed={Boolean(item.isSpoiler)}
+                                aria-label={item.isSpoiler ? `Remove spoiler from ${item.name}` : `Mark ${item.name} as spoiler`}
+                                title={item.isSpoiler ? 'Remove image spoiler' : 'Mark image as spoiler'}
+                              >
+                                <EyeOff size={12} />
+                              </button>
+                            )}
+                            {item.isSpoiler && (
+                              <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white drop-shadow">Spoiler</span>
+                            )}
                             {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
                             <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>
                           </div>
@@ -644,6 +662,18 @@ useEffect(() => {
                           <X size={16} />
                         </button>
                       </div>
+
+                      {editingMessage && (editingMessage.content || props.editContent) && (
+                        <button
+                          type="button"
+                          onClick={() => props.handleToggleMessageSpoiler(editingMessage)}
+                          className={`mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold md:hidden ${editingMessage?.is_spoiler ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-gray-300'}`}
+                          aria-pressed={Boolean(editingMessage?.is_spoiler)}
+                        >
+                          {editingMessage?.is_spoiler ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
+                          {editingMessage?.is_spoiler ? 'Remove spoiler' : 'Mark as spoiler'}
+                        </button>
+                      )}
 
                       <div className="mt-2 flex justify-end gap-2 md:hidden">
                         <button
@@ -784,6 +814,17 @@ useEffect(() => {
                       </p>
                     )}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => props.setComposerSpoiler(!props.composerSpoiler)}
+                      disabled={props.isUploading || Boolean(props.editingMessageId)}
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${props.composerSpoiler ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--theme-base)]'}`}
+                      aria-pressed={Boolean(props.composerSpoiler)}
+                      aria-label={props.composerSpoiler ? 'Send text normally' : 'Send text as spoiler'}
+                      title={props.composerSpoiler ? 'Text will be hidden as a spoiler' : 'Mark text as spoiler'}
+                    >
+                      <EyeOff size={18} aria-hidden="true" />
+                    </button>
                     <button type="submit" disabled={props.isUploading} className="w-[44px] h-[44px] flex items-center justify-center rounded-full bg-[var(--theme-base)] text-white hover:brightness-110 shadow-lg shadow-[var(--theme-50)] transition-all shrink-0 disabled:opacity-50 cursor-pointer">
                       <Send size={18} className="translate-x-[-1px] translate-y-[1px]" aria-hidden="true" />
                     </button>
