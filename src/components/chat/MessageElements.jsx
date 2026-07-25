@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import ChatEmojiPicker from './ChatEmojiPicker'
@@ -355,6 +355,7 @@ export const LinkPreview = ({ url }) => {
 export const MemoizedMessage = React.memo(({ 
   m, isMe, showHeader, alignRight, isHighlighted, currentUserId,
   isEditing, editContent, setEditContent, handleUpdateMessage, setEditingMessageId,
+  handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
@@ -377,6 +378,8 @@ export const MemoizedMessage = React.memo(({
   })
   const [showInlineTime, setShowInlineTime] = useState(false)
   const [showReceiptDetails, setShowReceiptDetails] = useState(false)
+  const [messageSpoilerRevealed, setMessageSpoilerRevealed] = useState(false)
+  const [revealedAttachmentSpoilers, setRevealedAttachmentSpoilers] = useState(() => new Set())
   const touchTimer = useRef(null)
   const desktopHoverExitTimer = useRef(null)
   const lastReactionTouchRef = useRef(0)
@@ -394,11 +397,23 @@ export const MemoizedMessage = React.memo(({
   const message = m
   const hasAttachments = message.message_attachments && message.message_attachments.length > 0
   const attachments = message.message_attachments || []
+
+  useEffect(() => {
+    if (!m.is_spoiler) setMessageSpoilerRevealed(false)
+    setRevealedAttachmentSpoilers(previous => {
+      const currentAttachments = message.message_attachments || []
+      const stillRevealed = new Set([...previous].filter(id => currentAttachments.some(attachment => attachment.id === id && attachment.is_spoiler)))
+      return stillRevealed.size === previous.size ? previous : stillRevealed
+    })
+  }, [m.is_spoiler, message.message_attachments])
+
   const imageAttachments = attachments.filter(isImageAttachment)
   const mediaAttachments = attachments.filter(attachment => isImageAttachment(attachment) || isVideoAttachment(attachment))
   const hasImageAttachments = imageAttachments.length > 0
   const imageGallery = imageAttachments
+    .filter(attachment => !attachment.is_spoiler || revealedAttachmentSpoilers.has(attachment.id))
     .map(attachment => ({
+      id: attachment.id,
       url: resolveAttachmentUrl(attachment),
       name: attachment.file_name || 'Image'
     }))
@@ -534,8 +549,8 @@ export const MemoizedMessage = React.memo(({
     const rect = actionMenuRef.current?.getBoundingClientRect?.() || bubbleRef.current?.getBoundingClientRect?.()
     if (!rect) return null
     const margin = 8
-    const width = Math.min(300, window.innerWidth - margin * 2)
-    const height = expanded ? 410 : 48
+    const width = Math.min(336, window.innerWidth - margin * 2)
+    const height = expanded ? Math.min(460, window.innerHeight - margin * 2) : 56
     const rawLeft = rect.left + (rect.width - width) / 2
     const left = Math.min(Math.max(rawLeft, margin), window.innerWidth - width - margin)
     const aboveTop = rect.top - height - margin
@@ -866,6 +881,8 @@ export const MemoizedMessage = React.memo(({
   const exactTime = new Date(m.created_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   const visibleContent = renderedContent ?? (typeof m.content === 'string' ? m.content : '')
+  const isMessageSpoilerHidden = Boolean(m.is_spoiler && !messageSpoilerRevealed)
+  const visiblePreviewLinks = isMessageSpoilerHidden ? [] : previewLinks
   const isEmojiOnly = typeof visibleContent === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(visibleContent.trim());
   const hasVisibleContent = typeof visibleContent === 'string' && visibleContent.trim() !== ''
   const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
@@ -877,7 +894,7 @@ export const MemoizedMessage = React.memo(({
   const shouldShowDeliveryStatus = isMe && deliveryMeta && (showDeliveryStatus || deliveryStatus === 'failed')
   const actionToolbarOwner = isActionMenuOpen && reactionInputMode === 'touch'
     ? ACTION_TOOLBAR_OWNER.TOUCH_LONGPRESS
-    : isDesktopHovered || isActionMenuOpen
+    : isDesktopHovered || isActionMenuOpen || inlineDeleteMessageId === m.id
       ? ACTION_TOOLBAR_OWNER.DESKTOP_HOVER
       : ACTION_TOOLBAR_OWNER.CLOSED
   const seenTimestamp = getSeenTimestamp(m, peerReadAt)
@@ -944,7 +961,7 @@ export const MemoizedMessage = React.memo(({
       }
     })
     return () => cancelAnimationFrame(frame)
-  }, [actionToolbarOwner, calculateActionMenuPositionFromAnchor, captureBubbleAnchor, setMessageActionMenuPosition])
+  }, [actionToolbarOwner, calculateActionMenuPositionFromAnchor, captureBubbleAnchor, inlineDeleteMessageId, inlineDeleteStep, setMessageActionMenuPosition])
 
   useEffect(() => {
     if (!import.meta.env.DEV || !isActionMenuOpen || reactionInputMode !== 'touch') return undefined
@@ -1051,7 +1068,11 @@ export const MemoizedMessage = React.memo(({
     updateReactionPopoverPosition()
 
     const reposition = () => updateReactionPopoverPosition()
-    const closeOnScroll = () => closeActionMenu('message_list_scroll')
+    const closeOnScroll = (event) => {
+      if (reactionPopoverRef.current?.contains(event.target)) return
+      if (actionMenuRef.current?.contains(event.target)) return
+      closeActionMenu('message_list_scroll')
+    }
     window.addEventListener('resize', reposition)
     window.addEventListener('scroll', closeOnScroll, true)
     return () => {
@@ -1097,7 +1118,18 @@ export const MemoizedMessage = React.memo(({
         {isEditing && !isEditingCaption && window.innerWidth >= 768 ? (
           <form onSubmit={(e) => handleUpdateMessage(e, m.id)} className="mt-1 w-full max-w-3xl">
             <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className={`w-full bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-2.5 rounded-xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`} autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
-            <span className={`text-[10px] text-gray-500 mt-1.5 block ${alignRight ? 'text-right' : ''}`}>Press Enter to save, Esc to cancel</span>
+            <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+              <button
+                type="button"
+                onClick={() => handleToggleMessageSpoiler(m)}
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-bold ${m.is_spoiler ? 'bg-amber-500/20 text-amber-300' : 'bg-[var(--bg-surface)] text-gray-400 hover:text-amber-300'}`}
+                aria-pressed={Boolean(m.is_spoiler)}
+              >
+                {m.is_spoiler ? <Eye size={12} aria-hidden="true" /> : <EyeOff size={12} aria-hidden="true" />}
+                {m.is_spoiler ? 'Remove spoiler' : 'Mark as spoiler'}
+              </button>
+              <span>Enter to save, Esc to cancel</span>
+            </div>
           </form>
         ) : (
           <div
@@ -1134,7 +1166,7 @@ export const MemoizedMessage = React.memo(({
                   <CornerDownLeft size={12} className="shrink-0" />
                   <StatusAvatar url={repliedMsg.profiles?.avatar_url} username={repliedMsg.profiles?.username} showStatus={false} className="w-3 h-3 rounded-full shrink-0" />
                   <span className="font-bold truncate max-w-[80px]">{repliedMsg.profiles?.username}</span>
-                  <span className="truncate max-w-[150px] md:max-w-[250px]">{repliedMsg.content || 'Attachment'}</span>
+                  <span className="truncate max-w-[150px] md:max-w-[250px]">{repliedMsg.is_spoiler ? 'Spoiler' : repliedMsg.content || 'Attachment'}</span>
                 </div>
               )}
 
@@ -1145,7 +1177,20 @@ export const MemoizedMessage = React.memo(({
                 </div>
               ) : (
                 <>
-                  {hasVisibleContent && isEmojiOnly && !hasAttachments ? (
+                  {hasVisibleContent && isMessageSpoilerHidden && !showCaptionBelowMedia ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setMessageSpoilerRevealed(true)
+                      }}
+                      className={`flex items-center gap-2 rounded-2xl border border-dashed px-4 py-2.5 text-sm font-bold ${alignRight ? 'ml-auto' : 'mr-auto'} bg-[var(--bg-surface)]/80 text-gray-300 hover:text-white`}
+                      aria-label="Reveal spoiler message"
+                    >
+                      <EyeOff size={15} aria-hidden="true" />
+                      Spoiler — tap to reveal
+                    </button>
+                  ) : hasVisibleContent && isEmojiOnly && !hasAttachments ? (
                     <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
                       {visibleContent.trim()}
                     </div>
@@ -1183,7 +1228,7 @@ export const MemoizedMessage = React.memo(({
                         const attachmentIsImage = isImageAttachment(attachment)
                         const attachmentIsVideo = isVideoAttachment(attachment)
                         const attachmentIsMedia = attachmentIsImage || attachmentIsVideo
-                        const imageIndex = attachmentIsImage ? imageAttachments.indexOf(attachment) : -1
+                        const imageIndex = attachmentIsImage ? imageGallery.findIndex(item => item.id === attachment.id) : -1
                         if (imageIndex >= 4) return null
                         return (
                         <div key={attachment.id || attachment.file_url || attachmentUrl} className={`max-w-full text-[var(--theme-base)] ${mediaAttachments.length > 1 && !attachmentIsMedia ? 'col-span-2' : ''}`}>
@@ -1205,14 +1250,15 @@ export const MemoizedMessage = React.memo(({
                                   src={attachmentUrl}
                                   mediaKey={`${message.id}:${attachment.id || attachment.file_name || attachmentIndex}`}
                                   alt={attachment.file_name || 'Attachment'}
-                                  className={mediaAttachments.length > 1
+                                  className={`${mediaAttachments.length > 1
                                     ? 'aspect-square h-full w-full rounded-xl border object-cover'
-                                    : 'w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border'}
+                                    : 'w-auto max-w-[min(68vw,220px)] sm:max-w-[260px] md:max-w-[300px] max-h-[42vh] sm:max-h-[320px] rounded-2xl object-contain border'} ${attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id) ? 'scale-[1.03] blur-xl' : ''}`}
                                   style={attachmentBorderStyle}
                                   blurWhileLoading={!isMe}
                                   fill={mediaAttachments.length > 1}
                                   onOpen={(e) => {
                                     e.stopPropagation()
+                                    if (attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id)) return
                                     setSelectedImage({
                                       url: attachmentUrl,
                                       items: imageGallery,
@@ -1222,7 +1268,54 @@ export const MemoizedMessage = React.memo(({
                                     })
                                   }}
                                 />
-                                {imageIndex === 3 && imageAttachments.length > 4 && (
+                                {attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id) && (
+                                  <button
+                                    type="button"
+                                    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-xl bg-black/45 text-sm font-black text-white"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setRevealedAttachmentSpoilers(previous => new Set(previous).add(attachment.id))
+                                    }}
+                                    aria-label={`Reveal spoiler image ${attachment.file_name || ''}`.trim()}
+                                  >
+                                    <EyeOff size={22} aria-hidden="true" />
+                                    <span>Spoiler</span>
+                                    <span className="text-[10px] font-semibold text-white/75">Tap to reveal</span>
+                                  </button>
+                                )}
+                                {attachment.is_spoiler && revealedAttachmentSpoilers.has(attachment.id) && (
+                                  <button
+                                    type="button"
+                                    className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-lg"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setRevealedAttachmentSpoilers(previous => {
+                                        const next = new Set(previous)
+                                        next.delete(attachment.id)
+                                        return next
+                                      })
+                                    }}
+                                    aria-label={`Hide spoiler image ${attachment.file_name || ''}`.trim()}
+                                  >
+                                    <Eye size={12} aria-hidden="true" />
+                                    Hide spoiler
+                                  </button>
+                                )}
+                                {isMe && isEditing && !m.__local && (
+                                  <button
+                                    type="button"
+                                    className={`absolute right-2 top-2 z-20 rounded-full p-2 text-white shadow-lg ${attachment.is_spoiler ? 'bg-amber-500' : 'bg-black/65'}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      handleToggleAttachmentSpoiler(m.id, attachment)
+                                    }}
+                                    title={attachment.is_spoiler ? 'Remove image spoiler' : 'Mark image as spoiler'}
+                                    aria-label={attachment.is_spoiler ? 'Remove image spoiler' : 'Mark image as spoiler'}
+                                  >
+                                    {attachment.is_spoiler ? <Eye size={14} /> : <EyeOff size={14} />}
+                                  </button>
+                                )}
+                                {imageIndex === 3 && imageGallery.length > 4 && (
                                   <button
                                     type="button"
                                     className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 text-2xl font-black text-white backdrop-blur-[1px]"
@@ -1230,9 +1323,9 @@ export const MemoizedMessage = React.memo(({
                                       event.stopPropagation()
                                       setSelectedImage({ url: attachmentUrl, items: imageGallery, index: 3, user: message.profiles?.username, time: exactTime })
                                     }}
-                                    aria-label={`View ${imageAttachments.length - 4} more images`}
+                                    aria-label={`View ${imageGallery.length - 4} more images`}
                                   >
-                                    +{imageAttachments.length - 4}
+                                    +{imageGallery.length - 4}
                                   </button>
                                 )}
                               </div>
@@ -1293,10 +1386,34 @@ export const MemoizedMessage = React.memo(({
                           }}
                         />
                         <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                          {editContent.trim() && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMessageSpoiler(m)}
+                              className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-bold ${m.is_spoiler ? 'bg-amber-500/20 text-amber-300' : 'bg-[var(--bg-surface)] text-gray-400 hover:text-amber-300'}`}
+                              aria-pressed={Boolean(m.is_spoiler)}
+                            >
+                              {m.is_spoiler ? <Eye size={12} aria-hidden="true" /> : <EyeOff size={12} aria-hidden="true" />}
+                              {m.is_spoiler ? 'Remove caption spoiler' : 'Mark caption as spoiler'}
+                            </button>
+                          )}
                           <span>Enter to save, Shift+Enter for newline</span>
                           <button type="button" onClick={() => setEditingMessageId(null)} className="font-bold text-gray-400 hover:text-[var(--text-main)] cursor-pointer">Cancel</button>
                         </div>
                       </form>
+                    ) : showCaptionBelowMedia && isMessageSpoilerHidden ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setMessageSpoilerRevealed(true)
+                        }}
+                        className={`mt-1.5 flex items-center gap-2 rounded-2xl border border-dashed bg-[var(--bg-surface)]/80 px-4 py-2.5 text-sm font-bold text-gray-300 ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                        aria-label="Reveal spoiler caption"
+                      >
+                        <EyeOff size={15} aria-hidden="true" />
+                        Spoiler caption — tap to reveal
+                      </button>
                     ) : showCaptionBelowMedia ? (
                       <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
                         <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
@@ -1318,7 +1435,22 @@ export const MemoizedMessage = React.memo(({
                     ) : null
                   )}
 
-                  {previewLinks?.map((link, i) => (
+                  {m.is_spoiler && messageSpoilerRevealed && hasVisibleContent && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setMessageSpoilerRevealed(false)
+                      }}
+                      className={`mt-1 flex items-center gap-1 rounded-full bg-[var(--bg-surface)]/80 px-2.5 py-1 text-[10px] font-bold text-gray-400 hover:text-[var(--text-main)] ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                      aria-label={showCaptionBelowMedia ? 'Hide spoiler caption' : 'Hide spoiler message'}
+                    >
+                      <Eye size={12} aria-hidden="true" />
+                      Hide spoiler
+                    </button>
+                  )}
+
+                  {visiblePreviewLinks?.map((link, i) => (
                     <div key={`link-prev-${m.id}-${i}`} className={`${visibleContent ? 'mt-1' : ''} ${alignRight ? 'flex justify-end' : 'flex justify-start'}`}>
                       <LinkPreview url={link.url} />
                     </div>
@@ -1384,7 +1516,12 @@ export const MemoizedMessage = React.memo(({
                 data-message-id={m.id}
                 className={`message-action-toolbar transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
                   ${isActionMenuOpen && reactionInputMode === 'touch' ? 'fixed' : `absolute top-1/2 -translate-y-1/2 ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}`}
-                  ${hasImageAttachments ? 'flex-col h-auto w-10 py-1 gap-0.5' : 'flex-row h-9 px-1 gap-0.5'}
+                  ${inlineDeleteMessageId === m.id
+                    ? 'flex-row h-auto w-auto min-w-max px-1.5 py-1 gap-1'
+                    : hasImageAttachments
+                      ? 'flex-col h-auto w-11 py-1 gap-1'
+                      : 'flex-row h-auto w-auto min-w-max px-1 py-1 gap-1'
+                  }
                   ${isActionMenuOpen || showReactionPicker || inlineDeleteMessageId === m.id
                     ? 'flex items-center opacity-100 pointer-events-auto scale-100'
                     : 'flex items-center opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'
@@ -1408,6 +1545,12 @@ export const MemoizedMessage = React.memo(({
                 onTouchStart={isolateReactionSurfaceEvent}
                 onTouchEnd={isolateReactionSurfaceEvent}
                 onTouchCancel={isolateReactionSurfaceEvent}
+                onPointerEnter={(event) => {
+                  if (event.pointerType === 'mouse') keepDesktopToolbarOpen()
+                }}
+                onPointerLeave={(event) => {
+                  if (event.pointerType === 'mouse') scheduleDesktopToolbarClose()
+                }}
               >
                 
                 {showReactionPicker && reactionPopoverPosition && (
@@ -1433,12 +1576,14 @@ export const MemoizedMessage = React.memo(({
                       onClickCapture={logReactionHitTest}
                       onContextMenu={isolateReactionSurfaceEvent}
                       onTouchStart={isolateReactionSurfaceEvent}
+                      onTouchMove={isolateReactionSurfaceEvent}
                       onTouchEnd={isolateReactionSurfaceEvent}
                       onTouchCancel={isolateReactionSurfaceEvent}
+                      onWheel={isolateReactionSurfaceEvent}
                       onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
                     >
                     <div className="relative z-10">
-                      <div className="flex items-center gap-1">
+                      <div className="grid grid-cols-7 items-center gap-1">
                         {quickReactions.map((emoji, index) => {
                           const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
                           const isSelectedSlot = editingQuickReactions && quickReactionSlot === index
@@ -1461,7 +1606,7 @@ export const MemoizedMessage = React.memo(({
                                 if (editingQuickReactions) return
                                 handleReactionButtonTouchEnd(event, emoji)
                               }}
-                              className={`flex h-9 w-9 items-center justify-center rounded-full text-xl transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-110 ring-2 ring-[var(--theme-base)]' : ''}`}
+                              className={`flex aspect-square min-h-9 w-full min-w-0 items-center justify-center rounded-full text-xl transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-105 ring-2 ring-[var(--theme-base)]' : ''}`}
                               title={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
                               aria-label={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
                             >
@@ -1485,7 +1630,7 @@ export const MemoizedMessage = React.memo(({
                               return next
                             })
                           }}
-                          className={`flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${showMoreReactions ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)]'}`}
+                          className={`flex aspect-square min-h-9 w-full min-w-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${showMoreReactions ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)]'}`}
                           title="More emojis"
                           aria-label="More emojis"
                         >
@@ -1529,8 +1674,8 @@ export const MemoizedMessage = React.memo(({
                             </div>
                           )}
                           <ChatEmojiPicker
-                            width={typeof window !== 'undefined' && window.innerWidth < 350 ? Math.min(window.innerWidth - 32, 280) : 300}
-                            height={editingQuickReactions ? 300 : 350}
+                            width={typeof window !== 'undefined' ? Math.min(324, window.innerWidth - 28) : 324}
+                            height={editingQuickReactions ? 320 : 360}
                             searchDisabled={false}
                             onEmojiClick={(emojiData) => {
                               if (editingQuickReactions) {
@@ -1549,27 +1694,27 @@ export const MemoizedMessage = React.memo(({
                 )}
 
                 {inlineDeleteMessageId === m.id ? (
-                  <div className="flex items-center gap-0.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-2 py-1 rounded-full shadow-sm animate-fade-in">
+                  <div className="flex min-h-10 min-w-max items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-1 shadow-sm animate-fade-in">
                     {inlineDeleteStep === 'options' && (
                       <>
-                        {isMe && <button onClick={() => setInlineDeleteStep('confirm_everyone')} className="text-[10px] font-bold text-red-400 hover:text-red-300 px-2 py-1 rounded transition-colors cursor-pointer">Unsend</button>}
-                        <button onClick={() => setInlineDeleteStep('confirm_me')} className="text-[10px] font-bold text-gray-400 hover:text-[var(--text-main)] px-2 py-1 rounded transition-colors cursor-pointer whitespace-nowrap">Hide</button>
-                        <div className="w-[1px] h-3 bg-[var(--border-subtle)] mx-1"></div>
-	                        <button onClick={() => closeActionMenu('delete_cancel')} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
+                        {isMe && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">Unsend</button>}
+                        <button type="button" data-reaction-action="delete-hide-option" onClick={() => setInlineDeleteStep('confirm_me')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer">Hide</button>
+                        <div className="mx-0.5 h-5 w-px shrink-0 bg-[var(--border-subtle)]"></div>
+	                        <button type="button" data-reaction-action="delete-cancel" onClick={() => closeActionMenu('delete_cancel')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Cancel delete menu"><X size={15}/></button>
                       </>
                     )}
                     {inlineDeleteStep === 'confirm_everyone' && (
-                      <div className="flex items-center gap-2 px-1">
-                        <span className="text-[10px] font-bold text-red-400 whitespace-nowrap">Unsend?</span>
-	                        <button onClick={() => { executeInlineDelete(m, 'everyone'); closeActionMenu('action_delete_everyone'); }} className="bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><Check size={12}/></button>
-                        <button onClick={() => setInlineDeleteStep('options')} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
+                      <div className="flex min-w-max items-center gap-1 px-1">
+                        <span className="px-1 text-xs font-bold text-red-400 whitespace-nowrap">Unsend?</span>
+	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, 'everyone'); closeActionMenu('action_delete_everyone'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer" aria-label="Confirm unsend"><Check size={15}/></button>
+                        <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
                     )}
                     {inlineDeleteStep === 'confirm_me' && (
-                      <div className="flex items-center gap-2 px-1">
-                        <span className="text-[10px] font-bold text-gray-400 whitespace-nowrap">Hide?</span>
-	                        <button onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="bg-[var(--text-main)]/10 text-[var(--text-main)] hover:bg-[var(--text-main)]/20 p-1 rounded-full transition-colors cursor-pointer"><Check size={12}/></button>
-                        <button onClick={() => setInlineDeleteStep('options')} className="text-gray-500 hover:text-[var(--text-main)] p-1 rounded-full transition-colors cursor-pointer"><X size={12}/></button>
+                      <div className="flex min-w-max items-center gap-1 px-1">
+                        <span className="px-1 text-xs font-bold text-gray-400 whitespace-nowrap">Hide?</span>
+	                        <button type="button" data-reaction-action="delete-confirm-hide" onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--text-main)]/10 text-[var(--text-main)] transition-colors hover:bg-[var(--text-main)]/20 cursor-pointer" aria-label="Confirm hide"><Check size={15}/></button>
+                        <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
                     )}
                   </div>
@@ -1603,7 +1748,25 @@ export const MemoizedMessage = React.memo(({
 	                        <Download size={15} aria-hidden="true" />
 	                      </a>
 	                    )}
-	                    <button type="button" data-reaction-action="delete" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setShowReceiptDetails(false); setInlineDeleteMessageId(m.id); setInlineDeleteStep('options'); }} className="message-action-button text-gray-500 hover:text-red-400 md:hover:bg-red-500/10" title="Hide/Delete" aria-label="Hide or Delete"><Trash2 size={15} aria-hidden="true" /></button>
+	                    <button
+	                      type="button"
+	                      data-reaction-action="delete"
+	                      style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined}
+	                      onClick={() => {
+	                        setShowReceiptDetails(false)
+	                        if (!isActionMenuOpen) {
+	                          setReactionInputMode('desktop')
+	                          setMessageActionMenuId(m.id)
+	                        }
+	                        setInlineDeleteMessageId(m.id)
+	                        setInlineDeleteStep('options')
+	                      }}
+	                      className="message-action-button text-gray-500 hover:text-red-400 md:hover:bg-red-500/10"
+	                      title="Hide/Delete"
+	                      aria-label="Hide or Delete"
+	                    >
+	                      <Trash2 size={15} aria-hidden="true" />
+	                    </button>
 	                    {showReceiptDetails && (
 	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 text-[11px] text-gray-400 shadow-inner md:col-span-full">
 	                        {receiptRows.map(row => (

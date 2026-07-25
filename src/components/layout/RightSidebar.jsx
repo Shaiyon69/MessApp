@@ -4,7 +4,7 @@
  * media safety validation.
  */
 import React, { useMemo, useState } from 'react'
-import { X, Search, ImagePlus, EyeOff, Ban, Trash2, FileText, Pin, Users } from 'lucide-react'
+import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { safeMediaUrl } from '../../lib/security'
 
@@ -44,6 +44,7 @@ export default function RightSidebar({
   setSelectedImage
 }) {
   const [mediaTab, setMediaTab] = useState('images')
+  const [revealedSpoilerAttachments, setRevealedSpoilerAttachments] = useState(() => new Set())
 
   const attachmentGroups = useMemo(() => {
     if (rightTab !== 'info' || !activeDm) return { images: [], documents: [] }
@@ -56,6 +57,7 @@ export default function RightSidebar({
 
   const activeAttachments = mediaTab === 'images' ? attachmentGroups.images : attachmentGroups.documents
   const formatMessagePreview = (message) => {
+    if (message?.is_spoiler) return 'Spoiler'
     if (!message?.content) return 'Attachment'
     const value = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
     return value.length > 90 ? `${value.slice(0, 90)}...` : value
@@ -225,9 +227,46 @@ export default function RightSidebar({
                   ) : mediaTab === 'images' ? (
                     <div className="grid grid-cols-3 gap-2">
                       {activeAttachments.map(({ message, attachment }) => (
-                        <button key={`media-${attachment.id || attachment.file_url}`} onClick={() => setSelectedImage?.({ url: safeMediaUrl(attachment.file_url), user: message.profiles?.username, time: new Date(message.created_at).toLocaleString() })} className="aspect-square rounded-lg overflow-hidden border border-current text-[var(--theme-base)] opacity-90 bg-[var(--surface-section)] transition-all duration-300 ease-out transform hover:scale-[1.03] cursor-pointer">
-                          <img src={safeMediaUrl(attachment.file_url)} alt={attachment.file_name || 'Image'} className="w-full h-full object-cover" loading="lazy" />
-                        </button>
+                        <div key={`media-${attachment.id || attachment.file_url}`} className="relative aspect-square">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (attachment.is_spoiler && !revealedSpoilerAttachments.has(attachment.id)) {
+                                setRevealedSpoilerAttachments(previous => new Set(previous).add(attachment.id))
+                                return
+                              }
+                              setSelectedImage?.({ url: safeMediaUrl(attachment.file_url), user: message.profiles?.username, time: new Date(message.created_at).toLocaleString() })
+                            }}
+                            className="relative h-full w-full overflow-hidden rounded-lg border border-current bg-[var(--surface-section)] text-[var(--theme-base)] opacity-90 transition-all duration-300 ease-out hover:scale-[1.03] cursor-pointer"
+                            aria-label={attachment.is_spoiler && !revealedSpoilerAttachments.has(attachment.id) ? 'Reveal spoiler image' : `Open ${attachment.file_name || 'image'}`}
+                          >
+                            <img src={safeMediaUrl(attachment.file_url)} alt={attachment.file_name || 'Image'} className={`h-full w-full object-cover ${attachment.is_spoiler && !revealedSpoilerAttachments.has(attachment.id) ? 'scale-110 blur-xl' : ''}`} loading="lazy" />
+                            {attachment.is_spoiler && !revealedSpoilerAttachments.has(attachment.id) && (
+                              <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/45 text-[9px] font-black uppercase tracking-widest text-white">
+                                <EyeOff size={16} aria-hidden="true" />
+                                Spoiler
+                              </span>
+                            )}
+                          </button>
+                          {attachment.is_spoiler && revealedSpoilerAttachments.has(attachment.id) && (
+                            <button
+                              type="button"
+                              className="absolute bottom-1 right-1 flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[9px] font-bold text-white"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setRevealedSpoilerAttachments(previous => {
+                                  const next = new Set(previous)
+                                  next.delete(attachment.id)
+                                  return next
+                                })
+                              }}
+                              aria-label="Hide spoiler image"
+                            >
+                              <Eye size={11} aria-hidden="true" />
+                              Hide
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -288,7 +327,7 @@ export default function RightSidebar({
                         <span className="text-sm font-bold text-[var(--text-main)] group-hover:text-[var(--theme-base)] transition-colors truncate pr-2">{m.profiles?.username}</span>
                         <span className="text-[10px] text-gray-500 shrink-0">{new Date(m.created_at).toLocaleDateString()}</span>
                       </div>
-                      <p className="text-xs text-gray-300 line-clamp-3 break-words">{m.content}</p>
+                      <p className="text-xs text-gray-300 line-clamp-3 break-words">{m.is_spoiler ? 'Spoiler' : m.content}</p>
                     </button>
                   ))}
                 </div>

@@ -1054,18 +1054,17 @@ iframe {
 }
 
 @media (max-width: 360px) {
-  .message-action-toolbar {
-    transform: translateY(-50%) scale(0.92);
-    transform-origin: center;
-  }
-
-  .message-action-button {
-    width: 1.75rem;
-    height: 1.75rem;
-    min-width: 1.75rem;
-  }
-
   .message-touch-target {
     max-width: min(68vw, 32rem) !important;
   }
+}
+
+.message-action-toolbar[data-toolbar-owner="touch-longpress"] .message-action-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+}
+
+.message-action-toolbar[data-toolbar-owner="touch-longpress"] {
+  min-width: 3.25rem;
 }
