@@ -9,6 +9,7 @@ import { supabase } from '../supabaseClient';
 import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
+import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../lib/voiceAudioProcessing';
 
 const CallAudio = registerPlugin('CallAudio');
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
@@ -459,22 +460,11 @@ export function useWebRTC(session, activeDm) {
     setVideoEnabled(withVideo);
 
     try {
-      const constraints = {
+      const stream = await getVoiceMediaStream({
+        mediaDevices: navigator.mediaDevices,
         video: withVideo,
-        audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled }
-      };
-      
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        if (err.name === 'OverconstrainedError' || err.name === 'TypeError') {
-          console.warn("Retrying with fallback simple audio constraints due to structural error:", serializeCallError(err));
-          stream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
-        } else {
-          throw err;
-        }
-      }
+        noiseReduction: ncEnabled
+      });
 
       if (!isCurrentCallLifecycle(lifecycleId)) {
         stream.getTracks().forEach(track => track.stop());
@@ -521,22 +511,11 @@ export function useWebRTC(session, activeDm) {
     endingCallRef.current = false;
     setCallDirection('connecting');
     try {
-      const constraints = {
+      const stream = await getVoiceMediaStream({
+        mediaDevices: navigator.mediaDevices,
         video: incomingVideoRef.current || videoEnabled,
-        audio: { noiseSuppression: ncEnabled, echoCancellation: ncEnabled, autoGainControl: ncEnabled }
-      };
-
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        if (err.name === 'OverconstrainedError' || err.name === 'TypeError') {
-          console.warn("Retrying with fallback simple audio constraints on target device:", serializeCallError(err));
-          stream = await navigator.mediaDevices.getUserMedia({ video: incomingVideoRef.current || videoEnabled, audio: true });
-        } else {
-          throw err;
-        }
-      }
+        noiseReduction: ncEnabled
+      });
 
       if (!isCurrentCallLifecycle(lifecycleId)) {
         stream.getTracks().forEach(track => track.stop());
@@ -758,10 +737,10 @@ export function useWebRTC(session, activeDm) {
       if (audioTrack) {
         const nextState = !ncEnabled;
         try {
-          await audioTrack.applyConstraints({ noiseSuppression: nextState, echoCancellation: nextState, autoGainControl: nextState });
+          await applyVoiceAudioProcessing(audioTrack, nextState, navigator.mediaDevices);
           setNcEnabled(nextState);
-          toast(nextState ? "Hardware Noise Cancellation On" : "Noise Cancellation Off", { icon: nextState ? '🎙️' : '⚠️' });
-        } catch (_err) { toast.error("Browser does not support dynamic constraints"); }
+          toast(nextState ? "Enhanced Noise Reduction On" : "Noise Reduction Off", { icon: nextState ? '🎙️' : '⚠️' });
+        } catch (_err) { toast.error("This device cannot change noise reduction during a call"); }
       }
     }
   };
