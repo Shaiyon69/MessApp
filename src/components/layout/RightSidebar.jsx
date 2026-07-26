@@ -10,36 +10,11 @@ import StatusAvatar from '../ui/StatusAvatar'
 import { safeMediaUrl } from '../../lib/security'
 import { supabase } from '../../supabaseClient'
 import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverModeration'
+import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
 
-let serverNotificationTableAvailable = true
-const pendingServerNotificationLoads = new Map()
-
-const isMissingServerNotificationTable = error => (
-  error?.code === 'PGRST205' ||
-  `${error?.message || ''} ${error?.details || ''}`.includes('server_notification_preferences')
-)
-
-const loadServerNotificationPreference = (serverId, profileId) => {
-  if (!serverNotificationTableAvailable) return Promise.resolve({ unavailable: true })
-  const key = `${serverId}:${profileId}`
-  if (pendingServerNotificationLoads.has(key)) return pendingServerNotificationLoads.get(key)
-  const request = Promise.resolve(
-    supabase
-      .from('server_notification_preferences')
-      .select('muted')
-      .eq('server_id', serverId)
-      .eq('profile_id', profileId)
-      .maybeSingle()
-  ).then(result => {
-    if (isMissingServerNotificationTable(result.error)) {
-      serverNotificationTableAvailable = false
-      return { unavailable: true }
-    }
-    return result
-  }).finally(() => pendingServerNotificationLoads.delete(key))
-  pendingServerNotificationLoads.set(key, request)
-  return request
-}
+const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
+  enabled: import.meta.env?.VITE_SERVER_NOTIFICATION_PREFERENCES_ENABLED === 'true'
+})
 
 const safeDocumentUrl = (value) => {
   const mediaUrl = safeMediaUrl(value, { allowDataImages: false })
@@ -48,15 +23,18 @@ const safeDocumentUrl = (value) => {
   return null
 }
 
-const AccordionSection = ({ id, label, open, onToggle, children }) => (
-  <section className="overflow-hidden rounded-2xl bg-[var(--surface-section)]">
-    <button type="button" onClick={() => onToggle(id)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-bold text-[var(--text-main)]" aria-expanded={open}>
+const AccordionSection = ({ id, label, open, onToggle, children }) => {
+  const panelId = `right-sidebar-section-${id}`
+  return (
+    <section className="overflow-hidden rounded-2xl bg-[var(--surface-section)]">
+      <button type="button" onClick={() => onToggle(id)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-bold text-[var(--text-main)]" aria-expanded={open} aria-controls={panelId}>
       <span>{label}</span>
       <ChevronDown size={17} className={`shrink-0 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-    </button>
-    {open && <div className="px-4 pb-4 animate-fade-in">{children}</div>}
-  </section>
-)
+      </button>
+      {open && <div id={panelId} role="region" aria-label={label} className="px-4 pb-4 animate-fade-in">{children}</div>}
+    </section>
+  )
+}
 
 const ConversationThemePicker = ({ themes, value, onChange, disabled = false }) => (
   <div className="grid grid-cols-2 gap-2" role="group" aria-label="Conversation theme">
@@ -137,17 +115,19 @@ export default function RightSidebar({
   const [moderationReason, setModerationReason] = useState('')
   const [moderationBusy, setModerationBusy] = useState('')
   const [moderationError, setModerationError] = useState('')
-  const [openServerSections, setOpenServerSections] = useState(() => new Set())
+  const [openInfoSections, setOpenInfoSections] = useState(() => new Set())
   const [serverMuted, setServerMuted] = useState(false)
-  const [serverNotificationsAvailable, setServerNotificationsAvailable] = useState(serverNotificationTableAvailable)
+  const [serverNotificationsAvailable, setServerNotificationsAvailable] = useState(
+    serverNotificationPreferences.isAvailable()
+  )
 
   useEffect(() => {
-    if (!activeServer?.id) {
+    if (!activeServer?.id || !currentUserId) {
       setServerMuted(false)
       return
     }
     let active = true
-    loadServerNotificationPreference(activeServer.id, currentUserId)
+    serverNotificationPreferences.load(activeServer.id, currentUserId)
       .then(({ data, error, unavailable }) => {
         if (!active) return
         if (unavailable) {
@@ -164,13 +144,10 @@ export default function RightSidebar({
     return () => { active = false }
   }, [activeServer?.id, currentUserId])
 
-  const toggleServerSection = id => {
-    setOpenServerSections(current => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const toggleInfoSection = id => {
+    setOpenInfoSections(current => (
+      current.has(id) ? new Set() : new Set([id])
+    ))
   }
 
   const toggleServerMute = async () => {
@@ -181,16 +158,21 @@ export default function RightSidebar({
     }
     const nextMuted = !serverMuted
     setServerMuted(nextMuted)
-    const { error } = await supabase.from('server_notification_preferences').upsert({
+    const { error, unavailable } = await serverNotificationPreferences.upsert({
       server_id: activeServer.id,
       profile_id: currentUserId,
       muted: nextMuted,
       updated_at: new Date().toISOString()
-    }, { onConflict: 'server_id,profile_id' })
+    })
+    if (unavailable) {
+      setServerMuted(!nextMuted)
+      setServerNotificationsAvailable(false)
+      toast.error('Server mute needs the pending database update.')
+      return
+    }
     if (error) {
       setServerMuted(!nextMuted)
-      if (isMissingServerNotificationTable(error)) {
-        serverNotificationTableAvailable = false
+      if (!serverNotificationPreferences.isAvailable()) {
         setServerNotificationsAvailable(false)
         toast.error('Server mute needs the pending database update.')
       } else {
@@ -307,7 +289,7 @@ export default function RightSidebar({
             </div>
 
             <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-5 pt-2 custom-scrollbar">
-              <AccordionSection id="chat-info" label="Chat info" open={openServerSections.has('chat-info')} onToggle={toggleServerSection}>
+              <AccordionSection id="chat-info" label="Chat info" open={openInfoSections.has('chat-info')} onToggle={toggleInfoSection}>
                 <div className="flex items-center gap-3 rounded-xl bg-[var(--bg-element)] p-3">
                   <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--theme-20)] text-lg font-bold text-[var(--theme-base)]">
                     {activeServer.name?.slice(0, 1)?.toUpperCase() || 'S'}
@@ -319,7 +301,7 @@ export default function RightSidebar({
                 </div>
               </AccordionSection>
 
-              <AccordionSection id="customize-chat" label="Customize chat" open={openServerSections.has('customize-chat')} onToggle={toggleServerSection}>
+              <AccordionSection id="customize-chat" label="Customize chat" open={openInfoSections.has('customize-chat')} onToggle={toggleInfoSection}>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -341,7 +323,7 @@ export default function RightSidebar({
                 </div>
               </AccordionSection>
 
-              <AccordionSection id="chat-members" label="Chat members" open={openServerSections.has('chat-members')} onToggle={toggleServerSection}>
+              <AccordionSection id="chat-members" label="Chat members" open={openInfoSections.has('chat-members')} onToggle={toggleInfoSection}>
                 <div className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-500">
                   <Users size={15} />
                   {serverMembers.length} member{serverMembers.length === 1 ? '' : 's'}
@@ -370,7 +352,7 @@ export default function RightSidebar({
                 </div>
               </AccordionSection>
 
-              <AccordionSection id="media" label="Media, files and links" open={openServerSections.has('media')} onToggle={toggleServerSection}>
+              <AccordionSection id="media" label="Media, files and links" open={openInfoSections.has('media')} onToggle={toggleInfoSection}>
                 <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-[var(--bg-element)] p-1">
                   {[
                     ['images', 'Media', attachmentGroups.images.length],
@@ -414,7 +396,7 @@ export default function RightSidebar({
                 {activeAttachments.length === 0 && <p className="py-2 text-sm text-gray-500">Nothing shared yet.</p>}
               </AccordionSection>
 
-              <AccordionSection id="privacy" label="Privacy & support" open={openServerSections.has('privacy')} onToggle={toggleServerSection}>
+              <AccordionSection id="privacy" label="Privacy & support" open={openInfoSections.has('privacy')} onToggle={toggleInfoSection}>
                 <p className="mb-3 text-xs leading-relaxed text-gray-500">Manage unwanted content and ask the MessApp moderation team for support.</p>
                 {activeServer.owner_id !== currentUserId && (
                   <button type="button" onClick={() => onReportTarget?.({ targetType: 'server', id: activeServer.id, label: 'server' })} className="flex min-h-11 w-full items-center gap-3 rounded-xl bg-red-500/10 px-3 text-sm font-bold text-red-400">
@@ -504,10 +486,10 @@ export default function RightSidebar({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-5">
-              <div className="premium-section rounded-xl overflow-hidden p-4 space-y-5">
-                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Customization</div>
-                <div>
+            <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-5 pt-3 custom-scrollbar">
+              <AccordionSection id="dm-customization" label="Customization" open={openInfoSections.has('dm-customization')} onToggle={toggleInfoSection}>
+                <div className="space-y-5">
+                  <div>
                   <span className="text-xs font-bold text-gray-400 block mb-3">Conversation Theme</span>
                   <ConversationThemePicker
                     themes={CONVERSATION_THEMES}
@@ -515,66 +497,66 @@ export default function RightSidebar({
                     onChange={handleConversationThemeChange}
                   />
                 </div>
-                <div>
-                  <span className="text-xs font-bold text-gray-400 block mb-1">Chat Wallpaper</span>
-                  <span className="mb-3 block text-[10px] leading-relaxed text-gray-500">Mix any wallpaper with the conversation theme above.</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {WALLPAPERS.map(w => (
-                      <button key={`wall-${w.id}`} onClick={() => handleWallpaperChange(w.id)} aria-pressed={currentWallpaper === w.id} className={`group rounded-2xl border p-1.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border-[var(--theme-50)] shadow-lg shadow-black/10' : 'bg-[var(--surface-section)] text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border-transparent hover:border-[var(--border-subtle)]'}`}>
-                        <span
-                          className="relative block h-16 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--chat-bg-base)] shadow-inner"
-                          style={{
-                            backgroundImage: w.css,
-                            backgroundSize: w.size || 'cover',
-                            backgroundRepeat: w.repeat || 'no-repeat',
-                            backgroundPosition: w.position || 'center'
-                          }}
-                          aria-hidden="true"
-                        >
-                          <span className="absolute bottom-2 left-2 h-2.5 w-10 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg-element)] shadow-sm" />
-                          <span className="absolute right-2 top-2 h-3 w-12 rounded-full border border-[var(--chat-outgoing-border)] bg-[var(--chat-outgoing-bg)] shadow-sm" />
-                        </span>
-                        <span className="mt-2 block truncate px-1 text-[11px] font-bold">{w.name}</span>
-                        <span className="mb-1 block truncate px-1 text-[9px] text-gray-500">{w.description}</span>
-                      </button>
-                    ))}
-                    <label
-                      tabIndex={customWallpaperBusy ? -1 : 0}
-                      role="button"
-                      aria-label="Upload a custom chat wallpaper"
-                      aria-busy={customWallpaperBusy}
-                      onKeyDown={event => {
-                        if (!customWallpaperBusy && (event.key === 'Enter' || event.key === ' ')) {
-                          event.preventDefault()
-                          event.currentTarget.querySelector('input')?.click()
-                        }
-                      }}
-                      className={`rounded-2xl border p-1.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${customWallpaperSelected ? 'border-[var(--theme-50)] bg-[var(--theme-20)] text-[var(--theme-base)] shadow-lg shadow-black/10' : 'cursor-pointer border-transparent bg-[var(--surface-section)] text-gray-500 hover:border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'} ${customWallpaperBusy ? 'pointer-events-none opacity-60' : ''}`}
-                    >
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="sr-only"
-                        disabled={customWallpaperBusy}
-                        onChange={event => {
-                          const file = event.target.files?.[0]
-                          event.target.value = ''
-                          if (file) handleCustomWallpaperUpload(file)
+                  <div>
+                    <span className="text-xs font-bold text-gray-400 block mb-1">Chat Wallpaper</span>
+                    <span className="mb-3 block text-[10px] leading-relaxed text-gray-500">Mix any wallpaper with the conversation theme above.</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {WALLPAPERS.map(w => (
+                        <button key={`wall-${w.id}`} onClick={() => handleWallpaperChange(w.id)} aria-pressed={currentWallpaper === w.id} className={`group rounded-2xl border p-1.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border-[var(--theme-50)] shadow-lg shadow-black/10' : 'bg-[var(--surface-section)] text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border-transparent hover:border-[var(--border-subtle)]'}`}>
+                          <span
+                            className="relative block h-16 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--chat-bg-base)] shadow-inner"
+                            style={{
+                              backgroundImage: w.css,
+                              backgroundSize: w.size || 'cover',
+                              backgroundRepeat: w.repeat || 'no-repeat',
+                              backgroundPosition: w.position || 'center'
+                            }}
+                            aria-hidden="true"
+                          >
+                            <span className="absolute bottom-2 left-2 h-2.5 w-10 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg-element)] shadow-sm" />
+                            <span className="absolute right-2 top-2 h-3 w-12 rounded-full border border-[var(--chat-outgoing-border)] bg-[var(--chat-outgoing-bg)] shadow-sm" />
+                          </span>
+                          <span className="mt-2 block truncate px-1 text-[11px] font-bold">{w.name}</span>
+                          <span className="mb-1 block truncate px-1 text-[9px] text-gray-500">{w.description}</span>
+                        </button>
+                      ))}
+                      <label
+                        tabIndex={customWallpaperBusy ? -1 : 0}
+                        role="button"
+                        aria-label="Upload a custom chat wallpaper"
+                        aria-busy={customWallpaperBusy}
+                        onKeyDown={event => {
+                          if (!customWallpaperBusy && (event.key === 'Enter' || event.key === ' ')) {
+                            event.preventDefault()
+                            event.currentTarget.querySelector('input')?.click()
+                          }
                         }}
-                      />
-                      <span className="flex h-16 items-center justify-center rounded-xl border border-dashed border-[var(--theme-50)] bg-gradient-to-br from-[var(--theme-20)] via-[var(--chat-bg-base)] to-[var(--chat-bg-element)] shadow-inner" aria-hidden="true">
-                        {customWallpaperBusy ? <Loader2 size={20} className="animate-spin" /> : <ImagePlus size={20} />}
-                      </span>
-                      <span className="mt-2 block truncate px-1 text-[11px] font-bold">Your photo</span>
-                      <span className="mb-1 block truncate px-1 text-[9px] text-gray-500">JPG, PNG, or WebP</span>
-                    </label>
+                        className={`rounded-2xl border p-1.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${customWallpaperSelected ? 'border-[var(--theme-50)] bg-[var(--theme-20)] text-[var(--theme-base)] shadow-lg shadow-black/10' : 'cursor-pointer border-transparent bg-[var(--surface-section)] text-gray-500 hover:border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'} ${customWallpaperBusy ? 'pointer-events-none opacity-60' : ''}`}
+                      >
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="sr-only"
+                          disabled={customWallpaperBusy}
+                          onChange={event => {
+                            const file = event.target.files?.[0]
+                            event.target.value = ''
+                            if (file) handleCustomWallpaperUpload(file)
+                          }}
+                        />
+                        <span className="flex h-16 items-center justify-center rounded-xl border border-dashed border-[var(--theme-50)] bg-gradient-to-br from-[var(--theme-20)] via-[var(--chat-bg-base)] to-[var(--chat-bg-element)] shadow-inner" aria-hidden="true">
+                          {customWallpaperBusy ? <Loader2 size={20} className="animate-spin" /> : <ImagePlus size={20} />}
+                        </span>
+                        <span className="mt-2 block truncate px-1 text-[11px] font-bold">Your photo</span>
+                        <span className="mb-1 block truncate px-1 text-[9px] text-gray-500">JPG, PNG, or WebP</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </AccordionSection>
 
-              <div className="premium-section rounded-xl overflow-hidden">
-                <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[var(--border-subtle)]/50">Pinned Messages</div>
-                <div className="p-3 space-y-2">
+              <AccordionSection id="dm-pinned" label={`Pinned messages (${pinnedMessages.length})`} open={openInfoSections.has('dm-pinned')} onToggle={toggleInfoSection}>
+                <div className="space-y-2">
                   {pinnedMessages.length === 0 ? (
                     <div className="text-xs text-gray-500 px-1 py-2">No pinned messages yet.</div>
                   ) : pinnedMessages.map(message => (
@@ -593,15 +575,14 @@ export default function RightSidebar({
                     </button>
                   ))}
                 </div>
-              </div>
+              </AccordionSection>
 
-              <div className="premium-section rounded-xl overflow-hidden">
-                <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[var(--border-subtle)]/50">Media & Files</div>
-                <div className="grid grid-cols-2 gap-1 p-2">
+              <AccordionSection id="dm-media" label="Media & files" open={openInfoSections.has('dm-media')} onToggle={toggleInfoSection}>
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-element)] p-1">
                   <button onClick={() => setMediaTab('images')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'images' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-500 hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><ImagePlus size={14} /> Images</button>
                   <button onClick={() => setMediaTab('documents')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'documents' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-500 hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><FileText size={14} /> Documents</button>
                 </div>
-                <div className="p-3 pt-1">
+                <div className="pt-3">
                   {activeAttachments.length === 0 ? (
                     <div className="text-xs text-gray-500 px-1 py-4">No {mediaTab === 'images' ? 'images' : 'documents'} in this conversation.</div>
                   ) : mediaTab === 'images' ? (
@@ -660,25 +641,22 @@ export default function RightSidebar({
                     </div>
                   )}
                 </div>
-              </div>
+              </AccordionSection>
 
-              <div className="premium-section rounded-xl overflow-hidden mb-6">
-                <div className="px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest bg-[var(--border-subtle)]/50">Privacy & Support</div>
-                <button onClick={() => setConfirmAction({ type: restrictedUsersSet.has(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
+              <AccordionSection id="dm-privacy" label="Privacy & support" open={openInfoSections.has('dm-privacy')} onToggle={toggleInfoSection}>
+                <button onClick={() => setConfirmAction({ type: restrictedUsersSet.has(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
                   <EyeOff size={16} className="text-gray-400 group-hover:text-[var(--text-main)]"/><span className="text-sm font-medium text-gray-300 group-hover:text-[var(--text-main)] flex-1">{restrictedUsersSet.has(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
-                </button><div className="h-[1px] bg-[var(--border-subtle)]/50 mx-4"></div>
-                <button onClick={() => setConfirmAction({ type: blockedUsersSet.has(activeDm.profiles.id) ? 'unblock' : 'block', profile: activeDm.profiles })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
+                </button>
+                <button onClick={() => setConfirmAction({ type: blockedUsersSet.has(activeDm.profiles.id) ? 'unblock' : 'block', profile: activeDm.profiles })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
                   <Ban size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">{blockedUsersSet.has(activeDm.profiles.id) ? `Unblock ${activeDm.profiles.username}` : `Block ${activeDm.profiles.username}`}</span>
                 </button>
-                <div className="h-[1px] bg-[var(--border-subtle)]/50 mx-4"></div>
-                <button onClick={() => onReportTarget?.({ targetType: 'user', id: activeDm.profiles.id, label: activeDm.profiles.username || 'user' })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
+                <button onClick={() => onReportTarget?.({ targetType: 'user', id: activeDm.profiles.id, label: activeDm.profiles.username || 'user' })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
                   <Flag size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">Report {activeDm.profiles.username}</span>
                 </button>
-                <div className="h-[1px] bg-[var(--border-subtle)]/50 mx-4"></div>
-                <button onClick={() => setConfirmAction({ type: 'delete_dm', profile: activeDm.profiles, dm_room_id: activeDm.dm_room_id })} className="w-full flex items-center gap-3 p-4 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
+                <button onClick={() => setConfirmAction({ type: 'delete_dm', profile: activeDm.profiles, dm_room_id: activeDm.dm_room_id })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
                   <Trash2 size={16} className="text-red-400 group-hover:text-red-300"/><span className="text-sm font-bold text-red-400 group-hover:text-red-300 flex-1">Delete Conversation</span>
                 </button>
-              </div>
+              </AccordionSection>
             </div>
           </div>
         )}

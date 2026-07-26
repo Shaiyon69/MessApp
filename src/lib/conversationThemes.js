@@ -8,6 +8,9 @@ const THEME_DEFINITIONS = {
       outgoingBackground: '#000000',
       outgoingBorder: '#303030',
       outgoingText: '#fafafa',
+      controlBackground: '#000000',
+      controlBorder: '#303030',
+      controlText: '#fafafa',
       base: '#000000',
       surface: '#0a0a0a',
       element: '#171717',
@@ -218,6 +221,9 @@ export function getConversationThemeStyle(themeId, mode = 'dark') {
     '--chat-text-muted': palette.muted,
     '--chat-outgoing-bg': palette.outgoingBackground || palette.accent,
     '--chat-outgoing-border': palette.outgoingBorder || palette.accent,
-    '--chat-outgoing-text': palette.outgoingText
+    '--chat-outgoing-text': palette.outgoingText,
+    '--chat-control-bg': palette.controlBackground || palette.accent,
+    '--chat-control-border': palette.controlBorder || palette.accent,
+    '--chat-control-text': palette.controlText || palette.outgoingText
   }
 }

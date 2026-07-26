@@ -20,7 +20,23 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "base-uri": "'self'",
+        "object-src": "'none'",
+        "connect-src": "ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co https://api.microlink.io https://api.giphy.com",
+        "font-src": "'self' data: https://fonts.gstatic.com",
+        "img-src": "'self' asset: http://asset.localhost data: blob: https:",
+        "media-src": "'self' asset: http://asset.localhost data: blob: https:",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "frame-src": "https://www.youtube-nocookie.com",
+        "worker-src": "'self' blob:"
+      },
+      "headers": {
+        "X-Content-Type-Options": "nosniff",
+        "Permissions-Policy": "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()"
+      }
     }
   },
   "bundle": {

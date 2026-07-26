@@ -32,6 +32,7 @@ import { normalizeProfileBaseName } from '../lib/security'
 import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
 import { submitContentReport } from '../lib/moderation'
+import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
 import {
   CONVERSATION_THEMES,
   getConversationTheme,
@@ -40,6 +41,12 @@ import {
   resolveConversationThemeId,
   normalizeConversationThemeId
 } from '../lib/conversationThemes'
+import {
+  getFreshWallpaperCacheEntry,
+  getWallpaperScopeKey,
+  preloadWallpaperImage,
+  resolveWallpaperUrl
+} from '../lib/wallpaperRuntime'
 import {
   CHAT_WALLPAPERS,
   CUSTOM_WALLPAPER_PREFIX,
@@ -136,7 +143,7 @@ export default function Dashboard({ session }) {
     typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
   ))
   const [conversationThemeSchemaAvailable, setConversationThemeSchemaAvailable] = useState(null)
-  const [customWallpaperUrl, setCustomWallpaperUrl] = useState('')
+  const [customWallpaperState, setCustomWallpaperState] = useState({ scopeKey: '', url: '' })
   const [customWallpaperBusy, setCustomWallpaperBusy] = useState(false)
   const [view, setView] = useState('home')
   const [homeTab, setHomeTab] = useState('all')
@@ -180,6 +187,8 @@ export default function Dashboard({ session }) {
   const serversFetchRef = useRef(null)
   const dmsFetchRef = useRef(null)
   const conversationThemeSchemaAvailableRef = useRef(null)
+  const customWallpaperCacheRef = useRef(new Map())
+  const customWallpaperRequestRef = useRef(0)
   const serverChannelsRequestRef = useRef(0)
   const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
@@ -267,6 +276,8 @@ export default function Dashboard({ session }) {
   const webRTCProps = useWebRTC(session, activeDm)
   const [imageZoom, setImageZoom] = useState(1)
   const [imagePan, setImagePan] = useState({ x: 0, y: 0 })
+  const imageZoomRef = useRef(1)
+  const imagePanRef = useRef({ x: 0, y: 0 })
   const imagePointersRef = useRef(new Map())
   const imageGestureRef = useRef({ pinchDistance: 0, pinchZoom: 1, dragStart: null })
   const screenShareClientFactory = useMemo(() => () => ({
@@ -281,13 +292,18 @@ export default function Dashboard({ session }) {
   const selectedImageItems = chatManagerProps.selectedImage?.items?.length
     ? chatManagerProps.selectedImage.items
     : chatManagerProps.selectedImage?.url
-      ? [{ url: chatManagerProps.selectedImage.url, name: 'Image' }]
+      ? [{
+          url: chatManagerProps.selectedImage.url,
+          name: chatManagerProps.selectedImage.type === 'video' ? 'Video' : 'Image',
+          type: chatManagerProps.selectedImage.type || 'image'
+        }]
       : []
   const selectedImageIndex = Math.min(
     Math.max(Number(chatManagerProps.selectedImage?.index) || 0, 0),
     Math.max(selectedImageItems.length - 1, 0)
   )
   const selectedImageItem = selectedImageItems[selectedImageIndex]
+  const selectedMediaIsVideo = selectedImageItem?.type === 'video'
   const moveSelectedImage = (direction) => {
     if (selectedImageItems.length < 2) return
     const index = (selectedImageIndex + direction + selectedImageItems.length) % selectedImageItems.length
@@ -295,6 +311,8 @@ export default function Dashboard({ session }) {
   }
 
   useEffect(() => {
+    imageZoomRef.current = 1
+    imagePanRef.current = { x: 0, y: 0 }
     setImageZoom(1)
     setImagePan({ x: 0, y: 0 })
     imagePointersRef.current.clear()
@@ -302,12 +320,16 @@ export default function Dashboard({ session }) {
   }, [selectedImageItem?.url])
 
   const clampImageZoom = value => Math.min(4, Math.max(1, value))
+  const setCurrentImagePan = next => {
+    imagePanRef.current = next
+    setImagePan(next)
+  }
   const setBoundedImageZoom = updater => {
-    setImageZoom(current => {
-      const next = clampImageZoom(typeof updater === 'function' ? updater(current) : updater)
-      if (next === 1) setImagePan({ x: 0, y: 0 })
-      return Number(next.toFixed(2))
-    })
+    const current = imageZoomRef.current
+    const next = Number(clampImageZoom(typeof updater === 'function' ? updater(current) : updater).toFixed(2))
+    imageZoomRef.current = next
+    setImageZoom(next)
+    if (next === 1) setCurrentImagePan({ x: 0, y: 0 })
   }
   const getPointerDistance = pointers => Math.hypot(pointers[0].x - pointers[1].x, pointers[0].y - pointers[1].y)
   const handleImagePointerDown = event => {
@@ -317,10 +339,10 @@ export default function Dashboard({ session }) {
     const pointers = Array.from(imagePointersRef.current.values())
     if (pointers.length === 2) {
       imageGestureRef.current.pinchDistance = getPointerDistance(pointers)
-      imageGestureRef.current.pinchZoom = imageZoom
+      imageGestureRef.current.pinchZoom = imageZoomRef.current
       imageGestureRef.current.dragStart = null
-    } else if (pointers.length === 1 && imageZoom > 1) {
-      imageGestureRef.current.dragStart = { x: event.clientX, y: event.clientY, pan: imagePan }
+    } else if (pointers.length === 1 && imageZoomRef.current > 1) {
+      imageGestureRef.current.dragStart = { x: event.clientX, y: event.clientY, pan: imagePanRef.current }
     }
   }
   const handleImagePointerMove = event => {
@@ -335,8 +357,8 @@ export default function Dashboard({ session }) {
       return
     }
     const dragStart = imageGestureRef.current.dragStart
-    if (pointers.length === 1 && dragStart && imageZoom > 1) {
-      setImagePan({ x: dragStart.pan.x + event.clientX - dragStart.x, y: dragStart.pan.y + event.clientY - dragStart.y })
+    if (pointers.length === 1 && dragStart && imageZoomRef.current > 1) {
+      setCurrentImagePan({ x: dragStart.pan.x + event.clientX - dragStart.x, y: dragStart.pan.y + event.clientY - dragStart.y })
     }
   }
   const handleImagePointerEnd = event => {
@@ -344,8 +366,8 @@ export default function Dashboard({ session }) {
     imagePointersRef.current.delete(event.pointerId)
     const remaining = Array.from(imagePointersRef.current.values())
     imageGestureRef.current.pinchDistance = 0
-    if (remaining.length === 1 && imageZoom > 1) {
-      imageGestureRef.current.dragStart = { x: remaining[0].x, y: remaining[0].y, pan: imagePan }
+    if (remaining.length === 1 && imageZoomRef.current > 1) {
+      imageGestureRef.current.dragStart = { x: remaining[0].x, y: remaining[0].y, pan: imagePanRef.current }
     } else {
       imageGestureRef.current.dragStart = null
     }
@@ -696,14 +718,23 @@ export default function Dashboard({ session }) {
 
     const syncProfile = async () => {
       if (session?.user?.id && session?.user?.user_metadata) {
-        const { data: existingProfile, error: profileFetchError } = await supabase.from('profiles').select('public_key, encrypted_private_key, username, unique_tag, avatar_url, banner_url, bio, pronouns').eq('id', session.user.id).maybeSingle()
+        const [
+          { data: existingProfile, error: profileFetchError },
+          { data: profileSecrets, error: profileSecretsError }
+        ] = await Promise.all([
+          supabase.from('profiles').select('public_key, username, unique_tag, avatar_url, banner_url, bio, pronouns').eq('id', session.user.id).maybeSingle(),
+          loadMyProfileSecrets(supabase, session.user.id)
+        ])
         if (profileFetchError) {
           console.warn('Profile sync lookup failed', profileFetchError.message)
           return
         }
+        if (profileSecretsError) {
+          console.warn('Secure profile lookup failed', profileSecretsError.message)
+        }
 
-        let pubKeyStr = existingProfile?.public_key || null;
-        let encryptedPrivKey = existingProfile?.encrypted_private_key || null;
+        let pubKeyStr = profileSecrets?.public_key || existingProfile?.public_key || null;
+        let encryptedPrivKey = profileSecrets?.encrypted_private_key || null;
         let privKeyJwkStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
         let pubKeyJwkStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
         let forceNew = localStorage.getItem(`e2ee_force_new_key_${session.user.id}`) === 'true';
@@ -1605,39 +1636,72 @@ export default function Dashboard({ session }) {
   )
   const currentConversationTheme = getConversationTheme(currentConversationThemeId, appThemeMode)
   const currentThemeHex = currentConversationTheme.palette.accent
-  const currentWallpaper = normalizeChatWallpaper(activeDm?.dm_rooms?.wallpaper)
+  const currentWallpaper = normalizeChatWallpaper(
+    view === 'home' ? activeDm?.dm_rooms?.wallpaper : null
+  )
   const currentWallpaperConfig = getChatWallpaper(currentWallpaper)
-  const wallpaperCSS = isCustomWallpaperValue(currentWallpaper) && customWallpaperUrl
-    ? `url(${JSON.stringify(customWallpaperUrl)})`
+  const customWallpaperPath = getCustomWallpaperPath(currentWallpaper)
+  const customWallpaperScopeKey = getWallpaperScopeKey(activeDm?.dm_room_id, customWallpaperPath)
+  const resolvedCustomWallpaperUrl = resolveWallpaperUrl(
+    customWallpaperCacheRef.current,
+    customWallpaperScopeKey,
+    customWallpaperState
+  )
+  const wallpaperCSS = customWallpaperScopeKey && resolvedCustomWallpaperUrl
+    ? `url(${JSON.stringify(resolvedCustomWallpaperUrl)})`
     : currentWallpaperConfig.css || 'none'
 
   useEffect(() => {
-    const path = getCustomWallpaperPath(currentWallpaper)
-    if (!path || !activeDm?.dm_room_id) {
-      setCustomWallpaperUrl('')
+    const roomId = activeDm?.dm_room_id
+    const path = customWallpaperPath
+    const scopeKey = getWallpaperScopeKey(roomId, path)
+    const requestId = ++customWallpaperRequestRef.current
+    if (!scopeKey) {
+      setCustomWallpaperState({ scopeKey: '', url: '' })
       return undefined
     }
+
     let active = true
     let refreshTimer
-    const loadSignedUrl = () => supabase.storage
-      .from('chat-attachments')
-      .createSignedUrl(path, 3600)
-      .then(({ data, error }) => {
-        if (!active) return
-        if (error) {
-          setCustomWallpaperUrl('')
-          console.warn('[CHAT_WALLPAPER]', { operation: 'sign', code: error.code, message: error.message })
-          return
+    const cached = getFreshWallpaperCacheEntry(customWallpaperCacheRef.current, scopeKey)
+    setCustomWallpaperState(cached
+      ? { scopeKey, url: cached.url }
+      : { scopeKey, url: '' }
+    )
+
+    const loadSignedUrl = async () => {
+      const { data, error } = await supabase.storage
+        .from('chat-attachments')
+        .createSignedUrl(path, 3600)
+      if (!active || requestId !== customWallpaperRequestRef.current) return
+      if (error || !data?.signedUrl) {
+        setCustomWallpaperState(current => current.scopeKey === scopeKey ? { scopeKey, url: '' } : current)
+        console.warn('[CHAT_WALLPAPER]', { operation: 'sign', code: error?.code, message: error?.message })
+        return
+      }
+      try {
+        await preloadWallpaperImage(data.signedUrl)
+      } catch (_err) {
+        if (active && requestId === customWallpaperRequestRef.current) {
+          setCustomWallpaperState(current => current.scopeKey === scopeKey ? { scopeKey, url: '' } : current)
         }
-        setCustomWallpaperUrl(data?.signedUrl || '')
-        refreshTimer = window.setTimeout(loadSignedUrl, 55 * 60 * 1000)
-      })
-    loadSignedUrl()
+        return
+      }
+      if (!active || requestId !== customWallpaperRequestRef.current) return
+      const entry = { url: data.signedUrl, expiresAt: Date.now() + (55 * 60 * 1000) }
+      customWallpaperCacheRef.current.set(scopeKey, entry)
+      setCustomWallpaperState({ scopeKey, url: entry.url })
+      refreshTimer = window.setTimeout(loadSignedUrl, 50 * 60 * 1000)
+    }
+
+    if (!cached) loadSignedUrl()
+    else refreshTimer = window.setTimeout(loadSignedUrl, Math.max(60_000, cached.expiresAt - Date.now() - (5 * 60 * 1000)))
+
     return () => {
       active = false
       window.clearTimeout(refreshTimer)
     }
-  }, [activeDm?.dm_room_id, currentWallpaper])
+  }, [activeDm?.dm_room_id, customWallpaperPath])
 
   const scopedChatStyle = isChatActive ? getConversationThemeStyle(currentConversationThemeId, appThemeMode) : {
     '--theme-base': 'var(--app-accent)',
@@ -1930,75 +1994,108 @@ export default function Dashboard({ session }) {
           className="premium-backdrop fixed inset-0 z-[400] flex flex-col items-center justify-center px-[max(1rem,env(safe-area-inset-left))] py-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] animate-fade-in"
           onClick={() => chatManagerProps.setSelectedImage(null)}
         >
-          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-3 bg-gradient-to-b from-black/80 to-transparent px-[max(1rem,env(safe-area-inset-left))] pb-6 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))]">
-            <div className="flex flex-col">
-              <span className="text-white font-bold">{chatManagerProps.selectedImage.user}</span>
-              <span className="text-gray-400 text-xs">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
-            </div>
-            <button 
-              className="text-white/50 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); chatManagerProps.setSelectedImage(null); }}
-            >
-              <X size={24} />
-            </button>
-          </div>
-          
-          <div
-            className={`flex h-[calc(100dvh-10rem)] w-full items-center justify-center overflow-hidden p-4 select-none touch-none ${imageZoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`}
-            onClick={event => event.stopPropagation()}
-            onDoubleClick={() => setBoundedImageZoom(imageZoom > 1 ? 1 : 2)}
-            onPointerDown={handleImagePointerDown}
-            onPointerMove={handleImagePointerMove}
-            onPointerUp={handleImagePointerEnd}
-            onPointerCancel={handleImagePointerEnd}
-            onWheel={event => {
-              event.preventDefault()
-              event.stopPropagation()
-              setBoundedImageZoom(value => value + (event.deltaY < 0 ? 0.25 : -0.25))
-            }}
-            aria-label="Image viewer. Pinch or use controls to zoom."
-          >
-            <img
-              src={selectedImageItem?.url}
-              alt="Expanded view"
-              className="pointer-events-none max-w-full max-h-[calc(100dvh-max(9rem,env(safe-area-inset-top))-max(7rem,env(safe-area-inset-bottom)))] origin-center rounded-lg object-contain shadow-[0_22px_70px_rgba(0,0,0,0.55)] animate-slide-up"
-              style={{ transform: `translate3d(${imagePan.x}px, ${imagePan.y}px, 0) scale(${imageZoom})` }}
+          {selectedMediaIsVideo ? (
+            <div
+              className="flex h-full min-h-0 w-full items-center justify-center overflow-hidden px-4 pb-[calc(9.5rem+env(safe-area-inset-bottom))] pt-4"
               onClick={event => event.stopPropagation()}
-              draggable="false"
-              decoding="async"
-              fetchPriority="high"
-            />
-          </div>
-
-          <div className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] flex items-center gap-2 rounded-full border border-white/10 bg-black/45 p-1.5 text-white shadow-lg backdrop-blur-md" onClick={event => event.stopPropagation()}>
-            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => setBoundedImageZoom(value => value - 0.25)} disabled={imageZoom <= 1} aria-label="Zoom out">
-              <ZoomOut size={20} />
-            </button>
-            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => moveSelectedImage(-1)} disabled={selectedImageItems.length < 2} aria-label="Previous image">
-              <ChevronLeft size={22} />
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
-              onClick={() => {
-                const a = document.createElement('a')
-                a.style.display = 'none'
-                a.href = selectedImageItem?.url
-                a.download = selectedImageItem?.name || `messapp_image_${crypto.randomUUID().substring(0, 8)}.jpg`
-                document.body.appendChild(a)
-                a.click()
-                a.remove()
-                toast.success('Image download started')
-              }}
+              aria-label="Video viewer"
             >
-              <Download size={18} /><span className="hidden sm:inline">Save Image</span><span className="sm:hidden">Save</span>
-            </button>
-            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => moveSelectedImage(1)} disabled={selectedImageItems.length < 2} aria-label="Next image">
-              <ChevronRight size={22} />
-            </button>
-            <button type="button" className="rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => setBoundedImageZoom(value => value + 0.25)} disabled={imageZoom >= 4} aria-label="Zoom in">
-              <ZoomIn size={20} />
-            </button>
+              <video
+                key={selectedImageItem?.url}
+                src={selectedImageItem?.url}
+                controls
+                muted
+                playsInline
+                preload="metadata"
+                className="max-h-full max-w-full rounded-lg bg-black object-contain shadow-[0_22px_70px_rgba(0,0,0,0.55)] animate-slide-up"
+                aria-label={selectedImageItem?.name || 'Expanded video'}
+              >
+                Your browser cannot play this video.
+              </video>
+            </div>
+          ) : (
+            <div
+              className={`flex h-full min-h-0 w-full items-center justify-center overflow-hidden px-4 pb-[calc(9.5rem+env(safe-area-inset-bottom))] pt-4 select-none touch-none ${imageZoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`}
+              onClick={event => event.stopPropagation()}
+              onDoubleClick={() => setBoundedImageZoom(imageZoomRef.current > 1 ? 1 : 2)}
+              onPointerDown={handleImagePointerDown}
+              onPointerMove={handleImagePointerMove}
+              onPointerUp={handleImagePointerEnd}
+              onPointerCancel={handleImagePointerEnd}
+              onLostPointerCapture={handleImagePointerEnd}
+              onWheel={event => {
+                event.preventDefault()
+                event.stopPropagation()
+                setBoundedImageZoom(value => value + (event.deltaY < 0 ? 0.25 : -0.25))
+              }}
+              aria-label="Image viewer. Pinch or use controls to zoom."
+            >
+              <img
+                src={selectedImageItem?.url}
+                alt="Expanded view"
+                className="pointer-events-none max-h-full max-w-full origin-center rounded-lg object-contain shadow-[0_22px_70px_rgba(0,0,0,0.55)]"
+                style={{ transform: `translate3d(${imagePan.x}px, ${imagePan.y}px, 0) scale(${imageZoom})` }}
+                onClick={event => event.stopPropagation()}
+                draggable="false"
+                decoding="async"
+                fetchPriority="high"
+              />
+            </div>
+          )}
+
+          <div
+            className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] z-10 flex w-[min(42rem,calc(100%_-_2rem))] flex-col gap-1.5 rounded-2xl border border-white/10 bg-black/75 p-2 text-white shadow-lg backdrop-blur-md"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-3 px-2 py-1">
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-sm font-bold text-white">{chatManagerProps.selectedImage.user}</span>
+                <span className="truncate text-xs text-gray-400">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
+              </div>
+              <button
+                type="button"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
+                onClick={() => chatManagerProps.setSelectedImage(null)}
+                aria-label="Close media viewer"
+              >
+                <X size={22} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-center gap-1 overflow-x-auto">
+              {!selectedMediaIsVideo && (
+                <button type="button" className="shrink-0 rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => setBoundedImageZoom(value => value - 0.25)} disabled={imageZoom <= 1} aria-label="Zoom out">
+                  <ZoomOut size={20} />
+                </button>
+              )}
+              <button type="button" className="shrink-0 rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => moveSelectedImage(-1)} disabled={selectedImageItems.length < 2} aria-label="Previous media">
+                <ChevronLeft size={22} />
+              </button>
+              <button
+                type="button"
+                className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
+                onClick={() => {
+                  const a = document.createElement('a')
+                  a.style.display = 'none'
+                  a.href = selectedImageItem?.url
+                  a.download = selectedImageItem?.name || `messapp_${selectedMediaIsVideo ? 'video' : 'image'}_${crypto.randomUUID().substring(0, 8)}.${selectedMediaIsVideo ? 'mp4' : 'jpg'}`
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  toast.success(`${selectedMediaIsVideo ? 'Video' : 'Image'} download started`)
+                }}
+              >
+                <Download size={18} /><span className="hidden sm:inline">Save {selectedMediaIsVideo ? 'Video' : 'Image'}</span><span className="sm:hidden">Save</span>
+              </button>
+              <button type="button" className="shrink-0 rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => moveSelectedImage(1)} disabled={selectedImageItems.length < 2} aria-label="Next media">
+                <ChevronRight size={22} />
+              </button>
+              {!selectedMediaIsVideo && (
+                <button type="button" className="shrink-0 rounded-full p-2.5 transition hover:bg-white/15 disabled:opacity-35" onClick={() => setBoundedImageZoom(value => value + 0.25)} disabled={imageZoom >= 4} aria-label="Zoom in">
+                  <ZoomIn size={20} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -2035,10 +2132,11 @@ export default function Dashboard({ session }) {
                   const { encryptKeyWithPin } = await import('../lib/crypto');
                   const encryptedKey = await encryptKeyWithPin(setupPinInput, priv);
                   
-                  const updatePayload = { encrypted_private_key: encryptedKey };
-                  if (pubKey) updatePayload.public_key = pubKey;
-
-                  const { error } = await supabase.from('profiles').update(updatePayload).eq('id', session.user.id);
+                  const { error } = await saveMyProfileKeyBackup(supabase, {
+                    profileId: session.user.id,
+                    encryptedPrivateKey: encryptedKey,
+                    publicKey: pubKey
+                  });
                   if (error) throw error;
                   
                   toast.success('Security setup complete!', { id: toastId });
@@ -2080,7 +2178,8 @@ export default function Dashboard({ session }) {
                 onClick={async () => {
                   try {
                     if (recoveryCodeInput.length !== 6) throw new Error("Invalid PIN length");
-                    const { data } = await supabase.from('profiles').select('encrypted_private_key, public_key').eq('id', session.user.id).single();
+                    const { data, error } = await loadMyProfileSecrets(supabase, session.user.id);
+                    if (error) throw error;
                     if (!data?.encrypted_private_key) throw new Error("No backup found");
                     
                     const { decryptKeyWithPin, importPrivateKey } = await import('../lib/crypto');
