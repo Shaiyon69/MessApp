@@ -13,6 +13,7 @@ import ChatEmojiPicker from '../chat/ChatEmojiPicker'
 import SfuScreenShare from '../screen-share/SfuScreenShare'
 import { debug } from '../../lib/debug'
 import { openDmEntry } from '../../lib/chatActions'
+import { primeVideoPreview } from '../../lib/videoPreview'
 
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
@@ -425,7 +426,7 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={() => props.selectChannel?.(props.activeChannel)}
-                          className="inline-flex items-center gap-2 rounded-xl bg-[var(--theme-base)] px-4 py-2.5 text-sm font-black text-white shadow-lg"
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 text-sm font-black text-[var(--chat-control-text)]"
                         >
                           <Phone size={18} aria-hidden="true" />
                           Join voice
@@ -697,7 +698,16 @@ useEffect(() => {
                         {props.pendingFiles.map((item, index) => (
                           <div key={item.id || `${item.name}-${item.size}-${index}`} className="group relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]">
                             {pendingPreviewUrls[index] && item.type === 'video' ? (
-                              <video src={pendingPreviewUrls[index]} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                              <video
+                                src={pendingPreviewUrls[index]}
+                                className="h-full w-full bg-black object-cover"
+                                muted
+                                playsInline
+                                preload="metadata"
+                                onLoadedMetadata={primeVideoPreview}
+                                onLoadedData={primeVideoPreview}
+                                onCanPlay={primeVideoPreview}
+                              />
                             ) : pendingPreviewUrls[index] ? (
                               <img src={pendingPreviewUrls[index]} alt={item.name || 'Attachment preview'} className={`h-full w-full object-cover ${item.isSpoiler ? 'scale-110 blur-lg' : ''}`} />
                             ) : (
@@ -778,7 +788,7 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={(e) => props.handleUpdateMessage(e, props.editingMessageId, { allowEmpty: true })}
-                          className="rounded-full bg-[var(--theme-base)] px-3 py-1.5 text-xs font-bold text-white"
+                          className="rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-3 py-1.5 text-xs font-bold text-[var(--chat-control-text)]"
                         >
                           Save
                         </button>
@@ -913,7 +923,7 @@ useEffect(() => {
                     >
                       <EyeOff size={18} aria-hidden="true" />
                     </button>
-                    <button type="submit" disabled={props.isUploading} className="w-[44px] h-[44px] flex items-center justify-center rounded-full bg-[var(--theme-base)] text-white hover:brightness-110 shadow-lg shadow-[var(--theme-50)] transition-all shrink-0 disabled:opacity-50 cursor-pointer">
+                    <button type="submit" disabled={props.isUploading} className="flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)] transition-all hover:brightness-110 disabled:opacity-50">
                       <Send size={18} className="translate-x-[-1px] translate-y-[1px]" aria-hidden="true" />
                     </button>
                   </form>

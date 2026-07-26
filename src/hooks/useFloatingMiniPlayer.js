@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { beginNativeMiniPlayerDrag } from '../lib/nativeMiniPlayerDrag.js'
 
 const VIEWPORT_GUTTER = 8
 const KEYBOARD_STEP = 20
@@ -16,6 +17,48 @@ function readStoredPosition(storageKey) {
   }
 
   return null
+}
+
+function createDragProxy(rect) {
+  if (typeof document === 'undefined' || !document.body) return null
+  const proxy = document.createElement('div')
+  proxy.className = 'floating-mini-player-drag-proxy'
+  proxy.setAttribute('aria-hidden', 'true')
+  Object.assign(proxy.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`
+  })
+  document.body.appendChild(proxy)
+  return proxy
+}
+
+function removeNativeDragListeners(drag) {
+  if (!drag || typeof window === 'undefined') return
+  if (drag.frameId != null) {
+    window.cancelAnimationFrame(drag.frameId)
+    drag.frameId = null
+  }
+  if (drag.moveEventName && drag.moveListener) {
+    window.removeEventListener(drag.moveEventName, drag.moveListener, true)
+  }
+  if (drag.finishListener) {
+    window.removeEventListener('pointerup', drag.finishListener, true)
+    window.removeEventListener('pointercancel', drag.finishListener, true)
+  }
+}
+
+function removeNativeDragMoveListener(drag) {
+  if (!drag || typeof window === 'undefined') return
+  if (drag.frameId != null) {
+    window.cancelAnimationFrame(drag.frameId)
+    drag.frameId = null
+  }
+  if (!drag.moveEventName || !drag.moveListener) return
+  window.removeEventListener(drag.moveEventName, drag.moveListener, true)
+  drag.moveEventName = null
+  drag.moveListener = null
 }
 
 export function clampMiniPlayerPosition(position, playerRect, viewport) {
@@ -37,7 +80,6 @@ export default function useFloatingMiniPlayer(storageKey) {
   const dragRef = useRef(null)
   const positionRef = useRef(readStoredPosition(storageKey))
   const [position, setPosition] = useState(positionRef.current)
-  const [isDragging, setIsDragging] = useState(false)
 
   const getViewport = useCallback(() => ({
     width: window.visualViewport?.width || document.documentElement.clientWidth || window.innerWidth,
@@ -64,8 +106,10 @@ export default function useFloatingMiniPlayer(storageKey) {
   const finishDragging = useCallback((event) => {
     const drag = dragRef.current
     if (!drag || (event?.pointerId != null && drag.pointerId !== event.pointerId)) return
-    if (drag.frameId != null) window.cancelAnimationFrame(drag.frameId)
-    const finalPosition = drag.pendingPosition || positionRef.current
+    if (drag.nativeActive && !event?.nativePosition) return
+    removeNativeDragListeners(drag)
+    if (drag.nativeFallbackTimer != null) window.clearTimeout(drag.nativeFallbackTimer)
+    const finalPosition = event?.nativePosition || drag.pendingPosition || positionRef.current
     const player = playerRef.current
     if (finalPosition && player) {
       player.style.left = `${finalPosition.x}px`
@@ -76,9 +120,14 @@ export default function useFloatingMiniPlayer(storageKey) {
       positionRef.current = finalPosition
       setPosition(finalPosition)
     }
+    drag.proxy?.remove()
+    if (player) player.style.opacity = drag.previousOpacity
+    if (player) player.style.visibility = drag.previousVisibility
+    player?.classList.remove('is-dragging')
+    drag.handle?.setAttribute('aria-grabbed', 'false')
     dragRef.current = null
-    setIsDragging(false)
     persistPosition()
+    void drag.nativeControl?.complete()
   }, [persistPosition])
 
   const handlePointerDown = useCallback((event) => {
@@ -90,45 +139,131 @@ export default function useFloatingMiniPlayer(storageKey) {
     event.currentTarget.setPointerCapture?.(event.pointerId)
     const startPosition = { x: rect.left, y: rect.top }
     const player = playerRef.current
+    const useProxy = event.pointerType === 'touch' || window.matchMedia?.('(max-width: 767px)')?.matches
+    const proxy = useProxy ? createDragProxy(rect) : null
+    const previousOpacity = player.style.opacity
+    const previousVisibility = player.style.visibility
     player.style.left = `${rect.left}px`
     player.style.top = `${rect.top}px`
     player.style.right = 'auto'
     player.style.bottom = 'auto'
     player.style.transform = ''
     positionRef.current = startPosition
-    setPosition(startPosition)
-    dragRef.current = {
+    player.classList.add('is-dragging')
+    if (proxy) player.style.visibility = 'hidden'
+    event.currentTarget.setAttribute('aria-grabbed', 'true')
+    const drag = {
       pointerId: event.pointerId,
+      handle: event.currentTarget,
       startX: event.clientX,
       startY: event.clientY,
       originX: rect.left,
       originY: rect.top,
       width: rect.width,
       height: rect.height,
-      pendingPosition: startPosition,
-      frameId: null
+      viewport: getViewport(),
+      proxy,
+      previousOpacity,
+      previousVisibility,
+      frameId: null,
+      pendingPosition: startPosition
     }
-    setIsDragging(true)
-  }, [])
+    const getPointerPosition = (pointerEvent) => {
+      const coalescedEvents = pointerEvent.getCoalescedEvents?.()
+      const pointer = coalescedEvents?.length ? coalescedEvents[coalescedEvents.length - 1] : pointerEvent
+      return clampMiniPlayerPosition({
+        x: drag.originX + pointer.clientX - drag.startX,
+        y: drag.originY + pointer.clientY - drag.startY
+      }, { width: drag.width, height: drag.height }, drag.viewport)
+    }
+    const moveListener = (pointerEvent) => {
+      if (dragRef.current !== drag || drag.pointerId !== pointerEvent.pointerId) return
+      const next = getPointerPosition(pointerEvent)
+      drag.pendingPosition = next
+      positionRef.current = next
+      if (drag.frameId != null) return
+      drag.frameId = window.requestAnimationFrame(() => {
+        drag.frameId = null
+        if (dragRef.current !== drag) return
+        const movingLayer = drag.proxy || playerRef.current
+        const pending = drag.pendingPosition
+        if (movingLayer && pending) {
+          movingLayer.style.transform = `translate3d(${pending.x - drag.originX}px, ${pending.y - drag.originY}px, 0)`
+        }
+      })
+    }
+    const finishListener = (pointerEvent) => {
+      if (drag.nativeActive) {
+        drag.pendingPosition = getPointerPosition(pointerEvent)
+        positionRef.current = drag.pendingPosition
+        if (drag.nativeFallbackTimer == null) {
+          drag.nativeFallbackTimer = window.setTimeout(() => {
+            if (dragRef.current !== drag) return
+            drag.nativeActive = false
+            void drag.nativeControl?.cancel()
+            finishDragging({ pointerId: drag.pointerId })
+          }, 350)
+        }
+        return
+      }
+      finishDragging(pointerEvent)
+    }
+    drag.moveEventName = 'pointermove'
+    drag.moveListener = moveListener
+    drag.finishListener = finishListener
+    dragRef.current = drag
+    window.addEventListener(drag.moveEventName, moveListener, { capture: true, passive: true })
+    window.addEventListener('pointerup', finishListener, { capture: true, passive: true })
+    window.addEventListener('pointercancel', finishListener, { capture: true, passive: true })
 
-  const handlePointerMove = useCallback((event) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    drag.pendingPosition = clampMiniPlayerPosition({
-      x: drag.originX + event.clientX - drag.startX,
-      y: drag.originY + event.clientY - drag.startY
-    }, { width: drag.width, height: drag.height }, getViewport())
-    positionRef.current = drag.pendingPosition
-    if (drag.frameId != null) return
-    drag.frameId = window.requestAnimationFrame(() => {
-      const activeDrag = dragRef.current
-      const player = playerRef.current
-      if (!activeDrag || activeDrag !== drag || !player) return
-      activeDrag.frameId = null
-      const next = activeDrag.pendingPosition
-      player.style.transform = `translate3d(${next.x - activeDrag.originX}px, ${next.y - activeDrag.originY}px, 0)`
-    })
-  }, [getViewport])
+    const compact = window.matchMedia?.('(max-width: 767px)')?.matches === true
+    if (event.pointerType === 'touch' && compact) {
+      const nativeOptions = {
+        pointerType: event.pointerType,
+        compact,
+        startX: event.clientX,
+        startY: event.clientY,
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: drag.viewport.width,
+        viewportHeight: drag.viewport.height,
+        gutter: VIEWPORT_GUTTER,
+        scale: window.devicePixelRatio || 1
+      }
+
+      void beginNativeMiniPlayerDrag(nativeOptions, (result, control) => {
+        if (dragRef.current !== drag) {
+          void control.cancel()
+          return
+        }
+        const nativePosition = Number.isFinite(result?.x) && Number.isFinite(result?.y)
+          ? clampMiniPlayerPosition(
+              { x: result.x, y: result.y },
+              { width: drag.width, height: drag.height },
+              drag.viewport
+            )
+          : drag.pendingPosition
+        finishDragging({
+          pointerId: drag.pointerId,
+          nativePosition
+        })
+      }).then((control) => {
+        if (!control) return
+        if (dragRef.current !== drag) {
+          void control.cancel()
+          return
+        }
+
+        drag.nativeActive = true
+        drag.nativeControl = control
+        removeNativeDragMoveListener(drag)
+        drag.proxy?.remove()
+        drag.proxy = null
+      })
+    }
+  }, [finishDragging, getViewport])
 
   const handleKeyDown = useCallback((event) => {
     const movement = {
@@ -148,10 +283,21 @@ export default function useFloatingMiniPlayer(storageKey) {
   }, [persistPosition, setClampedPosition])
 
   const resetPosition = useCallback(() => {
+    void dragRef.current?.nativeControl?.cancel()
+    if (dragRef.current?.nativeFallbackTimer != null) {
+      window.clearTimeout(dragRef.current.nativeFallbackTimer)
+    }
+    removeNativeDragListeners(dragRef.current)
+    dragRef.current?.proxy?.remove()
+    if (playerRef.current && dragRef.current) {
+      playerRef.current.style.opacity = dragRef.current.previousOpacity
+      playerRef.current.style.visibility = dragRef.current.previousVisibility
+    }
+    playerRef.current?.classList.remove('is-dragging')
+    dragRef.current?.handle?.setAttribute('aria-grabbed', 'false')
     dragRef.current = null
     positionRef.current = null
     setPosition(null)
-    setIsDragging(false)
     try {
       window.localStorage.removeItem(storageKey)
     } catch {
@@ -175,20 +321,24 @@ export default function useFloatingMiniPlayer(storageKey) {
   }, [setClampedPosition])
 
   useEffect(() => () => {
-    if (dragRef.current?.frameId != null) window.cancelAnimationFrame(dragRef.current.frameId)
+    const drag = dragRef.current
+    void drag?.nativeControl?.cancel()
+    if (drag?.nativeFallbackTimer != null) window.clearTimeout(drag.nativeFallbackTimer)
+    removeNativeDragListeners(drag)
+    drag?.proxy?.remove()
+    if (playerRef.current && drag) {
+      playerRef.current.style.opacity = drag.previousOpacity
+      playerRef.current.style.visibility = drag.previousVisibility
+    }
   }, [])
 
   return {
     playerRef,
-    isDragging,
     floatingStyle: position
       ? { left: `${position.x}px`, top: `${position.y}px`, right: 'auto', bottom: 'auto' }
       : undefined,
     dragHandleProps: {
       onPointerDown: handlePointerDown,
-      onPointerMove: handlePointerMove,
-      onPointerUp: finishDragging,
-      onPointerCancel: finishDragging,
       onLostPointerCapture: finishDragging,
       onKeyDown: handleKeyDown,
       onDoubleClick: resetPosition
