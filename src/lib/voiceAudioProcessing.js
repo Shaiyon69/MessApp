@@ -8,12 +8,17 @@ export function getSupportedAudioConstraints(mediaDevices = globalThis.navigator
   }
 }
 
-export function buildVoiceAudioConstraints(enabled = true, supported = {}) {
+export function buildVoiceAudioConstraints(enabled = true, supported = {}, preferences = {}) {
   const constraints = {}
   const hasCapabilityReport = Object.keys(supported).length > 0
+  const values = {
+    echoCancellation: preferences.echoCancellation ?? enabled,
+    noiseSuppression: enabled,
+    autoGainControl: preferences.autoGainControl ?? enabled
+  }
 
   for (const key of CORE_PROCESSING_KEYS) {
-    if (!hasCapabilityReport || supported[key]) constraints[key] = enabled
+    if (!hasCapabilityReport || supported[key]) constraints[key] = values[key]
   }
 
   if (supported.channelCount) constraints.channelCount = { ideal: 1 }
@@ -38,12 +43,21 @@ function markStreamAsSpeech(stream) {
 export async function getVoiceMediaStream({
   mediaDevices = globalThis.navigator?.mediaDevices,
   video = false,
-  noiseReduction = true
+  noiseReduction = true,
+  echoCancellation,
+  autoGainControl
 } = {}) {
   if (!mediaDevices?.getUserMedia) throw new Error('Microphone capture is unavailable')
 
   const supported = getSupportedAudioConstraints(mediaDevices)
-  const enhancedAudio = buildVoiceAudioConstraints(noiseReduction, supported)
+  const settingsStorage = typeof window !== 'undefined' ? window.localStorage : null
+  const storedEchoCancellation = settingsStorage?.getItem('voiceEchoCancel') !== 'false'
+  const storedAutoGainControl = settingsStorage?.getItem('voiceAutoGain') !== 'false'
+  const preferences = {
+    echoCancellation: echoCancellation ?? storedEchoCancellation,
+    autoGainControl: autoGainControl ?? storedAutoGainControl
+  }
+  const enhancedAudio = buildVoiceAudioConstraints(noiseReduction, supported, preferences)
 
   try {
     return markStreamAsSpeech(await mediaDevices.getUserMedia({ video, audio: enhancedAudio }))
@@ -52,9 +66,9 @@ export async function getVoiceMediaStream({
   }
 
   const coreAudio = {
-    echoCancellation: noiseReduction,
+    echoCancellation: preferences.echoCancellation,
     noiseSuppression: noiseReduction,
-    autoGainControl: noiseReduction
+    autoGainControl: preferences.autoGainControl
   }
 
   try {

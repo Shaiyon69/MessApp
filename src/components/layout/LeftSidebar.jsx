@@ -4,12 +4,13 @@
  * server, invite, category, and channel mutation.
  */
 import React, { useEffect, useRef, useState } from 'react'
-import { Camera, Gamepad2, GraduationCap, Hash, Home, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Sparkles, Volume2, VolumeX } from 'lucide-react'
+import { Camera, Gamepad2, GraduationCap, Hash, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Sparkles, Volume2, VolumeX, X, Users, ChevronLeft } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import toast from 'react-hot-toast'
 import { safeMediaUrl } from '../../lib/security'
 import { supabase } from '../../supabaseClient'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
+import { getConversationTheme, resolveConversationThemeId } from '../../lib/conversationThemes'
 
 const SERVER_PRESET_OPTIONS = [
   { ...SERVER_PRESETS.gaming, Icon: Gamepad2, accent: 'text-violet-300', active: 'border-violet-400/70 bg-violet-500/15' },
@@ -18,6 +19,8 @@ const SERVER_PRESET_OPTIONS = [
 ]
 
 export default function LeftSidebar(props) {
+  const [sidebarSection, setSidebarSection] = useState(() => props.view === 'server' ? 'servers' : 'people')
+  const [serverPanelView, setServerPanelView] = useState('list')
   const [isEditingStatus, setIsEditingStatus] = useState(false)
   const [statusDraft, setStatusDraft] = useState(props.myBio || '')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -101,11 +104,11 @@ export default function LeftSidebar(props) {
   const refreshServers = async (server) => {
     await props.fetchServers?.()
     if (server) {
-      props.setView('server')
+      setSidebarSection('servers')
+      setServerPanelView('detail')
+      props.setView('home')
       props.setActiveServer(server)
       props.setActiveChannel(null)
-      props.selectDm(null)
-      props.setMobileMenuOpen(false)
     }
   }
   const handleCreateServer = async (e) => {
@@ -325,86 +328,73 @@ export default function LeftSidebar(props) {
   return (
     <>
       {props.mobileMenuOpen && (
-        <div data-ui-overlay-owner="LeftSidebar:mobile-menu-backdrop" className="premium-backdrop fixed inset-0 z-40 md:hidden" onClick={() => props.setMobileMenuOpen(false)} />
+        <button
+          type="button"
+          data-ui-overlay-owner="LeftSidebar:mobile-menu-backdrop"
+          className="premium-backdrop fixed inset-0 z-40 md:hidden"
+          onClick={() => props.setMobileMenuOpen(false)}
+          aria-label="Close navigation"
+        />
       )}
 
-      <div className={`fixed left-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <nav className="flex h-full w-16 flex-col items-center border-r border-[var(--border-subtle)] bg-[#0f1117] py-3 shrink-0 relative z-20">
-          <div className="flex flex-1 flex-col gap-2 overflow-y-auto custom-scrollbar px-2">
-            {props.serversLoading && props.servers.length === 0 && Array.from({ length: 4 }, (_, index) => (
-              <div key={`server-skeleton-${index}`} className="h-12 w-12 animate-pulse rounded-2xl bg-gray-800/80" aria-hidden="true" />
-            ))}
-            {props.servers.map((server, i) => {
-              const isActive = props.activeServer?.id === server.id && props.view === 'server'
-              const iconUrl = safeMediaUrl(server.icon_url)
+      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <aside
+          className="app-left-panel ios-glass-sidebar flex h-full w-screen max-w-none shrink-0 flex-col md:m-3 md:mr-0 md:h-[calc(100%-1.5rem)] md:w-72 md:rounded-[2rem] lg:w-80"
+          style={props.scopedChatStyle}
+          aria-label="MessApp navigation"
+        >
+          <header className="messapp-nav-header shrink-0 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4">
+            <div className="flex min-h-12 items-center gap-3">
+              <button
+                type="button"
+                onClick={props.handleHomeClick}
+                className="flex min-h-11 min-w-0 flex-1 items-center rounded-2xl px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
+                aria-label="Go to MessApp home"
+              >
+                <span className="block truncate font-display text-[1.35rem] font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">messapp</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => props.setMobileMenuOpen(false)}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-[var(--text-muted)] outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:hidden"
+                aria-label="Close navigation"
+              >
+                <X size={22} aria-hidden="true" />
+              </button>
+            </div>
 
-              return (
-                <button
-                  key={server.id || `server-${i}`}
-                  type="button"
-                  onClick={() => { props.setView('server'); props.setActiveServer(server); props.setActiveChannel(null); props.selectDm(null); props.setMobileMenuOpen(false) }}
-                  className={`flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl text-sm font-black uppercase transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer ${isActive ? 'bg-indigo-500 text-white shadow-lg' : 'bg-[var(--bg-surface)] text-gray-300 hover:bg-[var(--bg-element)] hover:text-white'}`}
-                  title={server.name}
-                  aria-label={server.name}
-                >
-                  {iconUrl ? <img src={iconUrl} alt="" className="h-full w-full object-cover" /> : server.name?.slice(0, 2)}
-                </button>
-              )
-            })}
-          </div>
+          </header>
 
-          <div className="mt-auto flex flex-col items-center gap-2 px-2">
-            <button type="button" onClick={() => setIsJoinModalOpen(true)} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--bg-surface)] text-green-400 transition-all hover:bg-green-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 cursor-pointer" aria-label="Join Server" title="Join Server">
-              <LogIn size={22} aria-hidden="true" />
-            </button>
-            <button type="button" onClick={() => setIsCreateModalOpen(true)} className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--bg-surface)] text-green-400 transition-all hover:bg-green-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 cursor-pointer" aria-label="Create Server" title="Create Server">
-              <Plus size={24} aria-hidden="true" />
-            </button>
-            <hr className="w-8 border-gray-700 mx-auto my-2" />
-            <button onClick={props.handleHomeClick} className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500 text-white transition-all focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:outline-none cursor-pointer ${props.view === 'home' || props.view === 'notifications' ? 'shadow-lg shadow-indigo-500/25' : 'hover:bg-indigo-400'}`} aria-label="Home" title="Home">
-              <Home size={22} aria-hidden="true" />
-            </button>
-          </div>
-        </nav>
-
-        <aside className="app-left-panel h-full w-[calc(100vw-4rem)] max-w-80 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 backdrop-blur-xl md:w-64 md:max-w-none lg:w-72 xl:w-80 flex flex-col z-10 relative" style={props.scopedChatStyle}>
-          {props.view !== 'server' && (
-            <header className="h-14 md:h-16 px-6 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0 bg-[var(--bg-base)]/80 backdrop-blur-xl">
-              <h2 className="font-headline font-bold text-[var(--text-main)] tracking-tight truncate">MESSAPP</h2>
-            </header>
-          )}
-
-          <div className={`flex-1 overflow-y-auto custom-scrollbar space-y-8 px-4 ${props.view === 'server' ? 'py-4' : 'py-6'}`}>
-            {props.view === 'home' || props.view === 'notifications' ? (
-              <div className="space-y-6">
-                <button onClick={() => { props.setShowQuickSwitcher(true); props.setMobileMenuOpen(false); }} className="w-full bg-[var(--bg-element)] ghost-border text-[var(--text-main)] font-bold py-3.5 px-6 rounded-xl hover:bg-[var(--border-subtle)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-sm cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
-                  <Search size={18} aria-hidden="true" /> Find or Start
-                </button>
-                
-                <div>
+          <div className="flex-1 overflow-y-auto custom-scrollbar space-y-5 px-3 py-4">
+            {sidebarSection === 'people' ? (
+              <div className="space-y-4">
+                <section className="sidebar-glass-section rounded-[1.5rem] p-2">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3 block px-2">Direct Messages</span>
                   <div className="space-y-1">
                     {props.dmsLoading && props.dms.length === 0 && Array.from({ length: 5 }, (_, index) => (
-                      <div key={`dm-skeleton-${index}`} className="flex items-center gap-3.5 px-3.5 py-3" aria-hidden="true">
-                        <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-[var(--bg-element)]" />
+                      <div key={`dm-skeleton-${index}`} className="flex min-h-[4.5rem] items-center gap-4 px-3.5 py-3.5" aria-hidden="true">
+                        <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-[var(--bg-element)]" />
                         <div className="h-3.5 animate-pulse rounded-full bg-[var(--bg-element)]" style={{ width: `${58 + (index % 3) * 12}%` }} />
                       </div>
                     ))}
                     {props.dms.map((dm, i) => {
                       const isActive = props.activeDm?.dm_room_id === dm.dm_room_id && props.view === 'home';
-                      const dmColor = dm.dm_rooms?.theme_color || '#6366f1';
+                      const dmThemeId = resolveConversationThemeId(dm.dm_rooms?.theme_id, dm.dm_rooms?.theme_color)
+                      const dmColor = getConversationTheme(dmThemeId, props.appThemeMode).palette.accent;
                       const presenceStatus = props.getPresenceStatus?.(dm.profiles.id) || (props.onlineUsersSet.has(dm.profiles.id) ? 'online' : 'offline');
                       const isMenuOpen = props.dmActionMenuId === `sidebar-${dm.dm_room_id}`;
                       const isUnread = dm.is_unread && !isActive;
+                      const messagePreview = dm.last_message_preview || (isUnread ? 'New message' : '')
 
                       return (
                         <div key={`dm-list-${dm.dm_room_id || i}`} className="relative group flex items-center mb-1">
-                          <button onClick={() => { props.setView('home'); props.selectDm(dm); }} className={`flex-1 flex items-center gap-3.5 px-3.5 py-3 rounded-xl cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] border-[var(--border-subtle)] shadow-inner' : isUnread ? 'bg-indigo-500/10 text-[var(--text-main)] border-indigo-400/20 shadow-[0_0_18px_rgba(99,102,241,0.12)]' : 'hover:bg-[var(--bg-base)] text-gray-400 hover:text-[var(--text-main)] border-transparent'}`}>
-                            <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={presenceStatus} className="w-10 h-10" />
+                          <button onClick={() => { setSidebarSection('people'); props.setView('home'); props.selectDm(dm); props.setMobileMenuOpen(false) }} className={`ios-sidebar-row min-h-[4.5rem] flex-1 flex items-center gap-4 px-3.5 py-3.5 rounded-2xl cursor-pointer transition-all border outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'is-active' : isUnread ? 'is-unread text-[var(--text-main)]' : 'text-gray-400 hover:text-[var(--text-main)] border-transparent'}`}>
+                            <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={presenceStatus} className="w-11 h-11" />
                             <div className="flex-1 min-w-0 text-left pr-6">
-                              <p className={`text-[15px] truncate transition-colors ${isUnread ? 'font-extrabold' : 'font-semibold'}`} style={{ color: isActive ? dmColor : '' }}>{dm.profiles.username}</p>
+                              <p className={`text-base truncate transition-colors ${isUnread ? 'font-extrabold' : 'font-semibold'}`} style={{ color: isActive ? dmColor : '' }}>{dm.profiles.username}</p>
+                              {messagePreview && <p className={`mt-0.5 truncate text-[13px] ${isUnread ? 'font-semibold text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>{messagePreview}</p>}
                             </div>
-                            {isUnread && <span className="absolute right-9 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-indigo-300 shadow-[0_0_10px_rgba(165,180,252,0.9)]"></span>}
+                            {isUnread && <span className="absolute right-9 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--theme-base)]"></span>}
                           </button>
                           
                           <button 
@@ -428,13 +418,70 @@ export default function LeftSidebar(props) {
                       )
                     })}
                   </div>
-                </div>
+                </section>
               </div>
             ) : null}
 
-            {props.view === 'server' ? (
+            {sidebarSection === 'servers' && serverPanelView === 'list' && (
+              <section className="sidebar-glass-section rounded-[1.5rem] p-2">
+                <div className="mb-2 flex min-h-10 items-center justify-between gap-3 px-2">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--text-muted)]">Servers</p>
+                    <p className="text-[11px] text-[var(--text-muted)]">{props.servers.length} joined</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => setIsJoinModalOpen(true)} className="server-list-action" aria-label="Join server" title="Join server">
+                      <LogIn size={18} aria-hidden="true" />
+                    </button>
+                    <button type="button" onClick={() => setIsCreateModalOpen(true)} className="server-list-action" aria-label="Create server" title="Create server">
+                      <Plus size={19} aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {props.serversLoading && props.servers.length === 0 && Array.from({ length: 4 }, (_, index) => (
+                    <div key={`server-list-skeleton-${index}`} className="flex min-h-16 animate-pulse items-center gap-3.5 rounded-2xl px-3">
+                      <span className="h-11 w-11 rounded-xl bg-[var(--bg-element)]" />
+                      <span className="h-3 w-32 rounded-full bg-[var(--bg-element)]" />
+                    </div>
+                  ))}
+                  {props.servers.map((server, i) => {
+                    const isActive = props.activeServer?.id === server.id && serverPanelView === 'detail'
+                    const iconUrl = safeMediaUrl(server.icon_url)
+                    return (
+                      <button
+                        key={server.id || `server-list-${i}`}
+                        type="button"
+                        onClick={() => {
+                          setSidebarSection('servers')
+                          setServerPanelView('detail')
+                          props.setView('home')
+                          props.setActiveServer(server)
+                          props.setActiveChannel(null)
+                        }}
+                        className={`server-list-row ${isActive ? 'is-active' : ''}`}
+                        aria-pressed={isActive}
+                      >
+                        <span className="server-list-icon">
+                          {iconUrl ? <img src={iconUrl} alt="" className="h-full w-full object-cover" /> : server.name?.slice(0, 2)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-left">{server.name}</span>
+                      </button>
+                    )
+                  })}
+                  {!props.serversLoading && props.servers.length === 0 && (
+                    <p className="px-3 py-6 text-center text-xs text-[var(--text-muted)]">No servers yet</p>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {sidebarSection === 'servers' && serverPanelView === 'detail' && props.activeServer ? (
               <div className="space-y-3">
                 <div className="relative flex min-h-14 items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-element)]/70 px-3 py-2 shadow-sm">
+                  <button type="button" onClick={() => setServerPanelView('list')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+                    <ChevronLeft size={19} aria-hidden="true" />
+                  </button>
                   <div className="min-w-0 flex-1">
                     <p className="text-[9px] font-black uppercase tracking-[0.18em] text-gray-500">Server</p>
                     <h3 className="truncate font-headline text-base font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
@@ -465,6 +512,12 @@ export default function LeftSidebar(props) {
                   )}
                 </div>
                 <div className="space-y-3">
+                  {props.serverChannelsLoading && Array.from({ length: 3 }, (_, index) => (
+                    <div key={`channel-group-skeleton-${index}`} className="rounded-2xl bg-[var(--surface-container)] p-3" aria-hidden="true">
+                      <div className="mb-3 h-2.5 w-24 animate-pulse rounded-full bg-[var(--bg-element)]" />
+                      <div className="h-10 animate-pulse rounded-xl bg-[var(--bg-element)]" />
+                    </div>
+                  ))}
                   {(props.serverCategories || []).map(category => (
                     <section key={category.id} className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/45 p-1.5">
                       <div className="relative flex min-h-9 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-2 pb-1.5">
@@ -497,7 +550,7 @@ export default function LeftSidebar(props) {
                           const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
                           return (
                             <div key={channel.id} className={`relative rounded-xl ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/55' : ''}`}>
-                              <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-10 text-left text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)] shadow-sm' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
+                              <button type="button" onClick={() => props.setActiveChannel(channel)} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-10 text-left text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)] shadow-sm' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
                                 <span className={`absolute inset-y-2 left-0 w-0.5 rounded-r-full ${isActive ? 'bg-[var(--theme-base)]' : 'bg-transparent'}`} aria-hidden="true" />
                                 <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
                                   {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
@@ -570,7 +623,7 @@ export default function LeftSidebar(props) {
                       </div>
                     </section>
                   ))}
-                  {(props.serverCategories || []).length === 0 && (
+                  {!props.serverChannelsLoading && (props.serverCategories || []).length === 0 && (
                     <div className="rounded-2xl border border-dashed border-[var(--border-subtle)] px-4 py-6 text-center">
                       <p className="text-sm font-semibold text-gray-400">No categories yet</p>
                       <p className="mt-1 text-xs text-gray-600">Create one to start organizing channels.</p>
@@ -588,7 +641,7 @@ export default function LeftSidebar(props) {
           </div>
 
           {props.showProfilePopout && (
-            <div ref={props.popoutRef} className="premium-menu absolute bottom-[5.75rem] left-3 right-3 rounded-2xl overflow-hidden z-50 animate-profile-drawer flex flex-col origin-bottom">
+            <div ref={props.popoutRef} className="premium-menu absolute bottom-[9rem] left-3 right-3 rounded-2xl overflow-hidden z-50 animate-profile-drawer flex flex-col origin-bottom">
               <div className="w-full h-24 bg-cover bg-center transition-all duration-300 shrink-0 relative" style={getBannerStyle()}>
               </div>
               <div className="px-4 pb-4">
@@ -668,8 +721,41 @@ export default function LeftSidebar(props) {
             </div>
           )}
 
-          <div className="p-3 bg-[var(--bg-base)] border-t border-[var(--border-subtle)] flex items-center justify-between shrink-0 relative z-50">
-            <button data-profile-popout-trigger onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className={`flex items-center gap-3 min-w-0 p-2 rounded-xl transition-all text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2 ${props.showProfilePopout ? 'bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xl -translate-y-1 rounded-2xl' : 'hover:bg-[var(--bg-surface)] border border-transparent'}`}>
+          <nav className="mx-auto mb-2 flex shrink-0 items-center justify-center gap-1 rounded-2xl bg-[var(--surface-section)] p-1.5" aria-label="Browse MessApp">
+            <button
+              type="button"
+              onClick={() => setSidebarSection('people')}
+              className={`grid h-11 w-11 place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${sidebarSection === 'people' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]'}`}
+              aria-label="People"
+              title="People"
+              aria-pressed={sidebarSection === 'people'}
+            >
+              <Users size={20} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => props.setShowQuickSwitcher(true)}
+              className="grid h-11 w-11 place-items-center rounded-xl text-[var(--text-muted)] outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
+              aria-label="Find or start"
+              title="Find or start"
+            >
+              <Search size={20} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSidebarSection('servers'); setServerPanelView('list') }}
+              className={`grid h-11 w-11 place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${sidebarSection === 'servers' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]'}`}
+              aria-label="Servers"
+              title="Servers"
+              aria-pressed={sidebarSection === 'servers'}
+            >
+              <Hash size={20} aria-hidden="true" />
+            </button>
+          </nav>
+
+          <div className="ios-sidebar-footer mx-3 mb-3 shrink-0 rounded-[1.5rem] p-2 relative z-50">
+            <div className="flex items-center justify-between">
+            <button data-profile-popout-trigger onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className={`flex items-center gap-3 min-w-0 p-2 rounded-xl transition-all text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2 ${props.showProfilePopout ? 'bg-[var(--bg-surface)] rounded-2xl' : 'hover:bg-[var(--bg-surface)]'}`}>
               <StatusAvatar url={props.myAvatar} username={props.myUsername} status={currentStatus} className="w-11 h-11" />
               <div className="flex flex-col truncate">
                 <span className="text-[15px] font-bold text-[var(--text-main)] truncate group-hover:text-[var(--color-primary)] transition-colors">{props.myUsername}</span>
@@ -680,13 +766,14 @@ export default function LeftSidebar(props) {
             <button onClick={() => { props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: true }); props.setMobileMenuOpen(false); }} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Application Settings" title="App Settings">
               <Settings size={18} aria-hidden="true" />
             </button>
+            </div>
           </div>
         </aside>
       </div>
 
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <form onSubmit={handleCreateServer} className="custom-scrollbar max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-3xl border border-gray-700 bg-gray-900 p-5 shadow-2xl sm:p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <form onSubmit={handleCreateServer} className="ios-sheet custom-scrollbar max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-[2rem] p-5 sm:p-6">
             <div className="mb-5">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Build your space</p>
               <h2 className="mt-1 text-2xl font-black text-white">Create a server</h2>
@@ -695,14 +782,14 @@ export default function LeftSidebar(props) {
 
             <label className="block">
               <span className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-500">Server name</span>
-              <input value={serverName} onChange={(e) => setServerName(e.target.value)} className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3.5 py-3 text-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20" placeholder="My community" autoFocus maxLength={100} />
+              <input value={serverName} onChange={(e) => setServerName(e.target.value)} className="ios-sheet-input w-full rounded-2xl px-4 py-3 text-[var(--text-main)] outline-none" placeholder="My community" autoFocus maxLength={100} />
             </label>
 
             <fieldset className="mt-5">
               <legend className="mb-2 text-xs font-black uppercase tracking-widest text-gray-500">Choose a preset</legend>
               <div className="grid gap-2 sm:grid-cols-3">
                 {SERVER_PRESET_OPTIONS.map(option => (
-                  <label key={option.id} className={`cursor-pointer rounded-2xl border p-3 transition-colors ${serverPreset === option.id ? option.active : 'border-gray-700 bg-gray-800/70 hover:border-gray-600 hover:bg-gray-800'}`}>
+                  <label key={option.id} className={`ios-choice-card cursor-pointer rounded-2xl p-3 transition-colors ${serverPreset === option.id ? 'is-active' : ''}`}>
                     <input type="radio" name="server-preset" value={option.id} checked={serverPreset === option.id} onChange={(event) => setServerPreset(event.target.value)} className="sr-only" />
                     {React.createElement(option.Icon, { size: 22, className: option.accent, 'aria-hidden': true })}
                     <span className="mt-3 block text-sm font-black text-white">{option.name}</span>
@@ -716,8 +803,8 @@ export default function LeftSidebar(props) {
             </fieldset>
 
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={closeCreateModal} disabled={isCreatingServer} className="rounded-xl px-4 py-2.5 font-bold text-gray-300 hover:bg-gray-800 disabled:opacity-50">Cancel</button>
-              <button type="submit" disabled={isCreatingServer || !serverName.trim()} className="rounded-xl bg-indigo-500 px-5 py-2.5 font-black text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={closeCreateModal} disabled={isCreatingServer} className="rounded-xl px-4 py-2.5 font-bold text-gray-300 hover:bg-white/5 disabled:opacity-50">Cancel</button>
+              <button type="submit" disabled={isCreatingServer || !serverName.trim()} className="rounded-xl bg-[var(--theme-base)] px-5 py-2.5 font-black text-white disabled:cursor-not-allowed disabled:opacity-50">
                 {isCreatingServer ? 'Creating…' : `Create ${SERVER_PRESETS[serverPreset]?.name || ''} server`}
               </button>
             </div>
@@ -726,13 +813,15 @@ export default function LeftSidebar(props) {
       )}
 
       {isJoinModalOpen && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
-          <form onSubmit={handleJoinServer} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
-            <h2 className="text-xl font-bold text-white mb-4">Join Server</h2>
-            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white uppercase outline-none focus:border-indigo-500" placeholder="Invite code" autoFocus />
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <form onSubmit={handleJoinServer} className="ios-sheet rounded-[2rem] p-6 w-96 max-w-full">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">Invitation</p>
+            <h2 className="mt-1 text-xl font-bold text-[var(--text-main)]">Join a server</h2>
+            <p className="mb-5 mt-1 text-sm text-[var(--text-muted)]">Enter the invite code shared with you.</p>
+            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-2xl px-4 py-3 text-[var(--text-main)] uppercase outline-none" placeholder="Invite code" autoFocus />
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={closeJoinModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
-              <button type="submit" className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400">Submit</button>
+              <button type="button" onClick={closeJoinModal} className="rounded-xl px-4 py-2.5 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
+              <button type="submit" className="rounded-xl bg-[var(--theme-base)] px-5 py-2.5 font-bold text-white">Join</button>
             </div>
           </form>
         </div>

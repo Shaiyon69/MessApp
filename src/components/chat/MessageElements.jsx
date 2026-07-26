@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import ChatEmojiPicker from './ChatEmojiPicker'
@@ -359,7 +359,7 @@ export const MemoizedMessage = React.memo(({
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
-  setMessageActionMenuPosition, closeMessageInteraction
+  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMoreReactions, setShowMoreReactions] = useState(false)
@@ -905,9 +905,9 @@ export const MemoizedMessage = React.memo(({
     { label: 'Sent', value: formatReceiptTime(m.created_at) }
   ]
   const bubbleStyle = {
-    backgroundColor: isMe ? 'var(--theme-base)' : 'var(--chat-bg-element,var(--bg-element))',
-    borderColor: isMe ? 'var(--theme-base)' : 'var(--chat-border,var(--border-subtle))',
-    color: isMe ? '#ffffff' : 'var(--chat-text,var(--text-main))'
+    backgroundColor: isMe ? 'var(--chat-outgoing-bg,var(--theme-base))' : 'var(--chat-bg-element,var(--bg-element))',
+    borderColor: isMe ? 'var(--chat-outgoing-border,var(--theme-base))' : 'var(--chat-border,var(--border-subtle))',
+    color: isMe ? 'var(--chat-outgoing-text,#ffffff)' : 'var(--chat-text,var(--text-main))'
   }
   const attachmentBorderStyle = { borderColor: 'var(--theme-base)' }
 
@@ -1204,12 +1204,12 @@ export const MemoizedMessage = React.memo(({
                               const match = /language-(\w+)/.exec(className || '')
                               return !inline && match ? (
                                 <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                              ) : <code className="bg-[var(--surface-section)] text-[var(--theme-base)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-[var(--border-subtle)]" {...props}>{children}</code>
+                              ) : <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-[var(--border-subtle)]" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} {...props}>{children}</code>
                             },
                             a({href, ...props}) {
                               const safeHref = safeHttpUrl(href)
                               if (!safeHref) return <span {...props} />
-                              return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" href={safeHref} {...props} />
+                              return <a className="hover:underline underline-offset-2" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
                             },
                             img() { return null }
                           }}
@@ -1423,7 +1423,7 @@ export const MemoizedMessage = React.memo(({
                               a({href, ...props}) {
                                 const safeHref = safeHttpUrl(href)
                                 if (!safeHref) return <span {...props} />
-                                return <a className="text-[var(--theme-base)] hover:underline underline-offset-2" target="_blank" rel="noreferrer" href={safeHref} {...props} />
+                                return <a className="hover:underline underline-offset-2" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
                               },
                               img() { return null }
                             }}
@@ -1697,7 +1697,7 @@ export const MemoizedMessage = React.memo(({
                   <div className="flex min-h-10 min-w-max items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-1 shadow-sm animate-fade-in">
                     {inlineDeleteStep === 'options' && (
                       <>
-                        {isMe && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">Unsend</button>}
+                        {(isMe || canModerateMessage) && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">{isMe ? 'Unsend' : 'Remove'}</button>}
                         <button type="button" data-reaction-action="delete-hide-option" onClick={() => setInlineDeleteStep('confirm_me')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer">Hide</button>
                         <div className="mx-0.5 h-5 w-px shrink-0 bg-[var(--border-subtle)]"></div>
 	                        <button type="button" data-reaction-action="delete-cancel" onClick={() => closeActionMenu('delete_cancel')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Cancel delete menu"><X size={15}/></button>
@@ -1705,8 +1705,8 @@ export const MemoizedMessage = React.memo(({
                     )}
                     {inlineDeleteStep === 'confirm_everyone' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
-                        <span className="px-1 text-xs font-bold text-red-400 whitespace-nowrap">Unsend?</span>
-	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, 'everyone'); closeActionMenu('action_delete_everyone'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer" aria-label="Confirm unsend"><Check size={15}/></button>
+                        <span className="px-1 text-xs font-bold text-red-400 whitespace-nowrap">{isMe ? 'Unsend?' : 'Remove?'}</span>
+	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, isMe ? 'everyone' : 'moderate'); closeActionMenu('action_delete_everyone'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer" aria-label={isMe ? 'Confirm unsend' : 'Confirm moderator removal'}><Check size={15}/></button>
                         <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
                     )}
@@ -1747,6 +1747,9 @@ export const MemoizedMessage = React.memo(({
 	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.stopPropagation(); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
 	                        <Download size={15} aria-hidden="true" />
 	                      </a>
+	                    )}
+	                    {!isMe && (
+	                      <button type="button" data-reaction-action="report" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { onReportMessage?.(m); closeActionMenu('action_report'); }} className="message-action-button text-gray-500 hover:text-red-400 md:hover:bg-red-500/10" title="Report" aria-label="Report message"><Flag size={15} aria-hidden="true" /></button>
 	                    )}
 	                    <button
 	                      type="button"

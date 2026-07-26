@@ -678,6 +678,7 @@ export default function SfuScreenShare({
   const [status, setStatus] = useState('idle')
   const [micTestOpen, setMicTestOpen] = useState(false)
   const [volumeMixerOpen, setVolumeMixerOpen] = useState(false)
+  const [stageControlsOpen, setStageControlsOpen] = useState(false)
   const [voiceVolumeSettings, setVoiceVolumeSettings] = useState(readVoiceVolumeSettings)
   const [noiseReductionEnabled, setNoiseReductionEnabled] = useState(true)
   const localScreenRef = useRef(null)
@@ -1252,7 +1253,7 @@ export default function SfuScreenShare({
   ))
 
   const renderControls = (compact = false) => (
-    <div className={`flex items-center gap-1.5 sm:gap-2 ${compact ? 'flex-wrap justify-between' : 'justify-center'}`}>
+    <div className={`flex items-center gap-1.5 sm:gap-2 ${compact ? 'voice-mini-controls flex-wrap justify-between' : 'justify-center'}`}>
       {onToggleMute && (
         <button type="button" onClick={onToggleMute} className={`voice-control-button rounded-full border p-2.5 sm:p-3 ${muted ? 'is-danger border-red-500/30 bg-red-500/15 text-red-300' : 'border-[var(--border-subtle)] bg-[var(--bg-element)] text-gray-300'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOff size={compact ? 16 : 18} /> : <Mic size={compact ? 16 : 18} />}
@@ -1297,31 +1298,31 @@ export default function SfuScreenShare({
       <section
         ref={miniPlayerRef}
         style={miniPlayerStyle}
-        className={`fixed left-auto right-3 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[70dvh] w-[min(340px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[#111214]/95 p-2.5 shadow-2xl backdrop-blur-xl md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] ${isMiniPlayerDragging ? 'select-none shadow-[0_24px_70px_rgba(0,0,0,0.55)]' : ''} ${className}`}
+        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[#0b0b0c] p-1.5 md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:overflow-y-auto md:rounded-2xl md:p-2.5 ${isMiniPlayerDragging ? 'is-dragging select-none' : ''} ${className}`}
       >
         {remoteAudioPlayers}
         <button
           type="button"
           {...miniPlayerDragHandleProps}
-          className={`mb-1 flex h-6 w-full touch-none cursor-grab items-center justify-center rounded-lg text-gray-500 hover:bg-white/5 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isMiniPlayerDragging ? 'cursor-grabbing bg-white/5 text-gray-300' : ''}`}
+          className={`mb-0.5 flex h-5 w-full touch-none cursor-grab items-center justify-center rounded-lg text-gray-500 hover:bg-white/5 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:mb-1 md:h-6 ${isMiniPlayerDragging ? 'cursor-grabbing bg-white/5 text-gray-300' : ''}`}
           aria-label="Move voice channel mini player"
           title="Drag to move. Use arrow keys to move, or double-click to reset."
         >
-          <GripHorizontal size={18} aria-hidden="true" />
+          <GripHorizontal size={16} aria-hidden="true" />
         </button>
-        <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`Return to ${title}`}>
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${status === 'connected' ? 'bg-green-500/15 text-green-300' : 'bg-amber-500/15 text-amber-300'}`}>
-            <Volume2 size={20} aria-hidden="true" />
+        <button type="button" onClick={onOpen} className="mb-2 flex w-full items-center gap-2 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:mb-3 md:gap-3" aria-label={`Return to ${title}`}>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full md:h-10 md:w-10 ${status === 'connected' ? 'bg-green-500/15 text-green-300' : 'bg-amber-500/15 text-amber-300'}`}>
+            <Volume2 size={17} aria-hidden="true" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-black text-[var(--text-main)]">{title}</span>
-            <span className="block truncate text-[11px] font-bold uppercase tracking-widest text-gray-500">
+            <span className="block truncate text-[9px] font-bold uppercase tracking-widest text-gray-500 md:text-[11px]">
               {connectionLabel} - {participantCount} connected{localScreenStream ? ' - sharing screen' : ''}{localCameraStream ? ' - camera on' : ''}
             </span>
           </span>
         </button>
         {pinnedStream && (
-          <div className="mb-3 aspect-video overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-black">
+          <div className="mb-2 aspect-video overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-black md:mb-3 md:rounded-xl">
             <StreamTile
               streamItem={pinnedStream}
               participant={pinnedStream.participant}
@@ -1332,14 +1333,14 @@ export default function SfuScreenShare({
           </div>
         )}
         {!pinnedStream && (
-          <div className="mb-3 space-y-1.5 rounded-xl border border-[var(--border-subtle)] bg-white/[0.03] p-2">
-            {participants.slice(0, 3).map(participant => (
-              <div key={participant.id} className="flex min-w-0 items-center gap-2.5 rounded-lg bg-black/15 px-2 py-1.5">
+          <div className="mb-2 space-y-1 rounded-lg border border-[var(--border-subtle)] bg-white/[0.03] p-1.5 md:mb-3 md:space-y-1.5 md:rounded-xl md:p-2">
+            {participants.slice(0, 2).map(participant => (
+              <div key={participant.id} className="flex min-w-0 items-center gap-2 rounded-lg bg-black/15 px-1.5 py-1 md:gap-2.5 md:px-2 md:py-1.5">
                 <div
                   className={`relative shrink-0 rounded-full border-2 p-0.5 ${participant.speaking ? 'border-green-400' : 'border-transparent'}`}
                   title={`${participant.displayName}${participant.speaking ? ' - speaking' : ''}`}
                 >
-                  <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-8 w-8" />
+                  <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-7 w-7 md:h-8 md:w-8" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-black text-[var(--text-main)]">{participant.displayName}</p>
@@ -1355,9 +1356,9 @@ export default function SfuScreenShare({
                 </div>
               </div>
             ))}
-            {participants.length > 3 && (
+            {participants.length > 2 && (
               <button type="button" onClick={onOpen} className="w-full rounded-lg px-2 py-1 text-center text-[10px] font-black text-gray-500 hover:bg-white/5 hover:text-gray-300">
-                +{participants.length - 3} more {participants.length - 3 === 1 ? 'person' : 'people'}
+                +{participants.length - 2} more {participants.length - 2 === 1 ? 'person' : 'people'}
               </button>
             )}
           </div>
@@ -1532,7 +1533,33 @@ export default function SfuScreenShare({
         )}
 
         <footer className="voice-stage-footer relative z-10 shrink-0 px-2 py-2.5 pb-[calc(0.65rem+env(safe-area-inset-bottom))] sm:py-3">
-          <div className="voice-control-dock custom-scrollbar mx-auto flex w-fit max-w-full items-center justify-start gap-1 overflow-x-auto rounded-2xl border border-[var(--border-subtle)] p-1.5 shadow-2xl sm:justify-center sm:gap-2 sm:p-2">
+          <div className="voice-stage-mobile-dock mx-auto grid max-w-md grid-cols-6 gap-1 rounded-2xl p-1.5 md:hidden">
+            {onToggleMute && (
+              <button type="button" onClick={onToggleMute} className={`voice-stage-mobile-action ${muted ? 'is-danger' : ''}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
+                {muted ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
+              </button>
+            )}
+            {onToggleDeafen && (
+              <button type="button" onClick={onToggleDeafen} className={`voice-stage-mobile-action ${deafened ? 'is-danger' : ''}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
+                {deafened ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
+              </button>
+            )}
+            <button type="button" onClick={localScreenStream ? () => stopShare() : startShare} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localScreenStream ? 'is-active' : ''}`} aria-label={localScreenStream ? 'Stop sharing screen' : 'Share screen'} title={localScreenStream ? 'Stop sharing' : 'Share screen'}>
+              {localScreenStream ? <MonitorX size={18} aria-hidden="true" /> : <MonitorUp size={18} aria-hidden="true" />}
+            </button>
+            <button type="button" onClick={localCameraStream ? () => stopCamera() : startCamera} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localCameraStream ? 'is-active' : ''}`} aria-label={localCameraStream ? 'Turn camera off' : 'Turn camera on'} title={localCameraStream ? 'Camera off' : 'Camera on'}>
+              {localCameraStream ? <CameraOff size={18} aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
+            </button>
+            {onLeave && (
+              <button type="button" onClick={onLeave} className="voice-stage-mobile-action is-danger" aria-label="Leave voice" title="Leave voice">
+                <PhoneOff size={18} aria-hidden="true" />
+              </button>
+            )}
+            <button type="button" onClick={() => setStageControlsOpen(true)} className="voice-stage-mobile-action" aria-label="More call controls" title="More controls" aria-haspopup="dialog" aria-expanded={stageControlsOpen}>
+              <MoreHorizontal size={19} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="voice-control-dock custom-scrollbar mx-auto hidden w-fit max-w-full items-center justify-center gap-2 overflow-x-auto rounded-2xl border border-[var(--border-subtle)] p-2 shadow-2xl md:flex">
             <div className="voice-view-switcher flex rounded-xl border border-[var(--border-subtle)] p-0.5 sm:p-1">
               <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} aria-label="Focus view" title="Focus view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.PINNED ? 'is-active bg-[var(--theme-base)] text-white' : 'text-gray-400 hover:text-white'}`}>
                 <Maximize2 size={17} />
@@ -1556,6 +1583,52 @@ export default function SfuScreenShare({
             </button>
           </div>
         </footer>
+
+        {stageControlsOpen && (
+          <div className="fixed inset-0 z-[120] md:hidden" data-ui-overlay-owner="SfuScreenShare:stage-controls">
+            <button type="button" className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={() => setStageControlsOpen(false)} aria-label="Close voice stage controls" />
+            <section className="voice-stage-controls-drawer absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[82dvh] overflow-y-auto rounded-[1.75rem] p-3" role="dialog" aria-modal="true" aria-label="Call controls">
+              <div className="mb-3 flex items-center justify-between px-1">
+                <div>
+                  <p className="text-sm font-bold text-[var(--text-main)]">Call controls</p>
+                  <p className="text-[11px] text-[var(--text-muted)]">{title || 'Voice channel'}</p>
+                </div>
+                <button type="button" onClick={() => setStageControlsOpen(false)} className="voice-control-button flex h-9 w-9 items-center justify-center rounded-full bg-[var(--bg-element)] text-gray-400" aria-label="Close controls">
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </div>
+
+              <p className="mb-1.5 px-1 text-[10px] font-black uppercase tracking-widest text-gray-500">View</p>
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} className={`voice-stage-drawer-action ${viewMode === VIEW_MODES.PINNED ? 'is-active' : ''}`}>
+                  <Maximize2 size={19} aria-hidden="true" /><span>Focus</span>
+                </button>
+                <button type="button" onClick={() => setViewMode(VIEW_MODES.GRID)} aria-pressed={viewMode === VIEW_MODES.GRID} className={`voice-stage-drawer-action ${viewMode === VIEW_MODES.GRID ? 'is-active' : ''}`}>
+                  <Grid2X2 size={19} aria-hidden="true" /><span>Grid</span>
+                </button>
+                <button type="button" onClick={() => setViewMode(VIEW_MODES.CAROUSEL)} aria-pressed={viewMode === VIEW_MODES.CAROUSEL} className={`voice-stage-drawer-action ${viewMode === VIEW_MODES.CAROUSEL ? 'is-active' : ''}`}>
+                  <ChevronRight size={19} aria-hidden="true" /><span>Slides</span>
+                </button>
+              </div>
+
+              <p className="mb-1.5 px-1 text-[10px] font-black uppercase tracking-widest text-gray-500">Audio tools</p>
+              <div className="grid grid-cols-4 gap-2">
+                <button type="button" onClick={toggleVoiceNoiseReduction} disabled={!localAudioStream || status !== 'connected'} className={`voice-stage-drawer-action disabled:opacity-40 ${noiseReductionEnabled ? 'is-active' : ''}`}>
+                  <Activity size={19} aria-hidden="true" /><span>Noise</span>
+                </button>
+                <button type="button" onClick={() => { setStageControlsOpen(false); setVolumeMixerOpen(true) }} disabled={status !== 'connected'} className="voice-stage-drawer-action disabled:opacity-40">
+                  <SlidersHorizontal size={19} aria-hidden="true" /><span>Volumes</span>
+                </button>
+                <button type="button" onClick={() => { setStageControlsOpen(false); setMicTestOpen(true) }} disabled={status !== 'connected' || !localAudioStream} className="voice-stage-drawer-action disabled:opacity-40">
+                  <AudioLines size={19} aria-hidden="true" /><span>Mic test</span>
+                </button>
+                <button type="button" onClick={() => setHiddenStreamIds(new Set())} disabled={hiddenStreamIds.size === 0} className="voice-stage-drawer-action disabled:opacity-40">
+                  <MoreHorizontal size={19} aria-hidden="true" /><span>Restore</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </section>
     )
   }

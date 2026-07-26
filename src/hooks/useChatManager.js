@@ -1650,11 +1650,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
-      if (mode === 'everyone') {
-        const { error: deleteError } = await supabase.from('messages').delete().eq('id', message.id)
+      if (mode === 'everyone' || mode === 'moderate') {
+        const { error: deleteError } = mode === 'moderate'
+          ? await supabase.rpc('moderate_server_message', { target_message_id: message.id, moderation_reason: null })
+          : await supabase.from('messages').delete().eq('id', message.id)
         if (deleteError) throw deleteError
         setMessages(current => current.filter(msg => msg.id !== message.id))
-        toast.success("Message completely deleted")
+        toast.success(mode === 'moderate' ? 'Message removed by moderator' : 'Message completely deleted')
       } else {
         setLocalDeletedMessages(prev => [...prev, message.id])
         toast.success("Message hidden for you")

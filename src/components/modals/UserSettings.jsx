@@ -6,12 +6,14 @@
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
-import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare, ShieldAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { THEME_MODES, applyThemeMode, normalizeThemeMode } from '../../lib/theme'
+import { SURFACE_TINTS, THEME_MODES, applySurfaceTint, applyThemeMode, normalizeSurfaceTint, normalizeThemeMode } from '../../lib/theme'
 import { audioSys } from '../../lib/SoundEngine'
 import { debug } from '../../lib/debug'
 import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
+import { getModeratorRole } from '../../lib/moderation'
+import ModerationPanel from './ModerationPanel'
 
 const BANNER_OPTIONS = [
   { id: 'indigo', value: 'linear-gradient(to right, #4f46e5, #9333ea)' },
@@ -25,6 +27,11 @@ const BANNER_OPTIONS = [
 
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024
+const SURFACE_TINT_LABELS = {
+  neutral: 'Neutral',
+  indigo: 'Indigo',
+  ocean: 'Ocean'
+}
 const getLocalBoolean = (key, fallback = true) => {
   const value = localStorage.getItem(key)
   return value === null ? fallback : value !== 'false'
@@ -36,8 +43,8 @@ const ToggleSwitch = ({ label, description, checked, onChange }) => (
       <h5 className="text-[var(--text-main)] font-bold text-sm md:text-base">{label}</h5>
       <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{description}</p>
     </div>
-    <button type="button" onClick={() => onChange(!checked)} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none cursor-pointer ${checked ? 'bg-[var(--accent)]' : 'bg-gray-600'}`}>
-      <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)} className={`settings-toggle relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--text-main)] focus-visible:outline-none cursor-pointer ${checked ? 'is-checked' : ''}`}>
+      <span className={`inline-block h-5 w-5 transform rounded-full transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
   </div>
 )
@@ -48,6 +55,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [moderatorRole, setModeratorRole] = useState(null)
 
   const [avatarUrl, setAvatarUrl] = useState(null)
   const [bannerUrl, setBannerUrl] = useState(BANNER_OPTIONS[0].value)
@@ -65,12 +73,14 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   const [resetCooldown, setResetCooldown] = useState(0)
 
   const [appTheme, setAppTheme] = useState(() => normalizeThemeMode(localStorage.getItem('appTheme') || 'dark'))
+  const [surfaceTint, setSurfaceTint] = useState(() => normalizeSurfaceTint(localStorage.getItem('surfaceTint') || 'neutral'))
   const [uiDensity, setUiDensity] = useState(() => {
     const stored = localStorage.getItem('uiDensity') || localStorage.getItem('chatMessageScale') || 'default'
     if (stored === 'comfortable' || stored === 'normal') return 'default'
     if (stored === 'large') return 'spacious'
     return stored
   })
+  const [reduceMotion, setReduceMotion] = useState(() => localStorage.getItem('reduceMotion') === 'true')
   const [messageSoundsEnabled, setMessageSoundsEnabled] = useState(() => getLocalBoolean('messageSoundsEnabled', getLocalBoolean('soundEnabled', true)))
   const [callSoundsEnabled, setCallSoundsEnabled] = useState(() => getLocalBoolean('callSoundsEnabled', true))
   const [ringtoneSoundsEnabled, setRingtoneSoundsEnabled] = useState(() => getLocalBoolean('ringtoneSoundsEnabled', true))
@@ -90,6 +100,14 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   })
   const [blockedProfiles, setBlockedProfiles] = useState([])
   const [restrictedProfiles, setRestrictedProfiles] = useState([])
+
+  useEffect(() => {
+    let active = true
+    getModeratorRole(supabase, session.user.id)
+      .then(role => { if (active) setModeratorRole(role) })
+      .catch(() => { if (active) setModeratorRole(null) })
+    return () => { active = false }
+  }, [session.user.id])
 
   useEffect(() => {
     let timer;
@@ -149,12 +167,22 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   }, [appTheme])
 
   useEffect(() => {
+    const appliedTint = applySurfaceTint(surfaceTint)
+    if (appliedTint !== surfaceTint) setSurfaceTint(appliedTint)
+  }, [surfaceTint])
+
+  useEffect(() => {
     localStorage.setItem('uiDensity', uiDensity)
     localStorage.setItem('chatMessageScale', uiDensity)
     document.documentElement.setAttribute('data-ui-density', uiDensity)
     const size = uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px'
     document.documentElement.style.setProperty('--chat-message-font-size', size)
   }, [uiDensity])
+
+  useEffect(() => {
+    localStorage.setItem('reduceMotion', String(reduceMotion))
+    document.documentElement.setAttribute('data-reduce-motion', String(reduceMotion))
+  }, [reduceMotion])
 
   useEffect(() => {
     localStorage.setItem('messageSoundsEnabled', String(messageSoundsEnabled))
@@ -182,8 +210,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   const handlePrivacyToggle = async (field, value, setter) => {
     setter(value);
     try {
-      await supabase.from('profiles').update({ [field]: value }).eq('id', session.user.id);
+      const { error } = await supabase.from('profiles').update({ [field]: value }).eq('id', session.user.id);
+      if (error) throw error
     } catch (_e) {
+      setter(!value)
       toast.error("Failed to update privacy settings.");
     }
   }
@@ -343,7 +373,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const keysToKeep = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('e2ee_') || key === PUSH_INSTALLATION_ID_KEY || key === 'appTheme' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'notificationsEnabled')) {
+        if (key && (key.startsWith('e2ee_') || key === PUSH_INSTALLATION_ID_KEY || key === 'appTheme' || key === 'surfaceTint' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'notificationsEnabled')) {
           keysToKeep[key] = localStorage.getItem(key);
         }
       }
@@ -398,18 +428,19 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       { id: 'voice', label: 'Voice & Video', icon: Mic },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'legal', label: 'Legal & Policies', icon: FileText },
+      ...(moderatorRole ? [{ id: 'moderation', label: 'Moderation', icon: ShieldAlert }] : []),
     ]
 
   return (
-    <div data-ui-overlay-owner="UserSettings:settings-modal" className="premium-backdrop fixed inset-0 flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div data-ui-overlay-owner="UserSettings:settings-modal" className="settings-monochrome premium-backdrop fixed inset-0 flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       
       {showLogoutConfirm && (
-        <div data-ui-overlay-owner="UserSettings:logout-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
-          <div className="premium-modal w-full max-w-sm rounded-3xl p-6 text-center animate-slide-up md:animate-fade-in">
+        <div data-ui-overlay-owner="UserSettings:logout-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="premium-modal w-full max-w-sm rounded-3xl p-6 text-center animate-settings-sheet">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
               <LogOut size={32} className="text-red-400" />
             </div>
-            <h3 className="gradient-text relative z-10 text-xl font-semibold mb-2">Ready to leave?</h3>
+            <h3 className="relative z-10 text-xl font-semibold text-[var(--text-main)] mb-2">Ready to leave?</h3>
             <p className="relative z-10 text-gray-400 text-sm mb-8">Are you sure you want to log out of MessApp?</p>
             <div className="relative z-10 flex flex-col gap-3">
               <button onClick={handleLogout} className="premium-danger-button w-full h-14 md:h-12 rounded-xl font-bold cursor-pointer text-base md:text-sm">Yes, Log Out</button>
@@ -420,12 +451,12 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       )}
 
       {showDeleteConfirm && (
-        <div data-ui-overlay-owner="UserSettings:delete-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
-          <div className="premium-modal w-full max-w-sm rounded-3xl p-6 text-center animate-slide-up md:animate-fade-in">
+        <div data-ui-overlay-owner="UserSettings:delete-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="premium-modal w-full max-w-sm rounded-3xl p-6 text-center animate-settings-sheet">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
               <AlertTriangle size={32} className="text-red-500" />
             </div>
-            <h3 className="gradient-text relative z-10 text-xl font-semibold mb-2">Delete Account?</h3>
+            <h3 className="relative z-10 text-xl font-semibold text-[var(--text-main)] mb-2">Delete Account?</h3>
             <p className="relative z-10 text-gray-400 text-sm mb-6">This action is <span className="text-red-400 font-bold">permanent</span> and cannot be undone. All data will be wiped.</p>
             <div className="relative z-10 flex flex-col gap-3">
               <button onClick={handleDeleteAccount} disabled={isDeleting} className="premium-danger-button w-full h-14 md:h-12 rounded-xl font-bold cursor-pointer text-base md:text-sm flex items-center justify-center disabled:opacity-50">
@@ -437,7 +468,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
         </div>
       )}
 
-      <div className="premium-modal w-full h-full md:max-w-5xl md:h-[85vh] md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-slide-up">
+      <div className="premium-modal w-full h-full md:max-w-5xl md:h-[85vh] md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-settings-sheet">
         
         <aside className={`relative z-10 ${settingsConfig.showMenu ? 'flex' : 'hidden'} md:flex w-full md:w-64 bg-[var(--surface-strong)] md:bg-[var(--bg-surface)]/70 border-r border-[var(--border-subtle)] flex-col shrink-0 h-full backdrop-blur-xl`}>
           <div className="flex md:hidden items-center justify-between w-full px-6 h-16 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)] shrink-0 sticky top-0">
@@ -447,12 +478,12 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
           <h3 className="hidden md:block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 px-3 pt-8">User Settings</h3>
           
-          <div className="flex flex-col p-4 md:p-0 gap-4 md:gap-1 flex-1 overflow-y-auto">
+          <div className="settings-nav flex flex-col p-4 md:p-0 gap-4 md:gap-1 flex-1 overflow-y-auto">
 	            <div className="premium-section md:bg-transparent rounded-2xl md:rounded-none md:border-none overflow-hidden md:shadow-none">
               {TABS.map((tab, index) => (
                 <div key={tab.id}>
-                  <button onClick={() => { setSettingsConfig(prev => ({ ...prev, tab: tab.id, showMenu: false })); }} className={`w-full flex items-center justify-between md:justify-start gap-2 md:gap-3 px-5 md:px-3 h-16 md:h-10 font-medium text-base md:text-sm transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 outline-none cursor-pointer ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'md:bg-[var(--bg-element)] md:text-[var(--text-main)] text-[var(--theme-base)] md:shadow-sm' : 'text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] bg-transparent'}`}>
-                    <div className="flex items-center gap-3"><tab.icon size={20} className={`md:w-[18px] md:h-[18px] ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--theme-base)] md:text-[var(--text-main)]' : 'text-gray-500'}`} /> <span className={settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--theme-base)] md:text-[var(--text-main)]' : 'text-gray-500 md:text-gray-400 md:hover:text-[var(--text-main)] transition-colors'}>{tab.label}</span></div>
+                  <button data-settings-tab onClick={() => { setSettingsConfig(prev => ({ ...prev, tab: tab.id, showMenu: false })); }} className={`w-full flex items-center justify-between md:justify-start gap-2 md:gap-3 px-5 md:px-3 h-16 md:h-10 font-medium text-base md:text-sm transition-all focus-visible:ring-2 focus-visible:ring-[var(--text-main)] outline-none cursor-pointer ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'bg-[var(--bg-element)] text-[var(--text-main)] md:shadow-sm' : 'text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] bg-transparent'}`}>
+                    <div className="flex items-center gap-3"><tab.icon size={20} className={`md:w-[18px] md:h-[18px] ${settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--text-main)]' : 'text-gray-500'}`} /> <span className={settingsConfig.tab === tab.id && !settingsConfig.showMenu ? 'text-[var(--text-main)]' : 'text-gray-500 md:text-gray-400 md:hover:text-[var(--text-main)] transition-colors'}>{tab.label}</span></div>
                     <ChevronRight size={20} className="md:hidden text-gray-500" />
                   </button>
                   {index < TABS.length - 1 && <div className="h-[1px] bg-[var(--border-subtle)] md:hidden mx-5"></div>}
@@ -468,7 +499,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
         <main className={`relative z-10 ${!settingsConfig.showMenu ? 'flex' : 'hidden'} md:flex flex-1 flex-col overflow-hidden bg-[var(--bg-base)]/65 relative`}>
           <div className="md:hidden flex items-center justify-between px-4 h-16 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 shrink-0 sticky top-0 z-50 shadow-sm backdrop-blur-xl">
-            <button onClick={() => setSettingsConfig(prev => ({ ...prev, showMenu: true }))} className="flex items-center text-indigo-400 font-medium p-2 -ml-2 cursor-pointer">
+            <button onClick={() => setSettingsConfig(prev => ({ ...prev, showMenu: true }))} className="flex items-center text-[var(--text-main)] font-medium p-2 -ml-2 cursor-pointer">
               <ChevronLeft size={28} /><span className="ml-1 text-base">Settings</span>
             </button>
             <span className="font-bold text-[var(--text-main)] text-base absolute left-0 right-0 text-center pointer-events-none">{TABS.find(t => t.id === settingsConfig.tab)?.label}</span>
@@ -483,10 +514,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
             <div className="max-w-2xl mx-auto h-full">
 
               {settingsConfig.tab === 'account' && (
-                <div className="animate-fade-in space-y-8 md:space-y-10">
-	                  <h2 className="gradient-text hidden md:block text-2xl font-semibold tracking-tight font-display">My Account</h2>
+                <div className="space-y-8 md:space-y-10">
+	                  <h2 className="hidden md:block text-2xl font-semibold tracking-tight text-[var(--text-main)] font-display">My Account</h2>
                   {hasUnsavedProfileChanges && (
-                    <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-2xl px-4 py-3 text-sm font-semibold shadow-sm">
+                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-2xl px-4 py-3 text-sm font-semibold shadow-sm">
                       You have unsaved profile changes.
                     </div>
                   )}
@@ -550,8 +581,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
                           <span className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1">Account ID</span>
-                          <button type="button" onClick={copyTag} className="text-[var(--text-main)] font-mono bg-[var(--bg-base)] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] inline-flex items-center gap-2 hover:border-indigo-500 hover:text-indigo-400 transition-colors cursor-pointer">
-                            <span>{fullTag}</span>{copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                          <button type="button" onClick={copyTag} className="text-[var(--text-main)] font-mono bg-[var(--bg-base)] px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] inline-flex items-center gap-2 hover:border-[var(--text-main)] transition-colors cursor-pointer">
+                            <span>{fullTag}</span>{copied ? <Check size={14} className="text-[var(--text-main)]" /> : <Copy size={14} />}
                           </button>
                         </div>
                         <span className="text-xs text-gray-500 sm:text-right">Click the ID to copy it.</span>
@@ -588,7 +619,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <p className="text-sm text-gray-400 mb-4">Need a new password? We'll send a secure reset link to your registered email address.</p>
                       <button type="button" onClick={handlePasswordReset} disabled={loading || resetCooldown > 0} className="premium-secondary-button w-full text-[var(--text-main)] h-16 md:h-14 px-4 rounded-xl flex items-center justify-between cursor-pointer group disabled:opacity-50">
                         <div className="flex items-center gap-3">
-                          <Key size={20} className="text-indigo-400" /> 
+                          <Key size={20} className="text-[var(--text-main)]" />
                           <span className="font-bold text-base md:text-sm">
                             {resetCooldown > 0 ? `Wait ${resetCooldown}s to send again` : 'Send Reset Link'}
                           </span>
@@ -622,8 +653,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                 </div>
               )}
 
+              {settingsConfig.tab === 'moderation' && moderatorRole && <ModerationPanel />}
+
               {settingsConfig.tab === 'privacy' && (
-                <div className="animate-fade-in pb-10">
+                <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Privacy & Safety</h2>
                   
                   <div className="space-y-4">
@@ -685,12 +718,12 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               )}
               
               {settingsConfig.tab === 'security' && (
-                <div className="animate-fade-in pb-10">
+                <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Security & Keys</h2>
 
 	                  <div className="premium-section rounded-xl p-6">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasSecureStorage ? 'bg-green-500/20 text-green-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--bg-element)] text-[var(--text-main)]">
                         {hasSecureStorage ? <Check size={20} /> : <Lock size={20} />}
                       </div>
                       <div>
@@ -699,8 +732,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       </div>
                     </div>
                     
-	                    <div className="bg-[var(--accent-glow)] border border-[var(--border-accent)] p-4 rounded-xl mb-6">
-                      <p className="text-sm leading-relaxed font-medium" style={{ color: document.documentElement.getAttribute('data-theme') === 'light' ? '#312e81' : '#c7d2fe' }}>
+	                    <div className="bg-[var(--bg-element)] border border-[var(--border-subtle)] p-4 rounded-xl mb-6">
+                      <p className="text-sm leading-relaxed font-medium text-[var(--text-main)]">
                         {hasSecureStorage 
                           ? "Since you are on a trusted device with your keys currently loaded, resetting your PIN is simple. Enter a new 6-digit PIN below. We will instantly re-encrypt your local keys with the new PIN and update your cloud backup. You do not need to remember your old PIN to do this." 
                           : "Create a 6-digit PIN to securely back up your End-to-End Encryption keys to the cloud. When you log in on a new device, you will need this PIN to restore your chat history."}
@@ -805,7 +838,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               )}
 
               {settingsConfig.tab === 'appearance' && (
-                <div className="animate-fade-in pb-10">
+                <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Appearance</h2>
                   <div className="space-y-5">
 	                  <div className="premium-section p-5 sm:p-6 rounded-2xl space-y-6">
@@ -815,13 +848,33 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                           <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest">App Theme</h4>
                           <p className="text-sm text-gray-500 mt-1">Changes settings, friend lists, and non-chat app surfaces.</p>
                         </div>
-                        <Palette size={20} className="text-indigo-400 shrink-0" />
+                        <Palette size={20} className="text-[var(--text-main)] shrink-0" />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         {THEME_MODES.map(theme => (
 	                          <button key={theme} onClick={() => setAppTheme(theme)} className={`p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all cursor-pointer ${appTheme === theme ? 'border-[var(--accent)] bg-[var(--accent-glow)] shadow-md' : 'border-[var(--border-subtle)] hover:border-[var(--border-hover)]'}`}>
 	                            <div className={`w-full h-16 rounded-lg ghost-border ${theme === 'dark' ? 'bg-black' : 'bg-gray-200'}`}></div>
                             <span className="text-base md:text-sm font-bold text-[var(--text-main)]">{theme === 'dark' ? 'Dark OLED' : 'Light'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-3">
+                        <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Surface color</h4>
+                        <p className="mt-1 text-sm text-gray-500">Neutral keeps OLED mode black. Tints are optional.</p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {SURFACE_TINTS.map(tint => (
+                          <button
+                            key={tint}
+                            type="button"
+                            onClick={() => setSurfaceTint(tint)}
+                            aria-pressed={surfaceTint === tint}
+                            className={`appearance-tint-option rounded-2xl border p-2.5 text-left transition-colors ${surfaceTint === tint ? 'is-active' : ''}`}
+                          >
+                            <span className={`appearance-tint-swatch appearance-tint-swatch-${tint}`} aria-hidden="true" />
+                            <span className="mt-2 block text-xs font-bold text-[var(--text-main)]">{SURFACE_TINT_LABELS[tint]}</span>
                           </button>
                         ))}
                       </div>
@@ -833,7 +886,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                         <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest">UI Scale</h4>
                         <p className="text-sm text-gray-500 mt-1">Adjusts overall interface spacing and keeps chat readable.</p>
                       </div>
-                      <MessageSquare size={20} className="text-indigo-400 shrink-0" />
+                      <MessageSquare size={20} className="text-[var(--text-main)] shrink-0" />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 block">Density</label>
@@ -854,16 +907,22 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                         ))}
                       </div>
                     </div>
+                    <ToggleSwitch
+                      label="Reduce motion"
+                      description="Removes decorative movement and keeps transitions nearly instant."
+                      checked={reduceMotion}
+                      onChange={setReduceMotion}
+                    />
 	                    <div className="premium-section rounded-xl p-4">
 	                      <div className="mb-3 flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
-                        <span className="text-sm font-bold text-white">Chat Preview</span>
+                        <span className="text-sm font-bold text-[var(--text-main)]">Chat Preview</span>
                         <span className="text-xs text-gray-400">Independent from app theme</span>
                       </div>
                       <div className="space-y-2">
-	                        <div className="w-fit max-w-[85%] rounded-2xl rounded-tl-md border border-[var(--border-subtle)] bg-[var(--bg-element)] px-3 py-2 text-white" style={{ fontSize: uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px' }}>
+	                        <div className="w-fit max-w-[85%] rounded-2xl rounded-tl-md border border-[var(--border-subtle)] bg-[var(--bg-element)] px-3 py-2 text-[var(--text-main)]" style={{ fontSize: uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px' }}>
                           Dark messages stay readable in light mode.
                         </div>
-	                        <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-tr-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-white" style={{ fontSize: uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px' }}>
+	                        <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-tr-md border border-[var(--text-main)] bg-[var(--text-main)] px-3 py-2 text-[var(--bg-base)]" style={{ fontSize: uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px' }}>
                           Topbar and input match the chat surface.
                         </div>
                       </div>
@@ -874,7 +933,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               )}
 
               {settingsConfig.tab === 'notifications' && (
-                <div className="animate-fade-in pb-10">
+                <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Notifications</h2>
                   <div className="space-y-2">
                     <ToggleSwitch label="Enable Device Notifications" description="Receive push notifications when you are pinged or receive a DM." checked={desktopNotifs} onChange={requestDesktopNotifs} />
@@ -887,18 +946,18 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               )}
 
               {settingsConfig.tab === 'voice' && (
-                <div className="animate-fade-in pb-10">
+                <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Voice & Video</h2>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
                     <div className="premium-section p-5 rounded-2xl">
-                      <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 text-indigo-300 flex items-center justify-center mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[var(--bg-element)] text-[var(--text-main)] flex items-center justify-center mb-4">
                         <Mic size={22} />
                       </div>
                       <h3 className="text-[var(--text-main)] font-bold text-lg mb-1">Voice Processing</h3>
                       <p className="text-sm text-gray-500 leading-relaxed">Tune browser call constraints for clearer WebRTC audio.</p>
                     </div>
                     <div className="premium-section p-5 rounded-2xl">
-                      <div className="w-12 h-12 rounded-2xl bg-pink-500/15 text-pink-300 flex items-center justify-center mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[var(--bg-element)] text-[var(--text-main)] flex items-center justify-center mb-4">
                         <Video size={22} />
                       </div>
                       <h3 className="text-[var(--text-main)] font-bold text-lg mb-1">Video Preview</h3>
@@ -914,7 +973,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
               )}
 
               {settingsConfig.tab === 'legal' && (
-                <div className="animate-fade-in pb-10">
+                <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Legal & Policies</h2>
                   
                   <div className="premium-section rounded-2xl overflow-hidden mb-6">

@@ -4,7 +4,7 @@
  * with native keyboard and safe-area behavior.
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
-import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff } from 'lucide-react'
+import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, CircleDot, SlidersHorizontal } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import AddFriendView from '../modals/AddFriendView'
@@ -29,10 +29,12 @@ export default function ChatArea(props) {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
+  const [voiceControlsOpen, setVoiceControlsOpen] = useState(false);
   
   const emojiPickerRef = useRef(null);
   const gifPickerRef = useRef(null);
   const attachMenuRef = useRef(null);
+  const edgeGestureRef = useRef(null);
   const previousChatKeyRef = useRef('');
   const initialPositionRef = useRef({ chatKey: '', positioned: false });
   const [positionedChatKey, setPositionedChatKey] = useState('');
@@ -65,6 +67,48 @@ export default function ChatArea(props) {
   const messageListStyle = props.isCallMinimized
     ? { paddingBottom: 'calc(9.5rem + env(safe-area-inset-bottom, 0px))' }
     : undefined
+
+  const toggleVoiceDeafened = () => {
+    const nextDeafened = !props.voiceDeafened
+    props.setVoiceMuted?.(nextDeafened)
+    props.setVoiceDeafened?.(nextDeafened)
+  }
+
+  useEffect(() => {
+    if (!isActiveVoiceSession) setVoiceControlsOpen(false)
+  }, [isActiveVoiceSession])
+
+  const hasActiveConversation = Boolean(props.activeDm || props.activeChannel)
+  const startEdgeGesture = (event) => {
+    if (!hasActiveConversation || event.pointerType !== 'touch' || window.innerWidth >= 768) return
+    const edgeWidth = 28
+    const side = event.clientX <= edgeWidth
+      ? 'left'
+      : event.clientX >= window.innerWidth - edgeWidth
+        ? 'right'
+        : null
+    if (!side) return
+    edgeGestureRef.current = {
+      pointerId: event.pointerId,
+      side,
+      startX: event.clientX,
+      startY: event.clientY
+    }
+  }
+
+  const finishEdgeGesture = (event) => {
+    const gesture = edgeGestureRef.current
+    edgeGestureRef.current = null
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    const deltaX = event.clientX - gesture.startX
+    const deltaY = Math.abs(event.clientY - gesture.startY)
+    if (deltaY > 72) return
+    if (gesture.side === 'left' && deltaX >= 56) {
+      props.setMobileMenuOpen(true)
+    } else if (gesture.side === 'right' && deltaX <= -56) {
+      if (!(props.showRightSidebar && props.rightTab === 'info')) props.toggleRightSidebar('info')
+    }
+  }
 
   useLayoutEffect(() => {
     if (initialPositionRef.current.chatKey !== activeChatKey) {
@@ -194,21 +238,31 @@ useEffect(() => {
   };
 
   const renderHomeTabBar = () => (
-    <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)]/95 backdrop-blur-xl px-3 py-3 md:px-6">
-      <div className="premium-menu mx-auto grid max-w-3xl grid-cols-4 gap-2 rounded-2xl p-1.5">
-        <button onClick={() => props.setHomeTab('online')} data-active={props.homeTab === 'online'} data-tab-tone="online" className="home-tab-button min-h-12 rounded-xl text-sm font-bold transition-all focus-visible:ring-2 focus-visible:ring-green-400 outline-none cursor-pointer border">Online</button>
-        <button onClick={() => props.setHomeTab('all')} data-active={props.homeTab === 'all'} data-tab-tone="all" className="home-tab-button min-h-12 rounded-xl text-sm font-bold transition-all focus-visible:ring-2 focus-visible:ring-sky-400 outline-none cursor-pointer border">All</button>
-        <button onClick={() => props.setHomeTab('pending')} data-active={props.homeTab === 'pending'} data-tab-tone="pending" className="home-tab-button relative min-h-12 rounded-xl text-sm font-bold transition-all focus-visible:ring-2 focus-visible:ring-amber-400 outline-none cursor-pointer border">
-          Pending
-          {props.friendRequests.length > 0 && <span className="absolute right-2 top-2 bg-red-500 text-white text-[10px] min-w-5 h-5 px-1 flex items-center justify-center rounded-full font-bold">{props.friendRequests.length}</span>}
+    <div className="home-tab-shell shrink-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:px-6 md:pb-3 md:pt-3">
+      <div className="ios-segmented-control mx-auto grid max-w-3xl grid-cols-5 gap-1 rounded-2xl p-1 md:grid-cols-4">
+        <button type="button" onClick={() => props.setMobileMenuOpen(true)} className="home-browse-button flex min-h-11 items-center justify-center rounded-xl md:hidden" aria-label="Open navigation">
+          <Menu size={21} aria-hidden="true" />
+        </button>
+        <button onClick={() => props.setHomeTab('online')} data-active={props.homeTab === 'online'} data-tab-tone="online" className="home-tab-button min-h-11 rounded-xl transition-all outline-none cursor-pointer border" aria-label="Online friends" title="Online">
+          <CircleDot size={19} aria-hidden="true" />
+        </button>
+        <button onClick={() => props.setHomeTab('all')} data-active={props.homeTab === 'all'} data-tab-tone="all" className="home-tab-button min-h-11 rounded-xl transition-all outline-none cursor-pointer border" aria-label="All friends" title="All">
+          <Users size={19} aria-hidden="true" />
+        </button>
+        <button onClick={() => props.setHomeTab('pending')} data-active={props.homeTab === 'pending'} data-tab-tone="pending" className="home-tab-button relative min-h-11 rounded-xl text-xs font-bold transition-all outline-none cursor-pointer border sm:text-sm">
+          <Bell size={19} aria-hidden="true" />
+          <span className="sr-only">Pending requests</span>
+          {props.friendRequests.length > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{props.friendRequests.length}</span>}
         </button>
         <button
           onClick={() => { props.setHomeTab('add_friend'); props.selectDm(null); }}
           data-active={props.homeTab === 'add_friend'}
           data-tab-tone="add"
-          className="home-tab-button min-h-12 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border"
+          className="home-tab-button min-h-11 rounded-xl transition-all flex items-center justify-center cursor-pointer border"
+          aria-label="Add friend"
+          title="Add friend"
         >
-          <UserPlus size={18} /><span className="hidden sm:inline">Add</span>
+          <UserPlus size={19} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -216,10 +270,13 @@ useEffect(() => {
 
   return (
       <main
-        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)]"
+        id="messapp-main"
+        tabIndex={-1}
+        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--chat-bg-base)]"
         style={props.scopedChatStyle}
         onPaste={props.handlePaste}
         onPointerDownCapture={(e) => {
+          startEdgeGesture(e)
           if (!props.messageActionMenuId) return
 
           const target = e.target
@@ -235,17 +292,24 @@ useEffect(() => {
 
           props.setMessageActionMenuId(null)
         }}
+        onPointerUpCapture={finishEdgeGesture}
+        onPointerCancelCapture={() => { edgeGestureRef.current = null }}
       >
-      <header className={`h-16 flex items-center justify-between px-4 md:px-6 backdrop-blur-xl border-b shrink-0 z-30 shadow-md ${props.isChatActive ? 'bg-[var(--chat-bg-base)] border-[var(--chat-border)]' : 'bg-[var(--bg-base)]/80 border-[var(--border-subtle)]'}`}>
+      <header
+        className={`ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 border-b shrink-0 z-30 ${props.isChatActive ? 'border-[var(--chat-border)]' : 'border-[var(--border-subtle)]'}`}
+        style={props.isChatActive ? { backgroundColor: 'var(--chat-bg-surface)' } : undefined}
+      >
         <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
-          <button onClick={() => props.setMobileMenuOpen(true)} className="md:hidden text-gray-400 hover:text-[var(--text-main)] p-2 -ml-2 rounded-xl focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none cursor-pointer">
-            <Menu size={32} />
+          <button type="button" onClick={() => props.setMobileMenuOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:hidden" aria-label="Open navigation">
+            <Menu size={21} aria-hidden="true" />
           </button>
           {props.view === 'home' && !props.activeDm ? (
             <div className="flex items-center gap-3 md:gap-6 animate-fade-in w-full min-w-0">
               <div className="flex items-center gap-2 text-[var(--text-main)] font-bold shrink-0">
-                <Users size={24} className="text-gray-400 hidden sm:block" />
-                <span className="text-lg">Friends</span>
+                {props.homeTab === 'add_friend'
+                  ? <UserPlus size={22} className="hidden text-gray-400 sm:block" />
+                  : <Users size={24} className="hidden text-gray-400 sm:block" />}
+                <span className="text-lg">{props.homeTab === 'add_friend' ? 'Add' : 'Friends'}</span>
               </div>
             </div>
           ) : props.view === 'home' && props.activeDm ? (
@@ -268,11 +332,11 @@ useEffect(() => {
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
           {props.isChatActive && (
             <>
-              {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Phone size={20} aria-hidden="true" /></button>}
-              {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(true)} className="p-2 rounded-xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]"><Video size={20} aria-hidden="true" /></button>}
+              {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start voice call" title="Voice call"><Phone size={20} aria-hidden="true" /></button>}
+              {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(true)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start video call" title="Video call"><Video size={20} aria-hidden="true" /></button>}
               {props.view === 'home' && props.activeDm && <div className="w-[1px] h-6 bg-[var(--border-subtle)] mx-1"></div>}
-              <button onClick={() => props.toggleRightSidebar('search')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${props.rightTab === 'search' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`}><Search size={20} aria-hidden="true" /></button>
-              <button onClick={() => props.toggleRightSidebar('info')} className={`p-2 rounded-xl transition-colors shrink-0 cursor-pointer ${props.rightTab === 'info' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`}><Info size={20} aria-hidden="true" /></button>
+              <button onClick={() => props.toggleRightSidebar('search')} className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${props.rightTab === 'search' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`} aria-label="Search conversation" aria-pressed={props.rightTab === 'search' && props.showRightSidebar} title="Search"><Search size={20} aria-hidden="true" /></button>
+              <button onClick={() => props.toggleRightSidebar('info')} className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${props.rightTab === 'info' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`} aria-label="Show conversation details" aria-pressed={props.rightTab === 'info' && props.showRightSidebar} title="Conversation details"><Info size={20} aria-hidden="true" /></button>
             </>
           )}
         </div>
@@ -293,11 +357,46 @@ useEffect(() => {
           muted={props.voiceMuted}
           deafened={props.voiceDeafened}
           onToggleMute={() => props.setVoiceMuted?.(value => !value)}
-          onToggleDeafen={() => props.setVoiceDeafened?.(value => !value)}
+          onToggleDeafen={toggleVoiceDeafened}
           onLeave={props.leaveActiveVoice}
           onOpen={props.openActiveVoiceChannel}
           onStateChange={props.setVoiceSessionState}
         />
+      )}
+
+      {voiceControlsOpen && isActiveVoiceSession && (
+        <div className="fixed inset-0 z-[80] md:hidden" data-ui-overlay-owner="ChatArea:voice-controls">
+          <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={() => setVoiceControlsOpen(false)} aria-label="Close voice controls" />
+          <section className="voice-controls-drawer absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] rounded-[1.75rem] p-3" role="dialog" aria-modal="true" aria-label="Voice controls">
+            <div className="mb-2 flex items-center justify-between px-1">
+              <div>
+                <p className="text-sm font-bold text-[var(--text-main)]">Voice controls</p>
+                <p className="text-[11px] text-[var(--text-muted)]">{props.activeChannel?.name}</p>
+              </div>
+              <button type="button" onClick={() => setVoiceControlsOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)]" aria-label="Close">
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              <button type="button" onClick={() => props.setVoiceMuted?.(value => !value)} className={`voice-drawer-action ${props.voiceMuted ? 'is-danger' : ''}`} aria-label={props.voiceMuted ? 'Unmute' : 'Mute'}>
+                {props.voiceMuted ? <MicOff size={20} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}
+                <span>{props.voiceMuted ? 'Unmute' : 'Mute'}</span>
+              </button>
+              <button type="button" onClick={toggleVoiceDeafened} className={`voice-drawer-action ${props.voiceDeafened ? 'is-danger' : ''}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
+                {props.voiceDeafened ? <VolumeX size={20} aria-hidden="true" /> : <Volume2 size={20} aria-hidden="true" />}
+                <span>{props.voiceDeafened ? 'Listen' : 'Deafen'}</span>
+              </button>
+              <button type="button" onClick={() => { setVoiceControlsOpen(false); props.openActiveVoiceChannel?.() }} className="voice-drawer-action">
+                <MonitorUp size={20} aria-hidden="true" />
+                <span>Expand</span>
+              </button>
+              <button type="button" onClick={() => { setVoiceControlsOpen(false); props.leaveActiveVoice?.() }} className="voice-drawer-action is-danger">
+                <PhoneOff size={20} aria-hidden="true" />
+                <span>Leave</span>
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {!props.isViewingActiveVoiceChannel && (
@@ -321,7 +420,7 @@ useEffect(() => {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2">
                       {!isActiveVoiceSession ? (
                         <button
                           type="button"
@@ -333,10 +432,15 @@ useEffect(() => {
                         </button>
                       ) : (
                         <>
+                          <button type="button" onClick={() => setVoiceControlsOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2.5 text-xs font-bold text-[var(--text-main)] md:hidden" aria-haspopup="dialog" aria-expanded={voiceControlsOpen}>
+                            <SlidersHorizontal size={18} aria-hidden="true" />
+                            Controls
+                          </button>
+                          <div className="hidden items-center gap-2 md:flex">
                           <button type="button" onClick={() => props.setVoiceMuted?.(value => !value)} className={`rounded-xl p-2.5 ${props.voiceMuted ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceMuted ? 'Unmute' : 'Mute'}>
                             {props.voiceMuted ? <MicOff size={18} /> : <Mic size={18} />}
                           </button>
-                          <button type="button" onClick={() => props.setVoiceDeafened?.(value => !value)} className={`rounded-xl p-2.5 ${props.voiceDeafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
+                          <button type="button" onClick={toggleVoiceDeafened} className={`rounded-xl p-2.5 ${props.voiceDeafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
                             {props.voiceDeafened ? <VolumeX size={18} /> : <Volume2 size={18} />}
                           </button>
                           <button type="button" onClick={props.openActiveVoiceChannel} className="inline-flex items-center gap-2 rounded-xl bg-green-500/15 px-4 py-2.5 text-sm font-black text-green-300">
@@ -347,6 +451,7 @@ useEffect(() => {
                             <PhoneOff size={18} aria-hidden="true" />
                             Leave
                           </button>
+                          </div>
                         </>
                       )}
                     </div>
@@ -376,7 +481,7 @@ useEffect(() => {
               </div>
             </div>
           ) : props.view === 'home' && !props.activeDm ? (
-            <div className="flex-1 flex overflow-hidden bg-[var(--bg-base)]">
+            <div className="home-dashboard flex-1 flex overflow-hidden">
               <div className="flex-1 flex flex-col overflow-hidden">
                 {props.homeTab === 'add_friend' ? (
                   <>
@@ -387,22 +492,23 @@ useEffect(() => {
                   </>
                 ) : (
                   <>
-                    <div className="flex-1 flex flex-col p-4 md:p-8 overflow-y-auto custom-scrollbar">
-                      <div className="premium-input ghost-border rounded-xl flex items-center px-4 py-3 mb-6 transition-all">
-                        <input id="dm-search-input" type="text" placeholder="Search for a conversation..." className="bg-transparent border-none outline-none text-[var(--text-main)] text-sm w-full placeholder-gray-500" />
-                        <Search size={18} className="text-gray-500 ml-2" />
+                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    <div className="mx-auto flex w-full max-w-3xl flex-col p-4 md:p-6">
+                      <div className="ios-search-field mb-5 flex items-center rounded-full px-4 py-3 transition-all">
+                        <input id="dm-search-input" type="text" placeholder="Search" className="bg-transparent border-none outline-none text-[var(--text-main)] text-sm w-full placeholder-gray-500" aria-label="Search conversations" />
+                        <Search size={18} className="text-gray-500 ml-2" aria-hidden="true" />
                       </div>
-                      <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-                        {props.homeTab === 'online' && `Online — ${props.onlineFriends.length}`}
-                        {props.homeTab === 'all' && `All Friends — ${props.allFriends.length}`}
-                        {props.homeTab === 'pending' && `Pending — ${props.friendRequests.length}`}
+                      <div className="mb-3 px-1 text-xs font-bold text-[var(--text-muted)]">
+                        {props.homeTab === 'online' && `Online ${props.onlineFriends.length}`}
+                        {props.homeTab === 'all' && `All ${props.allFriends.length}`}
+                        {props.homeTab === 'pending' && `Pending ${props.friendRequests.length}`}
                       </div>
                       <div className="space-y-2">
                       {props.homeTab === 'pending' && props.friendRequests.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 opacity-50"><Bell size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">No pending friend requests.</p></div>
                       )}
                       {props.homeTab === 'pending' && props.friendRequests.map((req, i) => (
-                        <div key={req.id ? `req-${req.id}` : `fallback-req-${i}`} className="flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
+                        <div key={req.id ? `req-${req.id}` : `fallback-req-${i}`} className="dashboard-list-row flex items-center justify-between p-3 rounded-2xl group transition-all">
                           <div className="flex items-center gap-4">
                             <StatusAvatar url={req.profiles?.avatar_url} username={req.profiles?.username} showStatus={false} className="w-10 h-10" />
                             <div><div className="font-bold text-[var(--text-main)] flex items-center gap-2">{req.profiles?.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{req.profiles?.unique_tag}</span></div><div className="text-xs text-gray-400">Incoming Friend Request</div></div>
@@ -419,7 +525,7 @@ useEffect(() => {
                       {(props.homeTab === 'online' || props.homeTab === 'all') && (props.homeTab === 'all' ? props.allFriends : props.onlineFriends).map((dm, i) => {
                         const isMenuOpen = Boolean(dm.dm_room_id && props.dmActionMenuId === `main-${dm.dm_room_id}`);
                         return (
-                          <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="relative flex items-center justify-between p-3 hover:bg-[var(--bg-surface)] rounded-xl group border-t border-transparent hover:border-[var(--bg-surface)] transition-all">
+                          <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="dashboard-list-row relative flex items-center justify-between p-3 rounded-2xl group transition-all">
                             <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => openDmContact(dm)}>
                               <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={props.getPresenceStatus?.(dm.profiles.id)} className="w-10 h-10" />
                               <div>
@@ -447,29 +553,10 @@ useEffect(() => {
                       })}
                       </div>
                     </div>
+                    </div>
                     {renderHomeTabBar()}
                   </>
                 )}
-              </div>
-              <div className="w-80 border-l border-[var(--border-subtle)] hidden xl:flex flex-col bg-[var(--surface-strong)] backdrop-blur-xl shrink-0" key="active-now-panel">
-                <div className="p-6 pb-4 shrink-0">
-                  <h2 className="text-lg font-bold text-[var(--text-main)] font-display">Active Now</h2>
-                </div>
-                <div className="flex-1 overflow-y-auto custom-scrollbar px-6 space-y-4 pb-6">
-                  {props.onlineFriends.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-gray-500 border border-dashed border-[var(--border-subtle)] rounded-2xl">It's quiet for now...</div>
-                  ) : (
-                    props.onlineFriends.map((dm, i) => (
-                      <div key={dm.dm_room_id ? `dm-act-${dm.dm_room_id}` : `fallback-dm-act-${i}`} className="premium-section p-4 rounded-xl cursor-pointer hover:border-[var(--theme-base)] transition-all" onClick={() => props.selectDm(dm)}>
-                        <div className="flex items-center gap-3 mb-3">
-                          <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={props.getPresenceStatus?.(dm.profiles.id)} className="w-8 h-8" />
-                          <span className="font-bold text-sm text-[var(--text-main)]">{dm.profiles.username}</span>
-                        </div>
-                        <div className="text-xs text-gray-400 flex items-center gap-2 bg-[var(--bg-base)] p-2 rounded-lg shadow-inner"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> {props.getPresenceLabel?.(dm.profiles.id) || 'Online'}</div>
-                      </div>
-                    ))
-                  )}
-                </div>
               </div>
             </div>
           ) : (
@@ -513,9 +600,8 @@ useEffect(() => {
                   )
                   const previousMessage = renderedMessages[index - 1]
                   const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || new Date(m.created_at) - new Date(previousMessage.created_at) > 300000;
-                  const isDM = props.view === 'home';
                   const isMe = m.profile_id === props.session.user.id;
-                  const alignRight = isDM && isMe;
+                  const alignRight = isMe;
                   const isEditing = props.editingMessageId === m.id;
                   const isHighlighted = props.highlightedMessageId === m.id;
                   const repliedMsg = m.reply_to_message_id ? validMessagesById.get(m.reply_to_message_id) : null;
@@ -540,6 +626,7 @@ useEffect(() => {
                       setInlineDeleteMessageId={props.setInlineDeleteMessageId}
                       setInlineDeleteStep={props.setInlineDeleteStep}
                       executeInlineDelete={props.executeInlineDelete}
+                      canModerateMessage={props.view === 'server' && ['owner', 'admin', 'moderator'].includes(props.activeServerRole)}
                       toggleReaction={props.toggleReaction}
                       setReplyingTo={props.setReplyingTo}
                       repliedMsg={repliedMsg}
@@ -553,6 +640,7 @@ useEffect(() => {
 	                      messageActionMenuId={props.messageActionMenuId}
 	                      setMessageActionMenuId={props.setMessageActionMenuId}
 	                      setMessageActionMenuPosition={props.setMessageActionMenuPosition}
+	                      onReportMessage={props.onReportMessage}
 	                    />
                   )
                 })}

@@ -62,7 +62,20 @@ export default function useFloatingMiniPlayer(storageKey) {
   }, [storageKey])
 
   const finishDragging = useCallback((event) => {
-    if (!dragRef.current || (event?.pointerId != null && dragRef.current.pointerId !== event.pointerId)) return
+    const drag = dragRef.current
+    if (!drag || (event?.pointerId != null && drag.pointerId !== event.pointerId)) return
+    if (drag.frameId != null) window.cancelAnimationFrame(drag.frameId)
+    const finalPosition = drag.pendingPosition || positionRef.current
+    const player = playerRef.current
+    if (finalPosition && player) {
+      player.style.left = `${finalPosition.x}px`
+      player.style.top = `${finalPosition.y}px`
+      player.style.right = 'auto'
+      player.style.bottom = 'auto'
+      player.style.transform = ''
+      positionRef.current = finalPosition
+      setPosition(finalPosition)
+    }
     dragRef.current = null
     setIsDragging(false)
     persistPosition()
@@ -76,6 +89,12 @@ export default function useFloatingMiniPlayer(storageKey) {
     event.preventDefault()
     event.currentTarget.setPointerCapture?.(event.pointerId)
     const startPosition = { x: rect.left, y: rect.top }
+    const player = playerRef.current
+    player.style.left = `${rect.left}px`
+    player.style.top = `${rect.top}px`
+    player.style.right = 'auto'
+    player.style.bottom = 'auto'
+    player.style.transform = ''
     positionRef.current = startPosition
     setPosition(startPosition)
     dragRef.current = {
@@ -83,7 +102,11 @@ export default function useFloatingMiniPlayer(storageKey) {
       startX: event.clientX,
       startY: event.clientY,
       originX: rect.left,
-      originY: rect.top
+      originY: rect.top,
+      width: rect.width,
+      height: rect.height,
+      pendingPosition: startPosition,
+      frameId: null
     }
     setIsDragging(true)
   }, [])
@@ -91,11 +114,21 @@ export default function useFloatingMiniPlayer(storageKey) {
   const handlePointerMove = useCallback((event) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
-    setClampedPosition({
+    drag.pendingPosition = clampMiniPlayerPosition({
       x: drag.originX + event.clientX - drag.startX,
       y: drag.originY + event.clientY - drag.startY
+    }, { width: drag.width, height: drag.height }, getViewport())
+    positionRef.current = drag.pendingPosition
+    if (drag.frameId != null) return
+    drag.frameId = window.requestAnimationFrame(() => {
+      const activeDrag = dragRef.current
+      const player = playerRef.current
+      if (!activeDrag || activeDrag !== drag || !player) return
+      activeDrag.frameId = null
+      const next = activeDrag.pendingPosition
+      player.style.transform = `translate3d(${next.x - activeDrag.originX}px, ${next.y - activeDrag.originY}px, 0)`
     })
-  }, [setClampedPosition])
+  }, [getViewport])
 
   const handleKeyDown = useCallback((event) => {
     const movement = {
@@ -140,6 +173,10 @@ export default function useFloatingMiniPlayer(storageKey) {
       window.visualViewport?.removeEventListener('resize', keepInsideViewport)
     }
   }, [setClampedPosition])
+
+  useEffect(() => () => {
+    if (dragRef.current?.frameId != null) window.cancelAnimationFrame(dragRef.current.frameId)
+  }, [])
 
   return {
     playerRef,
