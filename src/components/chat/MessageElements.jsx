@@ -9,9 +9,11 @@ import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
+import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
+import { getVideoAspectRatio, primeVideoPreview } from '../../lib/videoPreview'
 import ChatEmojiPicker from './ChatEmojiPicker'
 import StatusAvatar from '../ui/StatusAvatar'
 import { debug } from '../../lib/debug'
@@ -130,6 +132,29 @@ const rememberLoadedMessageImage = (key) => {
   }
 }
 
+const useNearViewport = (rootMargin = '700px 0px') => {
+  const targetRef = useRef(null)
+  const [nearViewport, setNearViewport] = useState(false)
+
+  useEffect(() => {
+    const target = targetRef.current
+    if (!target || nearViewport) return undefined
+    if (typeof IntersectionObserver !== 'function') {
+      setNearViewport(true)
+      return undefined
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return
+      setNearViewport(true)
+      observer.disconnect()
+    }, { rootMargin })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [nearViewport, rootMargin])
+
+  return [targetRef, nearViewport]
+}
+
 const MessageImage = ({ src, mediaKey, alt, className, style, blurWhileLoading, fill, onOpen }) => {
   const stableMediaKey = String(mediaKey || src)
   const [loaded, setLoaded] = useState(() => loadedMessageImageKeys.has(stableMediaKey))
@@ -141,13 +166,13 @@ const MessageImage = ({ src, mediaKey, alt, className, style, blurWhileLoading, 
   }, [src, stableMediaKey])
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-[var(--bg-element)] ${fill ? 'h-full w-full' : 'w-fit max-w-full'}`}>
+    <div className={`relative overflow-hidden rounded-2xl bg-[var(--bg-element)] ${fill ? 'h-full w-full' : `w-fit max-w-full ${loaded ? '' : 'min-h-40 min-w-[min(68vw,220px)] sm:min-w-[260px] md:min-w-[300px]'}`}`}>
       <img
         src={src}
         alt={alt || ''}
         className={`${className} transition-[filter,opacity] duration-300 ${failed ? 'opacity-0' : blurWhileLoading && !loaded ? 'scale-105 blur-xl opacity-70' : 'blur-0 opacity-100'}`}
         style={style}
-        loading="eager"
+        loading="lazy"
         decoding="async"
         onLoad={() => {
           rememberLoadedMessageImage(stableMediaKey)
@@ -162,6 +187,183 @@ const MessageImage = ({ src, mediaKey, alt, className, style, blurWhileLoading, 
           className="pointer-events-none absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md scale-110"
           aria-label="Image loading"
         />
+      )}
+    </div>
+  )
+}
+
+const MessageVideo = ({
+  src,
+  className = '',
+  style,
+  label = 'Video attachment',
+  onOpen,
+  concealed = false,
+  onReveal,
+  onHide
+}) => {
+  const [frameReady, setFrameReady] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [muted, setMuted] = useState(true)
+  const [aspectRatio, setAspectRatio] = useState(16 / 9)
+  const [viewportRef, nearViewport] = useNearViewport('900px 0px')
+  const videoRef = useRef(null)
+
+  useEffect(() => {
+    setFrameReady(false)
+    setFailed(false)
+    setPlaying(false)
+    setMuted(true)
+    setAspectRatio(16 / 9)
+  }, [src])
+
+  const handleMetadata = (event) => {
+    const video = event.currentTarget
+    setAspectRatio(getVideoAspectRatio(video.videoWidth, video.videoHeight))
+    primeVideoPreview(event)
+  }
+
+  const markFrameReady = (event) => {
+    primeVideoPreview(event)
+    const video = event.currentTarget
+    const reveal = () => setFrameReady(true)
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(reveal)
+    } else {
+      requestAnimationFrame(reveal)
+    }
+  }
+
+  const togglePreviewPlayback = async (event) => {
+    event.stopPropagation()
+    const video = videoRef.current
+    if (!video) return
+    if (!video.paused) {
+      video.pause()
+      return
+    }
+    try {
+      await video.play()
+    } catch (_err) {
+      setFailed(true)
+    }
+  }
+
+  return (
+    <div
+      ref={viewportRef}
+      className={`group/video relative max-h-[52vh] cursor-pointer overflow-hidden rounded-2xl bg-black ${className}`}
+      style={{
+        ...style,
+        aspectRatio,
+        width: `min(78vw, 420px, calc(52vh * ${aspectRatio}))`
+      }}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (concealed) {
+          onReveal?.()
+          return
+        }
+        if (!playing) onOpen?.(event)
+      }}
+    >
+      {!frameReady && !failed && (
+        <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-[linear-gradient(135deg,#111,#050505)]" aria-label="Video preview loading" />
+      )}
+      {failed && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black px-4 text-center">
+          <FileText size={24} className="text-gray-400" aria-hidden="true" />
+          <span className="text-xs font-bold text-white">This video codec cannot be previewed here.</span>
+          <a
+            href={src}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold text-white"
+            onClick={(event) => event.stopPropagation()}
+          >
+            Download video
+          </a>
+        </div>
+      )}
+      <video
+        ref={videoRef}
+        src={nearViewport ? src : undefined}
+        controls={playing}
+        muted={muted}
+        playsInline
+        preload={nearViewport ? 'metadata' : 'none'}
+        aria-label={label}
+        className={`h-full w-full bg-black object-contain transition-all ${frameReady ? 'opacity-100' : 'opacity-0'} ${concealed ? 'scale-110 blur-xl' : ''}`}
+        onLoadedMetadata={handleMetadata}
+        onLoadedData={markFrameReady}
+        onCanPlay={markFrameReady}
+        onSeeked={markFrameReady}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onVolumeChange={(event) => setMuted(event.currentTarget.muted)}
+        onError={() => {
+          setFailed(true)
+          setFrameReady(true)
+        }}
+      >
+        Your browser cannot play this video.
+      </video>
+      {concealed && frameReady && !failed && (
+        <button
+          type="button"
+          className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-black/45 text-sm font-black text-white"
+          onClick={(event) => {
+            event.stopPropagation()
+            onReveal?.()
+          }}
+          aria-label={`Reveal spoiler video ${label}`}
+        >
+          <EyeOff size={24} aria-hidden="true" />
+          <span>Spoiler</span>
+          <span className="text-[10px] font-semibold text-white/75">Tap to reveal</span>
+        </button>
+      )}
+      {!concealed && !failed && frameReady && !playing && (
+        <button
+          type="button"
+          className="absolute left-1/2 top-1/2 z-20 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/70 text-white shadow-lg transition hover:scale-105 hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          onClick={togglePreviewPlayback}
+          aria-label={`Play ${label} muted`}
+        >
+          <Play size={25} className="translate-x-0.5" fill="currentColor" aria-hidden="true" />
+        </button>
+      )}
+      {!concealed && !failed && frameReady && (
+        <button
+          type="button"
+          className="absolute right-2 top-2 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/65 text-white opacity-100 transition hover:bg-black/85 md:opacity-0 md:group-hover/video:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation()
+            videoRef.current?.pause()
+            onOpen?.(event)
+          }}
+          aria-label={`Open ${label} in full screen`}
+        >
+          <Maximize2 size={18} aria-hidden="true" />
+        </button>
+      )}
+      {!concealed && frameReady && !failed && onHide && (
+        <button
+          type="button"
+          className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-lg"
+          onClick={(event) => {
+            event.stopPropagation()
+            videoRef.current?.pause()
+            onHide()
+          }}
+          aria-label={`Hide spoiler video ${label}`}
+        >
+          <Eye size={12} aria-hidden="true" />
+          Hide spoiler
+        </button>
       )}
     </div>
   )
@@ -304,7 +506,7 @@ export const LinkPreview = ({ url }) => {
   if (youtubeEmbedUrl) {
     return (
       <div className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm">
-        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="w-[240px] sm:w-[320px] md:w-96 aspect-video border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen loading="lazy"></iframe>
+        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="w-[240px] sm:w-[320px] md:w-96 aspect-video border-0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerPolicy="no-referrer" allowFullScreen loading="lazy"></iframe>
         <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block px-2 py-1 text-[11px] font-bold text-current hover:underline truncate">{fallbackHost || safeUrl}</a>
       </div>
     )
@@ -415,7 +617,17 @@ export const MemoizedMessage = React.memo(({
     .map(attachment => ({
       id: attachment.id,
       url: resolveAttachmentUrl(attachment),
-      name: attachment.file_name || 'Image'
+      name: attachment.file_name || 'Image',
+      type: 'image'
+    }))
+    .filter(item => item.url)
+  const mediaGallery = mediaAttachments
+    .filter(attachment => !attachment.is_spoiler || revealedAttachmentSpoilers.has(attachment.id))
+    .map(attachment => ({
+      id: attachment.id,
+      url: resolveAttachmentUrl(attachment),
+      name: attachment.file_name || (isVideoAttachment(attachment) ? 'Video' : 'Image'),
+      type: isVideoAttachment(attachment) ? 'video' : 'image'
     }))
     .filter(item => item.url)
   const isActionMenuOpen = messageActionMenuId === m.id
@@ -505,44 +717,11 @@ export const MemoizedMessage = React.memo(({
   }, [alignRight, m.id])
 
   const calculateActionMenuPositionFromAnchor = useCallback((anchor, menuSize = {}) => {
-    const rect = anchor?.rect
-    if (!rect) return null
     const isMobileViewport = window.innerWidth < 768
-    const width = menuSize.width || (hasImageAttachments ? 40 : isMobileViewport ? (isMe ? 244 : 200) : 210)
-    const height = menuSize.height || (isMobileViewport ? 52 : 44)
-    const gap = 8
-    const margin = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-    const anchorAlignRight = Boolean(anchor.alignRight)
-    const preferredLeft = anchorAlignRight ? rect.left - width - gap : rect.right + gap
-    const flippedLeft = anchorAlignRight ? rect.right + gap : rect.left - width - gap
-    const hasPreferredSpace = preferredLeft >= margin && preferredLeft + width <= viewportWidth - margin
-    const hasFlippedSpace = flippedLeft >= margin && flippedLeft + width <= viewportWidth - margin
-    const useAbove = !hasPreferredSpace && !hasFlippedSpace
-    const rawLeft = useAbove ? rect.left + ((rect.width - width) / 2) : hasPreferredSpace ? preferredLeft : flippedLeft
-    const maxLeft = Math.max(margin, viewportWidth - width - margin)
-    const left = Math.min(Math.max(rawLeft, margin), maxLeft)
-    const preferredTop = useAbove ? rect.top - height - gap : rect.top + ((rect.height - height) / 2)
-    const fallbackTop = rect.bottom + gap
-    const rawTop = useAbove && preferredTop < margin ? fallbackTop : preferredTop
-    const maxTop = Math.max(margin, viewportHeight - height - margin)
-    const top = Math.min(Math.max(rawTop, margin), maxTop)
-    return {
-      messageId: anchor.messageId,
-      left,
-      top,
-      alignRight: anchorAlignRight,
-      placement: useAbove ? 'above' : hasPreferredSpace ? 'preferred' : 'flipped',
-      rect: {
-        top: Math.round(rect.top),
-        right: Math.round(rect.right),
-        bottom: Math.round(rect.bottom),
-        left: Math.round(rect.left),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height)
-      }
-    }
+    return getTouchMessageActionPosition(anchor, {
+      width: menuSize.width || (hasImageAttachments ? 44 : isMobileViewport ? (isMe ? 244 : 200) : 210),
+      height: menuSize.height || (isMobileViewport ? 52 : 44)
+    })
   }, [hasImageAttachments, isMe])
 
   const getReactionPopoverPosition = useCallback((expanded = showMoreReactions || editingQuickReactions) => {
@@ -1231,7 +1410,7 @@ export const MemoizedMessage = React.memo(({
                         const imageIndex = attachmentIsImage ? imageGallery.findIndex(item => item.id === attachment.id) : -1
                         if (imageIndex >= 4) return null
                         return (
-                        <div key={attachment.id || attachment.file_url || attachmentUrl} className={`max-w-full text-[var(--theme-base)] ${mediaAttachments.length > 1 && !attachmentIsMedia ? 'col-span-2' : ''}`}>
+                        <div key={attachment.id || attachment.file_url || attachmentUrl} className={`max-w-full text-[var(--theme-base)] ${mediaAttachments.length > 1 && (!attachmentIsMedia || attachmentIsVideo) ? 'col-span-2' : ''}`}>
                           {!attachmentUrl && attachmentIsImage ? (
                             <div className={`${mediaAttachments.length > 1 ? 'aspect-square h-full w-full' : 'h-40 w-[min(68vw,260px)]'} animate-pulse scale-[0.98] rounded-2xl border bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md`} style={attachmentBorderStyle} aria-label="Image loading" />
                           ) : !attachmentUrl ? (
@@ -1261,8 +1440,8 @@ export const MemoizedMessage = React.memo(({
                                     if (attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id)) return
                                     setSelectedImage({
                                       url: attachmentUrl,
-                                      items: imageGallery,
-                                      index: Math.max(0, imageGallery.findIndex(item => item.url === attachmentUrl)),
+                                      items: mediaGallery,
+                                      index: Math.max(0, mediaGallery.findIndex(item => item.url === attachmentUrl)),
                                       user: message.profiles?.username,
                                       time: exactTime
                                     })
@@ -1321,7 +1500,13 @@ export const MemoizedMessage = React.memo(({
                                     className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 text-2xl font-black text-white backdrop-blur-[1px]"
                                     onClick={(event) => {
                                       event.stopPropagation()
-                                      setSelectedImage({ url: attachmentUrl, items: imageGallery, index: 3, user: message.profiles?.username, time: exactTime })
+                                      setSelectedImage({
+                                        url: attachmentUrl,
+                                        items: mediaGallery,
+                                        index: Math.max(0, mediaGallery.findIndex(item => item.url === attachmentUrl)),
+                                        user: message.profiles?.username,
+                                        time: exactTime
+                                      })
                                     }}
                                     aria-label={`View ${imageGallery.length - 4} more images`}
                                   >
@@ -1330,17 +1515,31 @@ export const MemoizedMessage = React.memo(({
                                 )}
                               </div>
                           ) : attachmentIsVideo ? (
-                            <video
+                            <MessageVideo
                               src={attachmentUrl}
-                              controls
-                              playsInline
-                              preload="metadata"
-                              className={`${mediaAttachments.length > 1 ? 'aspect-square h-full w-full rounded-xl object-cover' : 'max-h-[50vh] w-[min(78vw,420px)] rounded-2xl'} border bg-black`}
+                              label={attachment.file_name || 'Video attachment'}
+                              className={`${mediaAttachments.length > 1 ? 'rounded-xl' : 'rounded-2xl'} border bg-black`}
                               style={attachmentBorderStyle}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              Your browser cannot play this video.
-                            </video>
+                              concealed={attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id)}
+                              onReveal={() => setRevealedAttachmentSpoilers(previous => new Set(previous).add(attachment.id))}
+                              onHide={attachment.is_spoiler ? () => {
+                                setRevealedAttachmentSpoilers(previous => {
+                                  const next = new Set(previous)
+                                  next.delete(attachment.id)
+                                  return next
+                                })
+                              } : undefined}
+                              onOpen={() => {
+                                if (attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id)) return
+                                setSelectedImage({
+                                  url: attachmentUrl,
+                                  items: mediaGallery,
+                                  index: Math.max(0, mediaGallery.findIndex(item => item.url === attachmentUrl)),
+                                  user: message.profiles?.username,
+                                  time: exactTime
+                                })
+                              }}
+                            />
                           ) : (
                             <a
                               href={attachmentUrl}
@@ -1357,7 +1556,7 @@ export const MemoizedMessage = React.memo(({
                                 <span className="block text-sm font-bold leading-tight truncate">{attachment.file_name || 'Attachment'}</span>
                                 <span className="mt-1 block text-[11px] font-semibold text-gray-500">{attachmentSize || 'File attachment'}</span>
                               </div>
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--theme-base)] text-white shadow-lg shadow-[var(--theme-20)]">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]">
                                 <Download size={16} aria-hidden="true" />
                               </span>
                             </a>

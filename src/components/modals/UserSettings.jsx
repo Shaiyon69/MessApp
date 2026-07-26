@@ -13,6 +13,7 @@ import { audioSys } from '../../lib/SoundEngine'
 import { debug } from '../../lib/debug'
 import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
 import { getModeratorRole } from '../../lib/moderation'
+import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../../lib/profileSecrets'
 import ModerationPanel from './ModerationPanel'
 
 const BANNER_OPTIONS = [
@@ -119,7 +120,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
   useEffect(() => {
       async function getProfile() {
-        const { data } = await supabase.from('profiles').select('avatar_url, banner_url, username, unique_tag, bio, pronouns, encrypted_private_key, allow_dms, allow_friend_requests').eq('id', session.user.id).single()
+        const [{ data }, { data: profileSecrets }] = await Promise.all([
+          supabase.from('profiles').select('avatar_url, banner_url, username, unique_tag, bio, pronouns, allow_dms, allow_friend_requests').eq('id', session.user.id).single(),
+          loadMyProfileSecrets(supabase, session.user.id)
+        ])
         let cachedProfile = {}
         try {
           cachedProfile = JSON.parse(localStorage.getItem(`profile_cache_${session.user.id}`)) || {}
@@ -132,7 +136,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           if (mergedProfile.unique_tag) setUniqueTag(mergedProfile.unique_tag)
           setBio(mergedProfile.bio || '')
           setPronouns(mergedProfile.pronouns || '')
-          if (data.encrypted_private_key) setHasSecureStorage(true)
+          if (profileSecrets?.encrypted_private_key) setHasSecureStorage(true)
           if (data.allow_dms !== null) setAllowDirectMessages(data.allow_dms)
           if (data.allow_friend_requests !== null) setAllowFriendRequests(data.allow_friend_requests)
           setSavedProfile({
@@ -755,10 +759,11 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                             const { encryptKeyWithPin } = await import('../../lib/crypto');
                             const encryptedKey = await encryptKeyWithPin(pin, priv);
                             
-                            const updatePayload = { encrypted_private_key: encryptedKey };
-                            if (pubKey) updatePayload.public_key = pubKey;
-
-                            const { error } = await supabase.from('profiles').update(updatePayload).eq('id', session.user.id);
+                            const { error } = await saveMyProfileKeyBackup(supabase, {
+                              profileId: session.user.id,
+                              encryptedPrivateKey: encryptedKey,
+                              publicKey: pubKey
+                            });
                             if (error) throw error;
                             toast.success(hasSecureStorage ? 'PIN Reset & Backup Updated!' : 'Secure Storage Enabled! Keys backed up.', { id: toastId });
                             setHasSecureStorage(true);
@@ -789,7 +794,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                             
                             const toastId = toast.loading('Restoring keys...');
                             try {
-                              const { data } = await supabase.from('profiles').select('encrypted_private_key').eq('id', session.user.id).single();
+                              const { data, error } = await loadMyProfileSecrets(supabase, session.user.id);
+                              if (error) throw error;
                               if (!data?.encrypted_private_key) throw new Error("No backup found");
                               
                               const { decryptKeyWithPin } = await import('../../lib/crypto');

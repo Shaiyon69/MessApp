@@ -1,9 +1,8 @@
 /**
  * Centralizes local structured diagnostics at important lifecycle boundaries.
- * Routine events are silent in production unless `messappDebug` is enabled;
- * warnings and errors remain available. Metadata is recursively sanitized so
- * auth material, message bodies, signed URLs, and attachment content cannot
- * accidentally reach the console.
+ * Production builds are always silent. Development metadata is recursively
+ * sanitized so auth material, message bodies, signed URLs, and attachment
+ * content cannot accidentally reach the console.
  */
 
 const SENSITIVE_KEY = /(?:access.?token|refresh.?token|password|passphrase|private.?key|encrypted.?key|service.?role|authorization|cookie|signed.?url|message.?content|attachment.?content|fcm.?token|device.?token)/i
@@ -11,8 +10,8 @@ const URL_KEY = /(?:url|uri)$/i
 const MAX_DEPTH = 4
 
 const routineEnabled = () => {
-  if (!import.meta.env.PROD) return true
-  try { return localStorage.getItem('messappDebug') === 'true' } catch (_err) { return false }
+  if (import.meta.env?.PROD) return false
+  try { return localStorage.getItem('messappDebug') !== 'false' } catch (_err) { return true }
 }
 
 const sanitizeValue = (value, key = '', depth = 0, seen = new WeakSet()) => {
@@ -32,7 +31,7 @@ const sanitizeValue = (value, key = '', depth = 0, seen = new WeakSet()) => {
 }
 
 const emit = (level, label, metadata) => {
-  if ((level === 'debug' || level === 'info') && !routineEnabled()) return
+  if (!routineEnabled()) return
   const eventLabel = typeof label === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(label) ? label : 'APP_DIAGNOSTIC'
   console[level](`[${eventLabel}]`, sanitizeValue(metadata || {}))
 }

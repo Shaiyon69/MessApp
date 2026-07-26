@@ -31,6 +31,9 @@ test('light and dark modes use separate readable outgoing colors', () => {
   assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-outgoing-bg'], '#000000')
   assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-outgoing-border'], '#303030')
   assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-outgoing-text'], '#fafafa')
+  assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-control-bg'], '#000000')
+  assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-control-border'], '#303030')
+  assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-control-text'], '#fafafa')
   assert.equal(getConversationThemeStyle('mono', 'light')['--chat-outgoing-text'], '#ffffff')
   assert.notEqual(
     getConversationThemeStyle('ocean', 'light')['--chat-bg-element'],
