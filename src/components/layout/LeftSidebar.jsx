@@ -4,11 +4,18 @@
  * server, invite, category, and channel mutation.
  */
 import React, { useEffect, useRef, useState } from 'react'
-import { Camera, Hash, Home, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Volume2, VolumeX } from 'lucide-react'
+import { Camera, Gamepad2, GraduationCap, Hash, Home, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Sparkles, Volume2, VolumeX } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import toast from 'react-hot-toast'
 import { safeMediaUrl } from '../../lib/security'
 import { supabase } from '../../supabaseClient'
+import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
+
+const SERVER_PRESET_OPTIONS = [
+  { ...SERVER_PRESETS.gaming, Icon: Gamepad2, accent: 'text-violet-300', active: 'border-violet-400/70 bg-violet-500/15' },
+  { ...SERVER_PRESETS.study, Icon: GraduationCap, accent: 'text-sky-300', active: 'border-sky-400/70 bg-sky-500/15' },
+  { ...SERVER_PRESETS.simple, Icon: Sparkles, accent: 'text-gray-300', active: 'border-gray-400/60 bg-white/[0.07]' }
+]
 
 export default function LeftSidebar(props) {
   const [isEditingStatus, setIsEditingStatus] = useState(false)
@@ -16,6 +23,8 @@ export default function LeftSidebar(props) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false)
   const [serverName, setServerName] = useState('')
+  const [serverPreset, setServerPreset] = useState('gaming')
+  const [isCreatingServer, setIsCreatingServer] = useState(false)
   const [inviteCode, setInviteCode] = useState('')
   const [channelModalCategoryId, setChannelModalCategoryId] = useState(null)
   const [channelName, setChannelName] = useState('')
@@ -32,6 +41,7 @@ export default function LeftSidebar(props) {
   const [editingServerItemName, setEditingServerItemName] = useState('')
   const [isSavingServerItem, setIsSavingServerItem] = useState(false)
   const cancelStatusCommitRef = useRef(false)
+  const serverCreationRequestRef = useRef(null)
   const statusOptions = [
     { id: 'online', label: 'Online', color: '#23a559' },
     { id: 'idle', label: 'Idle', color: '#f0b232' },
@@ -51,6 +61,9 @@ export default function LeftSidebar(props) {
   }
   const closeCreateModal = () => {
     setServerName('')
+    setServerPreset('gaming')
+    setIsCreatingServer(false)
+    serverCreationRequestRef.current = null
     setIsCreateModalOpen(false)
   }
   const closeJoinModal = () => {
@@ -99,17 +112,34 @@ export default function LeftSidebar(props) {
     e.preventDefault()
     const name = serverName.trim()
     if (!name) return toast.error('Enter a server name')
+    setIsCreatingServer(true)
+    const requestId = serverCreationRequestRef.current || crypto.randomUUID()
+    serverCreationRequestRef.current = requestId
     try {
       const { data: server, error } = await supabase.rpc('create_server', {
         server_name: name,
-        idempotency_key: crypto.randomUUID()
+        idempotency_key: requestId
       })
       if (error) throw error
 
+      let presetApplied = true
+      try {
+        await provisionServerPreset(supabase, server.id, serverPreset)
+      } catch (presetError) {
+        presetApplied = false
+        console.warn('[SERVER_PRESET] Server created but preset provisioning was incomplete.', {
+          preset: serverPreset,
+          name: presetError?.name,
+          code: presetError?.code
+        })
+      }
+
       closeCreateModal()
       await refreshServers(server)
-      toast.success('Server created')
+      if (presetApplied) toast.success(`${SERVER_PRESETS[serverPreset]?.name || 'Server'} space created`)
+      else toast('Server created with the default channels. You can add the remaining preset channels manually.', { icon: '⚠️', duration: 6000 })
     } catch (_err) {
+      setIsCreatingServer(false)
       toast.error('Could not create server')
     }
   }
@@ -403,14 +433,22 @@ export default function LeftSidebar(props) {
             ) : null}
 
             {props.view === 'server' ? (
-              <div className="space-y-5">
-                <div className="relative flex items-center justify-between gap-2 px-2">
-                  <h3 className="font-headline text-lg font-bold text-[var(--text-main)] truncate">{props.activeServer?.name || 'Server'}</h3>
-                  <button type="button" onClick={() => setIsServerMenuOpen(open => !open)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500" aria-label="Server menu" title="Server menu">
-                    <MoreVertical size={18} aria-hidden="true" />
+              <div className="space-y-3">
+                <div className="relative flex min-h-14 items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-element)]/70 px-3 py-2 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-gray-500">Server</p>
+                    <h3 className="truncate font-headline text-base font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
+                  </div>
+                  {canManageServer && (
+                    <button type="button" onClick={() => setIsCategoryModalOpen(true)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] text-gray-400 transition-colors hover:border-[var(--theme-base)]/50 hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Create category" title="Create Category">
+                      <Plus size={16} aria-hidden="true" />
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setIsServerMenuOpen(open => !open)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
+                    <MoreVertical size={17} aria-hidden="true" />
                   </button>
                   {isServerMenuOpen && (
-                    <div className="absolute right-2 top-11 z-[80] w-64 rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-2xl">
+                    <div className="absolute right-2 top-14 z-[80] w-64 rounded-xl border border-gray-700 bg-gray-900 p-2 shadow-2xl">
                       <div className="mb-2 rounded-lg border border-gray-700 bg-gray-800 p-2">
                         <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-gray-500">Invite Code</p>
                         <button type="button" onClick={copyInviteCode} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono text-sm text-white hover:bg-gray-700">
@@ -426,62 +464,62 @@ export default function LeftSidebar(props) {
                     </div>
                   )}
                 </div>
-                {canManageServer && (
-                  <div className="px-2">
-                    <button type="button" onClick={() => setIsCategoryModalOpen(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm font-bold text-gray-200 transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-                      <Plus size={16} aria-hidden="true" />
-                      Create Category
-                    </button>
-                  </div>
-                )}
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {(props.serverCategories || []).map(category => (
-                    <section key={category.id} className="space-y-1 rounded-xl border border-transparent px-1 py-1">
-                      <div className="relative flex min-h-8 items-center justify-between gap-2 px-2">
-                        <span className="min-w-0 truncate text-[11px] font-black uppercase tracking-[0.08em] text-gray-500">{category.name}</span>
+                    <section key={category.id} className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/45 p-1.5">
+                      <div className="relative flex min-h-9 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-2 pb-1.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate text-[10px] font-black uppercase tracking-[0.12em] text-gray-400">{category.name}</span>
+                          <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[var(--bg-element)] px-1.5 font-mono text-[9px] font-bold text-gray-500" aria-label={`${(category.channels || []).length} channels`}>
+                            {(category.channels || []).length}
+                          </span>
+                        </div>
                         {canManageServer && (
                           <div className="flex items-center gap-1">
-                            <button type="button" onClick={() => openChannelModal(category.id)} className="rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`Create channel in ${category.name}`} title="Create Channel">
+                            <button type="button" onClick={() => openChannelModal(category.id)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`Create channel in ${category.name}`} title="Create Channel">
                               <Plus size={14} aria-hidden="true" />
                             </button>
-                            <button type="button" onClick={() => setServerItemMenuId(serverItemMenuId === `category-${category.id}` ? null : `category-${category.id}`)} className="rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${category.name} menu`} title="Category menu">
+                            <button type="button" onClick={() => setServerItemMenuId(serverItemMenuId === `category-${category.id}` ? null : `category-${category.id}`)} className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${category.name} menu`} title="Category menu">
                               <MoreVertical size={14} aria-hidden="true" />
                             </button>
                           </div>
                         )}
                         {serverItemMenuId === `category-${category.id}` && (
-                          <div className="absolute right-2 top-7 z-[80] w-44 rounded-lg border border-gray-700 bg-gray-900 p-1 shadow-2xl">
+                          <div className="absolute right-1 top-9 z-[80] w-44 rounded-xl border border-gray-700 bg-gray-900 p-1 shadow-2xl">
                             <button type="button" onClick={() => openEditServerItemModal('category', category)} className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800">Edit Category</button>
                             <button type="button" onClick={() => deleteServerItem('category', category)} className="w-full rounded-md px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10">Delete Category</button>
                           </div>
                         )}
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1 pt-1.5">
                         {(category.channels || []).map(channel => {
                           const isActive = props.activeChannel?.id === channel.id
                           const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
                           return (
-                            <div key={channel.id} className={`relative overflow-hidden rounded-lg ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/65' : ''}`}>
-                              <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-3 py-2 pr-10 text-left text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)] shadow-inner' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
-                                <span className={`flex w-4 shrink-0 justify-center ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'text-green-400' : 'text-gray-500'}`}>{channel.type === 'voice' ? <Volume2 size={15} aria-hidden="true" /> : <Hash size={15} aria-hidden="true" />}</span>
+                            <div key={channel.id} className={`relative rounded-xl ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/55' : ''}`}>
+                              <button type="button" onClick={() => { props.setActiveChannel(channel); props.setMobileMenuOpen(false) }} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-10 text-left text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)] shadow-sm' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
+                                <span className={`absolute inset-y-2 left-0 w-0.5 rounded-r-full ${isActive ? 'bg-[var(--theme-base)]' : 'bg-transparent'}`} aria-hidden="true" />
+                                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
+                                  {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
+                                </span>
                                 <span className="min-w-0 flex-1 truncate">{channel.name}</span>
                                 {channel.type === 'voice' && voiceParticipants.length > 0 && (
-                                  <span className="shrink-0 rounded-full bg-green-500/10 px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-green-300">{voiceParticipants.length} live</span>
+                                  <span className="shrink-0 rounded-full border border-green-500/15 bg-green-500/10 px-1.5 py-0.5 font-mono text-[8px] font-black uppercase tracking-wide text-green-300">{voiceParticipants.length} live</span>
                                 )}
                               </button>
                               {canManageServer && (
-                                <button type="button" onClick={(e) => { e.stopPropagation(); setServerItemMenuId(serverItemMenuId === `channel-${channel.id}` ? null : `channel-${channel.id}`) }} className="absolute right-2 top-2 rounded-md p-1 text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${channel.name} menu`} title="Channel menu">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); setServerItemMenuId(serverItemMenuId === `channel-${channel.id}` ? null : `channel-${channel.id}`) }} className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${channel.name} menu`} title="Channel menu">
                                   <MoreVertical size={14} aria-hidden="true" />
                                 </button>
                               )}
                               {serverItemMenuId === `channel-${channel.id}` && (
-                                <div className="absolute right-2 top-9 z-[80] w-44 rounded-lg border border-gray-700 bg-gray-900 p-1 shadow-2xl">
+                                <div className="absolute right-2 top-10 z-[80] w-44 rounded-xl border border-gray-700 bg-gray-900 p-1 shadow-2xl">
                                   <button type="button" onClick={() => openEditServerItemModal('channel', channel)} className="w-full rounded-md px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-800">Edit Channel</button>
                                   <button type="button" onClick={() => deleteServerItem('channel', channel)} className="w-full rounded-md px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10">Delete Channel</button>
                                 </div>
                               )}
                               {voiceParticipants.length > 0 && (
-                                <div className="space-y-1 px-2 pb-2 pl-7">
+                                <div className="ml-5 space-y-1 border-l border-green-500/15 px-2 pb-2 pl-3 pt-1">
                                   {voiceParticipants.map(participant => {
                                     const hasStream = participant.cameraActive || participant.screenShareActive
                                     return (
@@ -519,11 +557,30 @@ export default function LeftSidebar(props) {
                             </div>
                           )
                         })}
+                        {(category.channels || []).length === 0 && (
+                          <div className="rounded-xl border border-dashed border-[var(--border-subtle)] px-3 py-3 text-center">
+                            <p className="text-xs text-gray-500">No channels in this category</p>
+                            {canManageServer && (
+                              <button type="button" onClick={() => openChannelModal(category.id)} className="mt-1 text-[11px] font-bold text-[var(--theme-base)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]">
+                                Create a channel
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </section>
                   ))}
                   {(props.serverCategories || []).length === 0 && (
-                    <p className="px-2 text-sm text-gray-500">No categories yet.</p>
+                    <div className="rounded-2xl border border-dashed border-[var(--border-subtle)] px-4 py-6 text-center">
+                      <p className="text-sm font-semibold text-gray-400">No categories yet</p>
+                      <p className="mt-1 text-xs text-gray-600">Create one to start organizing channels.</p>
+                      {canManageServer && (
+                        <button type="button" onClick={() => setIsCategoryModalOpen(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--theme-base)] px-3 py-2 text-xs font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-surface)]">
+                          <Plus size={14} aria-hidden="true" />
+                          Create Category
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -628,13 +685,41 @@ export default function LeftSidebar(props) {
       </div>
 
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
-          <form onSubmit={handleCreateServer} className="bg-gray-900 rounded-lg border border-gray-700 p-6 w-96 max-w-[calc(100vw-2rem)]">
-            <h2 className="text-xl font-bold text-white mb-4">Create Server</h2>
-            <input value={serverName} onChange={(e) => setServerName(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white outline-none focus:border-indigo-500" placeholder="Server name" autoFocus />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <form onSubmit={handleCreateServer} className="custom-scrollbar max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-3xl border border-gray-700 bg-gray-900 p-5 shadow-2xl sm:p-6">
+            <div className="mb-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Build your space</p>
+              <h2 className="mt-1 text-2xl font-black text-white">Create a server</h2>
+              <p className="mt-1 text-sm font-semibold text-gray-500">Pick a preset and MessApp will prepare its categories and channels.</p>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-xs font-black uppercase tracking-widest text-gray-500">Server name</span>
+              <input value={serverName} onChange={(e) => setServerName(e.target.value)} className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3.5 py-3 text-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20" placeholder="My community" autoFocus maxLength={100} />
+            </label>
+
+            <fieldset className="mt-5">
+              <legend className="mb-2 text-xs font-black uppercase tracking-widest text-gray-500">Choose a preset</legend>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {SERVER_PRESET_OPTIONS.map(option => (
+                  <label key={option.id} className={`cursor-pointer rounded-2xl border p-3 transition-colors ${serverPreset === option.id ? option.active : 'border-gray-700 bg-gray-800/70 hover:border-gray-600 hover:bg-gray-800'}`}>
+                    <input type="radio" name="server-preset" value={option.id} checked={serverPreset === option.id} onChange={(event) => setServerPreset(event.target.value)} className="sr-only" />
+                    {React.createElement(option.Icon, { size: 22, className: option.accent, 'aria-hidden': true })}
+                    <span className="mt-3 block text-sm font-black text-white">{option.name}</span>
+                    <span className="mt-1 block text-[11px] font-semibold leading-relaxed text-gray-500">{option.description}</span>
+                    <span className="mt-3 block text-[9px] font-black uppercase tracking-widest text-gray-600">
+                      {option.categories.length} {option.categories.length === 1 ? 'category' : 'categories'} · {option.categories.reduce((total, category) => total + category.channels.length, 0)} channels
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={closeCreateModal} className="rounded-lg px-4 py-2 font-bold text-gray-300 hover:bg-gray-800">Cancel</button>
-              <button type="submit" className="rounded-lg bg-indigo-500 px-4 py-2 font-bold text-white hover:bg-indigo-400">Submit</button>
+              <button type="button" onClick={closeCreateModal} disabled={isCreatingServer} className="rounded-xl px-4 py-2.5 font-bold text-gray-300 hover:bg-gray-800 disabled:opacity-50">Cancel</button>
+              <button type="submit" disabled={isCreatingServer || !serverName.trim()} className="rounded-xl bg-indigo-500 px-5 py-2.5 font-black text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50">
+                {isCreatingServer ? 'Creating…' : `Create ${SERVER_PRESETS[serverPreset]?.name || ''} server`}
+              </button>
             </div>
           </form>
         </div>

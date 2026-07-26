@@ -41,8 +41,13 @@ secrets*.json
 *.sqlite
 *.sqlite3
 
-# Supabase backend workspace is local-only and must never be staged.
-/supabase/
+# Supabase local state and generated linked-schema snapshots
+# Migrations and tests are authored source and must remain trackable.
+/supabase/.branches/
+/supabase/.temp/
+/supabase/reference/
+/supabase/schema.sql
+/supabase/storage_schema.sql
 *.dump.sql
 *.backup.sql
 
@@ -76,5 +81,4 @@ Thumbs.db
 /android/local.properties
 
 # Local agent notes; project documentation belongs in SYSTEM_DOCUMENTATION.md.
-/AGENTS.md
 /memory.md
