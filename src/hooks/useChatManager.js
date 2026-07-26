@@ -8,6 +8,8 @@ import { importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAes
 import { audioSys } from '../lib/SoundEngine'
 import { safeHttpUrl } from '../lib/security'
 import { normalizeReactionEmoji } from '../lib/reactions'
+import { reconcileAuthoritativeMessages, removeMessageById } from '../lib/messageReconciliation'
+import { isHydratedAttachment, normalizeCachedAttachment, serializeAttachmentForCache } from '../lib/attachmentCache'
 
 const KeyboardImage =
   window.__messappKeyboardImagePlugin ||
@@ -19,6 +21,8 @@ const MESSAGE_SELECT = `${MESSAGE_SELECT_BASE}, message_attachments(*)`
 const INITIAL_MESSAGE_LIMIT = 30
 const SESSION_MEDIA_CACHE_MAX_ROOMS = 8
 const SESSION_MEDIA_CACHE_MAX_BYTES = 96 * 1024 * 1024
+const PRIORITY_MEDIA_MESSAGE_COUNT = 12
+const BACKGROUND_MEDIA_BATCH_SIZE = 6
 const sessionHydratedRoomCache = new Map()
 
 const getConversationScopeKey = (userId, view, targetId) => `${userId}:${view}:${targetId}`
@@ -32,18 +36,33 @@ const getSessionHydratedMessages = (userId, view, targetId) => {
   return entry.messages
 }
 
+const revokeTemporaryMessageMedia = (messages = []) => {
+  for (const message of messages) {
+    for (const attachment of message?.message_attachments || []) {
+      if (String(attachment?.file_url || '').startsWith('blob:')) {
+        try { URL.revokeObjectURL(attachment.file_url) } catch (_err) {}
+      }
+    }
+  }
+}
+
 const cacheSessionHydratedMessages = (userId, view, targetId, messages) => {
   if (!userId || !targetId) return
   const scopeKey = getConversationScopeKey(userId, view, targetId)
-  const hydrated = messages.filter(message =>
-    message?.id && (message.message_attachments || []).some(attachment =>
-      /^(?:data:|blob:|https?:)/i.test(attachment?.file_url || '') && !attachment.is_unavailable
-    )
-  ).slice(-INITIAL_MESSAGE_LIMIT)
+  const incomingHydrated = messages.filter(message =>
+    message?.id && (message.message_attachments || []).some(isHydratedAttachment)
+  )
+  const existing = sessionHydratedRoomCache.get(scopeKey)?.messages || []
+  const hydratedById = new Map(existing.map(message => [message.id, message]))
+  incomingHydrated.forEach(message => hydratedById.set(message.id, message))
+  const hydrated = Array.from(hydratedById.values()).slice(-INITIAL_MESSAGE_LIMIT)
   if (hydrated.length === 0) return
   const bytes = hydrated.reduce((total, message) => total + (message.message_attachments || []).reduce((attachmentTotal, attachment) => {
     const value = attachment.file_url || ''
-    return attachmentTotal + (value.startsWith('data:') ? Math.ceil(value.length * 0.75) : value.length * 2)
+    const mediaBytes = Number(attachment.__media_bytes)
+    return attachmentTotal + (Number.isFinite(mediaBytes) && mediaBytes > 0
+      ? mediaBytes
+      : value.startsWith('data:') ? Math.ceil(value.length * 0.75) : value.length * 2)
   }, 0), 0)
   if (bytes > SESSION_MEDIA_CACHE_MAX_BYTES) return
 
@@ -51,8 +70,33 @@ const cacheSessionHydratedMessages = (userId, view, targetId, messages) => {
   sessionHydratedRoomCache.set(scopeKey, { messages: hydrated, bytes })
   const totalBytes = () => Array.from(sessionHydratedRoomCache.values()).reduce((total, entry) => total + entry.bytes, 0)
   while (sessionHydratedRoomCache.size > SESSION_MEDIA_CACHE_MAX_ROOMS || totalBytes() > SESSION_MEDIA_CACHE_MAX_BYTES) {
-    sessionHydratedRoomCache.delete(sessionHydratedRoomCache.keys().next().value)
+    const oldestKey = sessionHydratedRoomCache.keys().next().value
+    const oldestEntry = sessionHydratedRoomCache.get(oldestKey)
+    revokeTemporaryMessageMedia(oldestEntry?.messages)
+    sessionHydratedRoomCache.delete(oldestKey)
   }
+}
+
+const waitForMediaIdle = () => new Promise(resolve => {
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => resolve(), { timeout: 120 })
+    return
+  }
+  setTimeout(resolve, 24)
+})
+
+const removeSessionHydratedMessage = (userId, view, targetId, messageId) => {
+  if (!userId || !targetId || !messageId) return
+  const scopeKey = getConversationScopeKey(userId, view, targetId)
+  const entry = sessionHydratedRoomCache.get(scopeKey)
+  if (!entry) return
+  revokeTemporaryMessageMedia(entry.messages.filter(message => message?.id === messageId))
+  const messages = removeMessageById(entry.messages, messageId)
+  if (messages.length === 0) {
+    sessionHydratedRoomCache.delete(scopeKey)
+    return
+  }
+  sessionHydratedRoomCache.set(scopeKey, { ...entry, messages })
 }
 
 const formatBytes = (bytes, decimals = 2) => {
@@ -71,6 +115,7 @@ const safeCacheSave = (userId, targetId, dataArray) => {
       .slice(-INITIAL_MESSAGE_LIMIT)
       .map(message => {
         const persistedMessage = { ...message }
+        persistedMessage.message_attachments = (persistedMessage.message_attachments || []).map(serializeAttachmentForCache)
         delete persistedMessage.__delivery_status
         delete persistedMessage.__local
         delete persistedMessage.__retry_payload
@@ -81,7 +126,16 @@ const safeCacheSave = (userId, targetId, dataArray) => {
 }
 
 const safeCacheLoad = (userId, targetId) => {
-  try { return (JSON.parse(localStorage.getItem(`local_chat_${userId}_${targetId}`)) || []).slice(-INITIAL_MESSAGE_LIMIT) } catch (_err) { return [] }
+  try {
+    return (JSON.parse(localStorage.getItem(`local_chat_${userId}_${targetId}`)) || [])
+      .slice(-INITIAL_MESSAGE_LIMIT)
+      .map(message => ({
+        ...message,
+        message_attachments: (message.message_attachments || []).map(normalizeCachedAttachment)
+      }))
+  } catch (_err) {
+    return []
+  }
 }
 
 const mergeMessageLists = (previous = [], incoming = [], field, targetId) => {
@@ -271,7 +325,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     const userScopePrefix = `${session.user.id}:`
     return () => {
       for (const key of sessionHydratedRoomCache.keys()) {
-        if (key.startsWith(userScopePrefix)) sessionHydratedRoomCache.delete(key)
+        if (key.startsWith(userScopePrefix)) {
+          revokeTemporaryMessageMedia(sessionHydratedRoomCache.get(key)?.messages)
+          sessionHydratedRoomCache.delete(key)
+        }
       }
     }
   }, [session.user.id])
@@ -476,6 +533,33 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const decryptMessageList = useCallback(async (msgList, sharedKeys, { hydrateAttachments = true } = {}) => {
     return await Promise.all(msgList.map(async (msg) => {
       const attachments = msg.message_attachments || []
+      const deriveHistoricalKeys = async metadata => {
+        if (!metadata?.spub || !metadata?.tpub) return []
+        const amISender = msg.profile_id === session.user.id
+        const rawHistoricalPub = amISender ? metadata.tpub : metadata.spub
+        const theirHistoricalPub = { ...rawHistoricalPub, ext: true }
+        const privateKeys = []
+        const currentPrivateKey = localStorage.getItem(`e2ee_private_key_${session.user.id}`)
+        if (currentPrivateKey) privateKeys.push(JSON.parse(currentPrivateKey))
+        const legacyPrivateKeys = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`)
+        if (legacyPrivateKeys) privateKeys.push(...JSON.parse(legacyPrivateKeys))
+        const historicalKeys = []
+        for (const privateJwk of privateKeys) {
+          try {
+            const importedPrivate = await importPrivateKey({ ...privateJwk, ext: true })
+            historicalKeys.push(await deriveSharedAesKey(importedPrivate, theirHistoricalPub))
+          } catch (_err) {}
+        }
+        return historicalKeys
+      }
+      let messageEncryptionMetadata = null
+      try {
+        const parsedContent = typeof msg.content === 'string' && msg.content.startsWith('{')
+          ? JSON.parse(msg.content)
+          : msg.content
+        if (parsedContent?.spub && parsedContent?.tpub) messageEncryptionMetadata = parsedContent
+      } catch (_err) {}
+      const messageHistoricalKeys = await deriveHistoricalKeys(messageEncryptionMetadata)
       let attachmentPatch = {}
       let resolvedAttachments = attachments
       if (hydrateAttachments && attachments.length > 0) {
@@ -496,17 +580,34 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             const response = await fetch(attachmentUrl)
             if (!response.ok) throw new Error(`Attachment fetch failed: ${response.status}`)
             const encryptedPayload = await response.json()
-            const decryptedBuffer = await decryptAttachmentPayload(sharedKeys, encryptedPayload)
+            const attachmentHistoricalKeys = encryptedPayload?.spub && encryptedPayload?.tpub
+              ? await deriveHistoricalKeys(encryptedPayload)
+              : messageHistoricalKeys
+            const decryptionKeys = [
+              ...attachmentHistoricalKeys,
+              sharedKeys?.main,
+              ...(sharedKeys?.legacy || [])
+            ].filter(Boolean)
+            const decryptedBuffer = await decryptAttachmentPayload({
+              main: decryptionKeys[0] || null,
+              legacy: decryptionKeys.slice(1)
+            }, encryptedPayload)
             const originalType = normalizeFileType(attachment.file_type.replace('encrypted:', '') || encryptedPayload.type || 'application/octet-stream')
             const safeType = ALLOWED_IMAGE_TYPES.has(originalType) || ALLOWED_VIDEO_TYPES.has(originalType)
               ? originalType
               : 'application/octet-stream'
+            const isVideo = ALLOWED_VIDEO_TYPES.has(safeType)
             return {
               ...attachment,
-              file_url: bufferToDataUrl(decryptedBuffer, safeType),
+              storage_file_url: attachment.file_url,
+              storage_file_type: attachment.file_type,
+              file_url: isVideo
+                ? URL.createObjectURL(new Blob([decryptedBuffer], { type: safeType }))
+                : bufferToDataUrl(decryptedBuffer, safeType),
               file_type: safeType,
               file_name: encryptedPayload.name || attachment.file_name,
               file_size: encryptedPayload.size || attachment.file_size,
+              __media_bytes: decryptedBuffer.byteLength,
               is_unavailable: false
             }
           } catch (_err) {
@@ -889,7 +990,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       if (!isCurrentScope()) return
 
       setMessages(prev => {
-        const updated = mergeMessageLists(prev, decryptedData, field, targetId)
+        const updated = reconcileAuthoritativeMessages(prev, decryptedData, field, targetId)
         safeCacheSave(session.user.id, targetId, updated)
         return isCurrentScope() ? updated : prev
       })
@@ -903,7 +1004,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       // Media access can involve signed-URL requests plus downloads and DM
       // decryption. Keep it outside the first-render critical path, and merge
       // only if this conversation still owns the active scope.
-      void decryptMessageList(chronoWithHydratedMedia, sharedKeys).then(hydratedData => {
+      const mediaMessages = chronoWithHydratedMedia.filter(message => message.message_attachments?.length)
+      const priorityMedia = mediaMessages.slice(-PRIORITY_MEDIA_MESSAGE_COUNT)
+      const backgroundMedia = mediaMessages.slice(0, -PRIORITY_MEDIA_MESSAGE_COUNT)
+      const hydrateBatch = async batch => {
+        if (!batch.length || !isCurrentScope()) return
+        const hydratedData = await decryptMessageList(batch, sharedKeys)
         if (!isCurrentScope()) return
         cacheSessionHydratedMessages(session.user.id, view, targetId, hydratedData)
         setMessages(prev => {
@@ -911,7 +1017,17 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           safeCacheSave(session.user.id, targetId, updated)
           return isCurrentScope() ? updated : prev
         })
-      }).catch(() => {})
+      }
+      void (async () => {
+        try {
+          await hydrateBatch(priorityMedia)
+          for (let index = backgroundMedia.length; index > 0; index -= BACKGROUND_MEDIA_BATCH_SIZE) {
+            await waitForMediaIdle()
+            const start = Math.max(0, index - BACKGROUND_MEDIA_BATCH_SIZE)
+            await hydrateBatch(backgroundMedia.slice(start, index))
+          }
+        } catch (_err) {}
+      })()
       }
     } finally {
       if (isCurrentScope()) {
@@ -1195,7 +1311,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }, 3000)
   }
 
-  const prepareMessageAttachment = async ({ file, sharedKeys, targetId, gifUrl, isSpoiler = false }) => {
+  const prepareMessageAttachment = async ({ file, sharedKeys, targetId, gifUrl, isSpoiler = false, encryptionMetadata = null }) => {
     if (gifUrl) {
       const safeGifUrl = safeHttpUrl(gifUrl)
       if (!safeGifUrl) throw new Error('Invalid GIF URL')
@@ -1224,7 +1340,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (encrypted) {
       if (!sharedKeys?.main) throw new Error('Attachment encryption key unavailable')
       const encryptedPayload = await encryptBinaryAesGcm(sharedKeys.main, await uploadFile.arrayBuffer())
-      payload = new Blob([JSON.stringify({ ...encryptedPayload, type: file.type || uploadFile.type, name: file.name, size: file.size })], { type: 'application/json' })
+      payload = new Blob([JSON.stringify({
+        ...encryptedPayload,
+        type: file.type || uploadFile.type,
+        name: file.name,
+        size: file.size,
+        ...(encryptionMetadata?.spub && encryptionMetadata?.tpub
+          ? { spub: encryptionMetadata.spub, tpub: encryptionMetadata.tpub }
+          : {})
+      })], { type: 'application/json' })
       fileType = `encrypted:${file.type || uploadFile.type || 'application/octet-stream'}`
     }
 
@@ -1341,12 +1465,18 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
       const contentToSave = await buildEncryptedPayload(caption || '', targetId, sharedKeys, messages);
+      let encryptionMetadata = null
+      try {
+        const parsedContent = typeof contentToSave === 'string' ? JSON.parse(contentToSave) : contentToSave
+        if (parsedContent?.spub && parsedContent?.tpub) encryptionMetadata = parsedContent
+      } catch (_err) {}
       const preparedAttachments = await Promise.all(attachmentsToSend.map(item => prepareMessageAttachment({
         file: item.file,
         gifUrl: item.gifUrl,
         sharedKeys,
         targetId,
-        isSpoiler: Boolean(item.isSpoiler)
+        isSpoiler: Boolean(item.isSpoiler),
+        encryptionMetadata
       })))
 
       const messagePayload = {
@@ -1651,11 +1781,22 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
       if (mode === 'everyone' || mode === 'moderate') {
-        const { error: deleteError } = mode === 'moderate'
+        const deletion = mode === 'moderate'
           ? await supabase.rpc('moderate_server_message', { target_message_id: message.id, moderation_reason: null })
-          : await supabase.from('messages').delete().eq('id', message.id)
+          : await supabase.from('messages').delete().eq('id', message.id).select('id')
+        const { data: deletedRows, error: deleteError } = deletion
         if (deleteError) throw deleteError
-        setMessages(current => current.filter(msg => msg.id !== message.id))
+        if (mode === 'everyone' && !deletedRows?.some(row => row.id === message.id)) {
+          throw new Error('Message delete was not authorized')
+        }
+        const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+        if (!targetId) throw new Error('Conversation is no longer active')
+        removeSessionHydratedMessage(session.user.id, view, targetId, message.id)
+        setMessages(current => {
+          const updated = removeMessageById(current, message.id)
+          safeCacheSave(session.user.id, targetId, updated)
+          return updated
+        })
         toast.success(mode === 'moderate' ? 'Message removed by moderator' : 'Message completely deleted')
       } else {
         setLocalDeletedMessages(prev => [...prev, message.id])
@@ -1663,7 +1804,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
     } catch (_err) { toast.error("Failed to delete message") } 
     finally { setInlineDeleteMessageId(null); setInlineDeleteStep('options') }
-  }, [])
+  }, [activeChannel?.id, activeDm?.dm_room_id, session.user.id, view])
 
   const validMessages = useMemo(() => {
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'

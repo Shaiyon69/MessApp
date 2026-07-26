@@ -1726,14 +1726,73 @@ iframe {
 
 .floating-mini-player {
   contain: layout paint style;
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.floating-mini-player-drag-proxy {
+  position: fixed;
+  z-index: 2147482000;
+  pointer-events: none;
+  contain: strict;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
+  border-radius: 1rem;
+  background: #0c0c0d;
+  box-shadow: none;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.floating-mini-player-drag-proxy::before {
+  position: absolute;
+  top: 0.45rem;
+  left: 50%;
+  width: 2.5rem;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.32);
+  content: "";
+  transform: translateX(-50%);
 }
 
 .floating-mini-player.is-dragging {
-  will-change: transform;
+  user-select: none;
+  transition: none !important;
+}
+
+.floating-mini-player.is-dragging .mini-player-drag-handle {
+  cursor: grabbing;
+  color: #d1d5db;
 }
 
 @media (max-width: 767px) {
   .floating-mini-player.is-dragging {
+    box-shadow: none;
+  }
+
+  .direct-call-mini {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .floating-mini-player.is-dragging *,
+  .floating-mini-player.is-dragging *::before,
+  .floating-mini-player.is-dragging *::after {
+    animation-play-state: paused !important;
+  }
+
+  .floating-mini-player.is-dragging .direct-call-mini-orb,
+  .floating-mini-player.is-dragging .direct-call-mini-avatar-wave {
+    visibility: hidden;
+  }
+
+  .floating-mini-player.is-dragging .direct-call-mini-media,
+  .floating-mini-player.is-dragging .direct-call-mini-pip,
+  .floating-mini-player.is-dragging .direct-call-mini-avatar-shell,
+  .floating-mini-player.is-dragging .direct-call-mini-controls {
     box-shadow: none;
   }
 
@@ -1747,7 +1806,9 @@ iframe {
 }
 
 .direct-call-mini.is-dragging {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 32px 85px rgba(0, 0, 0, 0.68), 0 0 0 1px var(--theme-20);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .direct-call-mini-header {
