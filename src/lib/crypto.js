@@ -187,7 +187,14 @@ export function generateSecureRandomNumber(min, max) {
   return min + (array[0] % range)
 }
 
-export async function deriveKeyFromPin(pin, saltBase64) {
+export const LEGACY_PIN_KDF_ITERATIONS = 100000
+export const PIN_KDF_ITERATIONS = 600000
+
+export const getPinKdfIterations = version => (
+  Number(version) >= 3 ? PIN_KDF_ITERATIONS : LEGACY_PIN_KDF_ITERATIONS
+)
+
+export async function deriveKeyFromPin(pin, saltBase64, iterations = PIN_KDF_ITERATIONS) {
   const enc = new TextEncoder()
   const salt = saltBase64 ? fromBase64(saltBase64) : enc.encode("MESSAPP_SECURE_STORAGE_SALT_V1")
   const keyMaterial = await crypto.subtle.importKey(
@@ -199,7 +206,7 @@ export async function deriveKeyFromPin(pin, saltBase64) {
   )
   
   return await crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt: salt, iterations, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     true,
@@ -210,13 +217,13 @@ export async function deriveKeyFromPin(pin, saltBase64) {
 export async function encryptKeyWithPin(pin, privateKeyJwkStr) {
   const saltBytes = crypto.getRandomValues(new Uint8Array(16))
   const salt = toBase64(saltBytes)
-  const key = await deriveKeyFromPin(pin, salt)
+  const key = await deriveKeyFromPin(pin, salt, PIN_KDF_ITERATIONS)
   const encrypted = await encryptWithAesGcm(key, privateKeyJwkStr)
-  return JSON.stringify({ v: 2, salt, ...encrypted })
+  return JSON.stringify({ v: 3, salt, ...encrypted })
 }
 
 export async function decryptKeyWithPin(pin, encryptedKeyStr) {
   const encryptedData = JSON.parse(encryptedKeyStr)
-  const key = await deriveKeyFromPin(pin, encryptedData.salt)
+  const key = await deriveKeyFromPin(pin, encryptedData.salt, getPinKdfIterations(encryptedData.v))
   return await decryptWithAesGcm(key, encryptedData)
 }
