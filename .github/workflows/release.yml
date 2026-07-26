@@ -197,7 +197,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ needs.validate.outputs.version }}
+          TAG: MessApp_v${{ needs.validate.outputs.version }}-Beta
         shell: bash
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -208,6 +208,6 @@ jobs:
             gh release create "$TAG" release-artifacts/* \
               --generate-notes \
               --prerelease \
-              --title "MessApp $TAG" \
+              --title "$TAG" \
               --repo "$GITHUB_REPOSITORY"
           fi
