@@ -36,51 +36,6 @@ jobs:
       - run: npm test
       - run: npm run lint
 
-  web:
-    name: Build web application
-    needs: validate
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    env:
-      VITE_BASE_PATH: /MessApp/
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - run: npm ci
-      - name: Verify web configuration
-        shell: bash
-        run: |
-          test -n "$VITE_SUPABASE_URL"
-          test -n "$VITE_SUPABASE_ANON_KEY"
-      - run: bash ./build_all.sh web
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: dist
-
-  deploy-web:
-    name: Deploy web application
-    needs: web
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
-
   desktop:
     name: Build ${{ matrix.platform }}
     needs: validate
@@ -184,7 +139,6 @@ jobs:
       - validate
       - desktop
       - android
-      - deploy-web
     runs-on: ubuntu-latest
     permissions:
       contents: write
