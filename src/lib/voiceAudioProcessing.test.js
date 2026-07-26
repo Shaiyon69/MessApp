@@ -37,6 +37,21 @@ test('omits processing constraints a browser reports as unsupported', () => {
   })
 })
 
+test('respects independent echo cancellation and automatic gain preferences', () => {
+  assert.deepEqual(buildVoiceAudioConstraints(true, {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  }, {
+    echoCancellation: false,
+    autoGainControl: false
+  }), {
+    echoCancellation: false,
+    noiseSuppression: true,
+    autoGainControl: false
+  })
+})
+
 test('falls back to core constraints when enhanced capture is overconstrained', async () => {
   const calls = []
   const expectedStream = { id: 'stream' }

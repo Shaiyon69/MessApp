@@ -4,6 +4,7 @@
  * Supabase/RPCs remain authoritative; switches must retire obsolete async work.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import imageCompression from 'browser-image-compression'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
 import { configureNativePushRegistration, registerWebPushDevice, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
@@ -24,53 +25,33 @@ import ServerSettingsModal from './modals/ServerSettings'
 // import ChannelCreationModal from './modals/ChannelCreation'
 import ChannelSettingsModal from './modals/ChannelSettings'
 import UserSettingsModal from './modals/UserSettings'
+import ReportContentModal from './modals/ReportContentModal'
 
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
 import { normalizeProfileBaseName } from '../lib/security'
-import { applyThemeMode } from '../lib/theme'
+import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
+import { submitContentReport } from '../lib/moderation'
+import {
+  CONVERSATION_THEMES,
+  getConversationTheme,
+  getConversationThemeStyle,
+  isConversationThemeSchemaError,
+  resolveConversationThemeId,
+  normalizeConversationThemeId
+} from '../lib/conversationThemes'
+import {
+  CHAT_WALLPAPERS,
+  CUSTOM_WALLPAPER_PREFIX,
+  getChatWallpaper,
+  getCustomWallpaperPath,
+  getWallpaperFileExtension,
+  isCustomWallpaperValue,
+  normalizeChatWallpaper,
+  validateCustomWallpaperFile
+} from '../lib/chatWallpapers'
 import StatusAvatar from './ui/StatusAvatar'
 import { CornerDownLeft } from 'lucide-react'
-
-const THEME_COLORS = [
-  { name: 'Indigo', value: '#6366f1' },
-  { name: 'Pink', value: '#ec4899' },
-  { name: 'Green', value: '#10b981' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Rose', value: '#f43f5e' },
-  { name: 'Amber', value: '#f59e0b' }
-]
-
-const WALLPAPERS = [
-  {
-    id: 'default',
-    name: 'Soft Bloom',
-    css: 'radial-gradient(circle at 18% 12%, var(--theme-10), transparent 28%), radial-gradient(circle at 86% 18%, rgba(45, 212, 191, 0.11), transparent 24%), radial-gradient(circle at 72% 88%, rgba(244, 114, 182, 0.10), transparent 30%), linear-gradient(135deg, rgba(148, 163, 184, 0.05), transparent 42%)',
-    size: 'auto',
-    repeat: 'no-repeat'
-  },
-  {
-    id: 'doodles',
-    name: 'Paper Lines',
-    css: 'linear-gradient(135deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px), radial-gradient(circle at 12% 18%, rgba(251, 191, 36, 0.10), transparent 26%), radial-gradient(circle at 86% 78%, rgba(14, 165, 233, 0.10), transparent 28%)',
-    size: '28px 28px, auto, auto',
-    repeat: 'repeat, no-repeat, no-repeat'
-  },
-  {
-    id: 'galaxy',
-    name: 'Aurora',
-    css: 'radial-gradient(ellipse at 12% 18%, rgba(56, 189, 248, 0.14), transparent 34%), radial-gradient(ellipse at 84% 20%, rgba(168, 85, 247, 0.12), transparent 32%), radial-gradient(ellipse at 56% 92%, rgba(16, 185, 129, 0.12), transparent 34%), linear-gradient(160deg, rgba(255, 255, 255, 0.03), transparent 48%)',
-    size: 'auto',
-    repeat: 'no-repeat'
-  },
-  {
-    id: 'emerald',
-    name: 'Terrace',
-    css: 'repeating-linear-gradient(0deg, rgba(148, 163, 184, 0.07) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.045) 0 1px, transparent 1px 22px), radial-gradient(circle at 20% 90%, rgba(251, 113, 133, 0.10), transparent 26%), radial-gradient(circle at 90% 12%, rgba(34, 197, 94, 0.10), transparent 28%)',
-    size: 'auto',
-    repeat: 'repeat, repeat, no-repeat, no-repeat'
-  }
-]
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -151,8 +132,14 @@ export default function Dashboard({ session }) {
   const dmListCacheKey = `dm_list_${session.user.id}`
   const cachedServers = useMemo(() => readNavigationCache(serverListCacheKey), [serverListCacheKey])
   const cachedDms = useMemo(() => readNavigationCache(dmListCacheKey), [dmListCacheKey])
+  const [appThemeMode, setAppThemeMode] = useState(() => (
+    typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
+  ))
+  const [conversationThemeSchemaAvailable, setConversationThemeSchemaAvailable] = useState(null)
+  const [customWallpaperUrl, setCustomWallpaperUrl] = useState('')
+  const [customWallpaperBusy, setCustomWallpaperBusy] = useState(false)
   const [view, setView] = useState('home')
-  const [homeTab, setHomeTab] = useState('online') 
+  const [homeTab, setHomeTab] = useState('all')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [servers, setServers] = useState(cachedServers)
   const [serversLoading, setServersLoading] = useState(cachedServers.length === 0)
@@ -164,6 +151,7 @@ export default function Dashboard({ session }) {
   const [voiceMuted, setVoiceMuted] = useState(false)
   const [voiceDeafened, setVoiceDeafened] = useState(false)
   const [serverCategories, setServerCategories] = useState([])
+  const [serverChannelsLoading, setServerChannelsLoading] = useState(false)
   const [serverMembers, setServerMembers] = useState([])
   const [dms, setDms] = useState(cachedDms)
   const [dmsLoading, setDmsLoading] = useState(cachedDms.length === 0)
@@ -191,6 +179,8 @@ export default function Dashboard({ session }) {
   const serverMembersCacheRef = useRef(new Map())
   const serversFetchRef = useRef(null)
   const dmsFetchRef = useRef(null)
+  const conversationThemeSchemaAvailableRef = useRef(null)
+  const serverChannelsRequestRef = useRef(0)
   const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
@@ -204,10 +194,21 @@ export default function Dashboard({ session }) {
 
   const [dmActionMenuId, setDmActionMenuId] = useState(null) 
   const [messageActionMenuId, setMessageActionMenuId] = useState(null)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+    const root = document.documentElement
+    const syncMode = () => setAppThemeMode(root.dataset.theme === 'light' ? 'light' : 'dark')
+    const observer = new MutationObserver(syncMode)
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
+    syncMode()
+    return () => observer.disconnect()
+  }, [])
   const [messageActionMenuPosition, setMessageActionMenuPosition] = useState(null)
   const [composerTrayOpen, setComposerTrayOpen] = useState(false)
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
+  const [reportTarget, setReportTarget] = useState(null)
   const [serverSettingsName, setServerSettingsName] = useState('')
   const [channelSettingsName, setChannelSettingsName] = useState('')
   const profileCacheKey = `profile_cache_${session.user.id}`
@@ -227,10 +228,24 @@ export default function Dashboard({ session }) {
   const myUsername = profileData.username || session.user.email.split('@')[0]
   const myTag = profileData.unique_tag || `${myUsername}#0000`
 
+  const handleSubmitReport = useCallback(async ({ reason, details }) => {
+    if (!reportTarget) return
+    await submitContentReport(supabase, {
+      reporterId: session.user.id,
+      targetType: reportTarget.targetType,
+      targetId: reportTarget.id,
+      reason,
+      details,
+      clientContent: reportTarget.clientContent
+    })
+    setReportTarget(null)
+    toast.success('Report submitted for moderator review.')
+  }, [reportTarget, session.user.id])
+
   const closeUserSettings = useCallback(() => {
     setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })
     setView('home')
-    setHomeTab('online')
+    setHomeTab('all')
     if (window.innerWidth < 768) setMobileMenuOpen(true)
   }, [])
 
@@ -580,6 +595,7 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     applyThemeMode(localStorage.getItem('appTheme') || 'dark');
+    applySurfaceTint(localStorage.getItem('surfaceTint') || 'neutral');
 
     const storedDensity = localStorage.getItem('uiDensity') || localStorage.getItem('chatMessageScale') || 'default';
     const uiDensity = storedDensity === 'comfortable' || storedDensity === 'normal' ? 'default' : storedDensity === 'large' ? 'spacious' : storedDensity;
@@ -609,6 +625,12 @@ export default function Dashboard({ session }) {
   }, [dmListCacheKey, session.user.id])
 
   const selectChannel = useCallback((channel) => {
+    if (!channel) {
+      setActiveChannel(null)
+      return
+    }
+    setView('server')
+    setActiveDm(null)
     setActiveChannel(channel)
     setMobileMenuOpen(false)
     if (channel?.type === 'voice' && activeServer?.id && activeVoiceSession?.channelId !== channel.id) {
@@ -831,11 +853,26 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     const roomSub = supabase.channel('dm-rooms-updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_rooms' }, (payload) => {
-         setDms(current => current.map(dm => dm.dm_room_id === payload.new.id ? { ...dm, dm_rooms: { theme_color: payload.new.theme_color, wallpaper: payload.new.wallpaper } } : dm))
-         if (activeDm && activeDm.dm_room_id === payload.new.id) setActiveDm(prev => ({ ...prev, dm_rooms: { theme_color: payload.new.theme_color, wallpaper: payload.new.wallpaper } }))
+         setDms(current => current.map(dm => dm.dm_room_id === payload.new.id ? { ...dm, dm_rooms: { theme_color: payload.new.theme_color, theme_id: payload.new.theme_id, wallpaper: payload.new.wallpaper } } : dm))
+         if (activeDm && activeDm.dm_room_id === payload.new.id) setActiveDm(prev => ({ ...prev, dm_rooms: { theme_color: payload.new.theme_color, theme_id: payload.new.theme_id, wallpaper: payload.new.wallpaper } }))
       }).subscribe()
     return () => supabase.removeChannel(roomSub)
   }, [activeDm])
+
+  useEffect(() => {
+    const serverSub = supabase
+      .channel('server-theme-updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'servers' }, payload => {
+        setServers(current => current.map(server => (
+          server.id === payload.new.id ? { ...server, ...payload.new } : server
+        )))
+        setActiveServer(current => (
+          current?.id === payload.new.id ? { ...current, ...payload.new } : current
+        ))
+      })
+      .subscribe()
+    return () => supabase.removeChannel(serverSub)
+  }, [])
 
   const fetchFriendRequests = async () => {
     const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
@@ -910,7 +947,7 @@ export default function Dashboard({ session }) {
 
     if (isDoubleClick) {
       setView('home'); 
-      setHomeTab('online'); 
+      setHomeTab('all');
       setActiveServer(null); 
       setActiveChannel(null); 
       selectDm(null); 
@@ -923,20 +960,142 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const handleThemeChange = async (colorHex) => {
-    if (!activeDm) return;
-    const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), theme_color: colorHex } }
-    setActiveDm(updatedDm)
-    setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ theme_color: colorHex }).eq('id', activeDm.dm_room_id) } catch (_err) {}
+  const handleConversationThemeChange = async (requestedThemeId) => {
+    const themeId = normalizeConversationThemeId(requestedThemeId)
+    const accent = getConversationTheme(themeId, appThemeMode).palette.accent
+
+    if (view === 'home' && activeDm) {
+      const previousDm = activeDm
+      const updatedDm = {
+        ...activeDm,
+        dm_rooms: { ...(activeDm.dm_rooms || {}), theme_id: themeId, theme_color: accent }
+      }
+      setActiveDm(updatedDm)
+      setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
+      const themeUpdate = conversationThemeSchemaAvailableRef.current === true
+        ? { theme_id: themeId, theme_color: accent }
+        : { theme_color: accent }
+      let { error } = await supabase
+        .from('dm_rooms')
+        .update(themeUpdate)
+        .eq('id', activeDm.dm_room_id)
+      if (themeUpdate.theme_id && isConversationThemeSchemaError(error)) {
+        conversationThemeSchemaAvailableRef.current = false
+        setConversationThemeSchemaAvailable(false)
+        ;({ error } = await supabase
+          .from('dm_rooms')
+          .update({ theme_color: accent })
+          .eq('id', activeDm.dm_room_id))
+      } else if (themeUpdate.theme_id && !error) {
+        conversationThemeSchemaAvailableRef.current = true
+        setConversationThemeSchemaAvailable(true)
+      }
+      if (error) {
+        setActiveDm(previousDm)
+        setDms(current => current.map(dm => dm.dm_room_id === previousDm.dm_room_id ? previousDm : dm))
+        toast.error('Could not update this chat theme.')
+      }
+      return
+    }
+
+    if (view !== 'server' || !activeServer?.id) return
+    if (!canManageActiveServer) {
+      toast.error('Only server moderators can change the server theme.')
+      return
+    }
+    if (conversationThemeSchemaAvailableRef.current === false) {
+      toast.error('Server themes need the pending database update.')
+      return
+    }
+
+    const previousServer = activeServer
+    const updatedServer = { ...activeServer, theme_id: themeId }
+    setActiveServer(updatedServer)
+    setServers(current => current.map(server => server.id === activeServer.id ? updatedServer : server))
+    const { error } = await supabase.from('servers').update({ theme_id: themeId }).eq('id', activeServer.id)
+    if (error) {
+      setActiveServer(previousServer)
+      setServers(current => current.map(server => server.id === previousServer.id ? previousServer : server))
+      if (isConversationThemeSchemaError(error)) {
+        conversationThemeSchemaAvailableRef.current = false
+        setConversationThemeSchemaAvailable(false)
+        toast.error('Server themes need the pending database update.')
+      } else {
+        toast.error('Could not update the server theme.')
+      }
+    } else {
+      conversationThemeSchemaAvailableRef.current = true
+      setConversationThemeSchemaAvailable(true)
+    }
+  }
+
+  const removeOwnedCustomWallpaper = async (value) => {
+    const path = getCustomWallpaperPath(value)
+    if (!path || !path.startsWith(`${session.user.id}/`)) return
+    const { error } = await supabase.storage.from('chat-attachments').remove([path])
+    if (error) console.warn('[CHAT_WALLPAPER]', { operation: 'remove', code: error.code, message: error.message })
+  }
+
+  const persistWallpaperChange = async (wallpaperValue, targetDm = activeDm) => {
+    if (!targetDm?.dm_room_id) return false
+    const previousDm = targetDm
+    const previousWallpaper = previousDm.dm_rooms?.wallpaper
+    const updatedDm = { ...targetDm, dm_rooms: { ...(targetDm.dm_rooms || {}), wallpaper: wallpaperValue } }
+    setActiveDm(current => current?.dm_room_id === targetDm.dm_room_id ? updatedDm : current)
+    setDms(current => current.map(dm => dm.dm_room_id === targetDm.dm_room_id ? updatedDm : dm))
+    const { error } = await supabase.from('dm_rooms').update({ wallpaper: wallpaperValue }).eq('id', targetDm.dm_room_id)
+    if (error) {
+      setActiveDm(current => (
+        current?.dm_room_id === previousDm.dm_room_id && current.dm_rooms?.wallpaper === wallpaperValue
+          ? previousDm
+          : current
+      ))
+      setDms(current => current.map(dm => (
+        dm.dm_room_id === previousDm.dm_room_id && dm.dm_rooms?.wallpaper === wallpaperValue ? previousDm : dm
+      )))
+      toast.error('Could not update this chat wallpaper.')
+      return false
+    }
+    if (previousWallpaper !== wallpaperValue) await removeOwnedCustomWallpaper(previousWallpaper)
+    return true
   }
 
   const handleWallpaperChange = async (wallpaperId) => {
-    if (!activeDm) return;
-    const updatedDm = { ...activeDm, dm_rooms: { ...(activeDm.dm_rooms || {}), wallpaper: wallpaperId } }
-    setActiveDm(updatedDm)
-    setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-    try { await supabase.from('dm_rooms').update({ wallpaper: wallpaperId }).eq('id', activeDm.dm_room_id) } catch (_err) {}
+    await persistWallpaperChange(normalizeChatWallpaper(wallpaperId))
+  }
+
+  const handleCustomWallpaperUpload = async (file) => {
+    if (!activeDm?.dm_room_id || !file || customWallpaperBusy) return
+    const targetDm = activeDm
+    setCustomWallpaperBusy(true)
+    let uploadedPath = ''
+    try {
+      validateCustomWallpaperFile(file)
+      const compressed = await imageCompression(file, {
+        maxSizeMB: 1.5,
+        maxWidthOrHeight: 2048,
+        useWebWorker: true,
+        initialQuality: 0.86
+      })
+      const contentType = compressed.type || file.type
+      const extension = getWallpaperFileExtension(contentType)
+      uploadedPath = `${session.user.id}/${targetDm.dm_room_id}/wallpaper-${crypto.randomUUID()}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from('chat-attachments')
+        .upload(uploadedPath, compressed, { contentType, upsert: false })
+      if (uploadError) throw uploadError
+      const saved = await persistWallpaperChange(`${CUSTOM_WALLPAPER_PREFIX}${uploadedPath}`, targetDm)
+      if (!saved) {
+        await supabase.storage.from('chat-attachments').remove([uploadedPath])
+        return
+      }
+      toast.success('Custom wallpaper applied.')
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from('chat-attachments').remove([uploadedPath])
+      toast.error(error?.message || 'Could not upload this wallpaper.')
+    } finally {
+      setCustomWallpaperBusy(false)
+    }
   }
 
   const executeConfirmAction = async () => {
@@ -988,6 +1147,11 @@ export default function Dashboard({ session }) {
     const request = (async () => {
       const { data } = await supabase.from('servers').select('*, server_members!inner(*)').eq('server_members.profile_id', session.user.id)
       if (data) {
+        if (data.length > 0) {
+          const hasConversationThemes = Object.hasOwn(data[0], 'theme_id')
+          conversationThemeSchemaAvailableRef.current = hasConversationThemes
+          setConversationThemeSchemaAvailable(hasConversationThemes)
+        }
         setServers(data)
         writeNavigationCache(serverListCacheKey, data)
       }
@@ -1030,13 +1194,30 @@ export default function Dashboard({ session }) {
     return () => { active = false }
   }, [activeServer?.id])
 
+  const refreshActiveServerMembers = useCallback(async () => {
+    if (!activeServer?.id) return []
+    const { data, error } = await supabase
+      .from('server_members')
+      .select('server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)')
+      .eq('server_id', activeServer.id)
+    if (error) throw error
+    const members = data || []
+    serverMembersCacheRef.current.set(activeServer.id, members)
+    setServerMembers(members)
+    return members
+  }, [activeServer?.id])
+
   const fetchServerChannels = useCallback(async (serverId = activeServer?.id) => {
+    const requestId = serverChannelsRequestRef.current + 1
+    serverChannelsRequestRef.current = requestId
     if (!serverId) {
+      setServerChannelsLoading(false)
       setServerCategories([])
       setActiveChannel(null)
       return []
     }
 
+    setServerChannelsLoading(true)
     try {
       const { data: categories, error: categoriesError } = await supabase
         .from('categories')
@@ -1070,12 +1251,16 @@ export default function Dashboard({ session }) {
       }))
       const nextChannels = nextCategories.flatMap(category => category.channels)
 
+      if (serverChannelsRequestRef.current !== requestId) return []
       setServerCategories(nextCategories)
-      setActiveChannel(current => current && nextChannels.some(channel => channel.id === current.id) ? current : nextChannels[0] || null)
+      setActiveChannel(current => current && nextChannels.some(channel => channel.id === current.id) ? current : null)
+      setServerChannelsLoading(false)
       return nextCategories
     } catch (_err) {
+      if (serverChannelsRequestRef.current !== requestId) return []
       setServerCategories([])
       setActiveChannel(null)
+      setServerChannelsLoading(false)
       return []
     }
   }, [activeServer?.id])
@@ -1269,10 +1454,25 @@ export default function Dashboard({ session }) {
       return []
     }
     const roomIds = myRooms.map(r => r.dm_room_id)
-    const otherMembersPromise = Promise.resolve(supabase.from('dm_members').select('dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').in('dm_room_id', roomIds).neq('profile_id', session.user.id))
     const latestMessagesPromise = Promise.resolve(supabase.from('messages').select('dm_room_id, profile_id, created_at').in('dm_room_id', roomIds).order('created_at', { ascending: false }).limit(Math.min(Math.max(roomIds.length * 2, 50), 500)))
     const readsPromise = Promise.resolve(supabase.from('dm_reads').select('dm_room_id, last_read_at').eq('profile_id', session.user.id).in('dm_room_id', roomIds))
-    const otherMembersRes = await otherMembersPromise
+    const selectDmMembers = (includeThemeId) => supabase
+      .from('dm_members')
+      .select(includeThemeId
+        ? 'dm_room_id, dm_rooms (theme_color, theme_id, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)'
+        : 'dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)')
+      .in('dm_room_id', roomIds)
+      .neq('profile_id', session.user.id)
+    const requestedThemeId = conversationThemeSchemaAvailableRef.current === true
+    let otherMembersRes = await selectDmMembers(requestedThemeId)
+    if (requestedThemeId && isConversationThemeSchemaError(otherMembersRes.error)) {
+      conversationThemeSchemaAvailableRef.current = false
+      setConversationThemeSchemaAvailable(false)
+      otherMembersRes = await selectDmMembers(false)
+    } else if (requestedThemeId && !otherMembersRes.error) {
+      conversationThemeSchemaAvailableRef.current = true
+      setConversationThemeSchemaAvailable(true)
+    }
     const otherMembers = otherMembersRes.data
 
     if (otherMembers) {
@@ -1325,7 +1525,7 @@ export default function Dashboard({ session }) {
       const roomId = await getOrCreateDmRoom(targetProfile.id, supabase)
       const openedDm = dms.find(dm => dm.dm_room_id === roomId) || {
         dm_room_id: roomId,
-        dm_rooms: entry.dm_rooms || { theme_color: '#6366f1', wallpaper: 'default' },
+        dm_rooms: entry.dm_rooms || { theme_color: '#f5f5f5', theme_id: 'mono', wallpaper: 'default' },
         profiles: targetProfile,
         last_message_at: entry.last_message_at || null,
         last_message_profile_id: entry.last_message_profile_id || null,
@@ -1348,12 +1548,13 @@ export default function Dashboard({ session }) {
   }
 
   useEffect(() => {
-    if (view === 'server' && activeServer?.id) {
+    if (activeServer?.id) {
+      setServerCategories([])
       fetchServerChannels(activeServer.id)
     } else {
       setServerCategories([])
     }
-  }, [activeServer?.id, fetchServerChannels, view])
+  }, [activeServer?.id, fetchServerChannels])
 
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -1398,26 +1599,51 @@ export default function Dashboard({ session }) {
   const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 
   const quickSwitcherResults = quickSwitcherQuery ? quickSwitcherBase.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) || dm.profiles.unique_tag?.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : quickSwitcherBase
-  const currentThemeHex = (activeDm?.dm_rooms?.theme_color || '#6366f1')
-  const currentWallpaper = activeDm?.dm_rooms?.wallpaper || 'default'
-  const currentWallpaperConfig = WALLPAPERS.find(w => w.id === currentWallpaper) || WALLPAPERS[0]
-  const wallpaperCSS = currentWallpaperConfig.css || 'none'
+  const currentConversationThemeId = resolveConversationThemeId(
+    view === 'server' ? activeServer?.theme_id : activeDm?.dm_rooms?.theme_id,
+    view === 'home' ? activeDm?.dm_rooms?.theme_color : null
+  )
+  const currentConversationTheme = getConversationTheme(currentConversationThemeId, appThemeMode)
+  const currentThemeHex = currentConversationTheme.palette.accent
+  const currentWallpaper = normalizeChatWallpaper(activeDm?.dm_rooms?.wallpaper)
+  const currentWallpaperConfig = getChatWallpaper(currentWallpaper)
+  const wallpaperCSS = isCustomWallpaperValue(currentWallpaper) && customWallpaperUrl
+    ? `url(${JSON.stringify(customWallpaperUrl)})`
+    : currentWallpaperConfig.css || 'none'
 
-  const scopedChatStyle = isChatActive ? { 
-    '--theme-base': currentThemeHex,
-    '--theme-10': currentThemeHex + '1a',
-    '--theme-20': currentThemeHex + '33',
-    '--theme-50': currentThemeHex + '80',
-    '--chat-bg-base': 'var(--bg-base)',
-    '--chat-bg-surface': 'var(--bg-surface)',
-    '--chat-bg-element': 'var(--bg-element)',
-    '--chat-border': 'var(--border-subtle)',
-    '--chat-text': 'var(--text-main)',
-  } : {
-    '--theme-base': '#6366f1',
-    '--theme-10': '#6366f11a',
-    '--theme-20': '#6366f133',
-    '--theme-50': '#6366f180',
+  useEffect(() => {
+    const path = getCustomWallpaperPath(currentWallpaper)
+    if (!path || !activeDm?.dm_room_id) {
+      setCustomWallpaperUrl('')
+      return undefined
+    }
+    let active = true
+    let refreshTimer
+    const loadSignedUrl = () => supabase.storage
+      .from('chat-attachments')
+      .createSignedUrl(path, 3600)
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) {
+          setCustomWallpaperUrl('')
+          console.warn('[CHAT_WALLPAPER]', { operation: 'sign', code: error.code, message: error.message })
+          return
+        }
+        setCustomWallpaperUrl(data?.signedUrl || '')
+        refreshTimer = window.setTimeout(loadSignedUrl, 55 * 60 * 1000)
+      })
+    loadSignedUrl()
+    return () => {
+      active = false
+      window.clearTimeout(refreshTimer)
+    }
+  }, [activeDm?.dm_room_id, currentWallpaper])
+
+  const scopedChatStyle = isChatActive ? getConversationThemeStyle(currentConversationThemeId, appThemeMode) : {
+    '--theme-base': 'var(--app-accent)',
+    '--theme-10': 'var(--app-accent-10)',
+    '--theme-20': 'var(--app-accent-20)',
+    '--theme-50': 'var(--app-accent-50)',
     '--chat-bg-base': 'var(--bg-base)',
     '--chat-bg-surface': 'var(--bg-surface)',
     '--chat-bg-element': 'var(--bg-element)',
@@ -1427,6 +1653,7 @@ export default function Dashboard({ session }) {
 
   return (
     <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
+      <a href="#messapp-main" className="skip-link">Skip to conversation</a>
       <CallOverlay 
         {...webRTCProps}
         acceptCall={webRTCProps.acceptCall}
@@ -1458,6 +1685,7 @@ export default function Dashboard({ session }) {
         serversLoading={serversLoading}
         activeServer={activeServer}
         serverCategories={serverCategories}
+        serverChannelsLoading={serverChannelsLoading}
         setActiveServer={setActiveServer}
         activeChannel={activeChannel}
         setActiveChannel={selectChannel}
@@ -1494,6 +1722,7 @@ export default function Dashboard({ session }) {
         dmActionMenuId={dmActionMenuId}
         setDmActionMenuId={setDmActionMenuId}
         setConfirmAction={setConfirmAction}
+        onReportMessage={message => setReportTarget({ targetType: 'message', id: message.id, clientContent: message.content, label: 'message' })}
         restrictedUsersSet={restrictedUsersSet}
         blockedUsersSet={blockedUsersSet}
         myAvatar={myAvatar}
@@ -1509,6 +1738,7 @@ export default function Dashboard({ session }) {
         setShowQuickSwitcher={setShowQuickSwitcher}
         allFriends={allFriends}
         onlineFriends={onlineFriends}
+        appThemeMode={appThemeMode}
         scopedChatStyle={scopedChatStyle}
         handleHomeClick={handleHomeClick}
         activeVoiceSession={activeVoiceSession}
@@ -1521,6 +1751,7 @@ export default function Dashboard({ session }) {
         view={view}
         activeDm={activeDm}
         activeChannel={activeChannel}
+        activeServerRole={activeServerRole}
         activeVoiceSession={activeVoiceSession}
         screenShareClientFactory={screenShareClientFactory}
         voiceSessionState={voiceSessionState}
@@ -1583,17 +1814,26 @@ export default function Dashboard({ session }) {
       {showRightSidebar && isChatActive && (
         <RightSidebar 
           activeDm={activeDm}
+          currentUserId={session.user.id}
           closeRightSidebar={closeRightSidebar}
           rightTab={rightTab}
           onlineUsersSet={onlineUsersSet}
           activeServer={activeServer}
+          activeServerRole={activeServerRole}
           serverMembers={serverMembers}
+          onServerMembersChanged={refreshActiveServerMembers}
+          toggleRightSidebar={toggleRightSidebar}
           userPresence={userPresence}
           getPresenceStatus={getPresenceStatus}
           getPresenceLabel={getPresenceLabel}
-          handleThemeChange={handleThemeChange}
+          handleConversationThemeChange={handleConversationThemeChange}
+          currentConversationThemeId={currentConversationThemeId}
+          conversationThemeSchemaAvailable={conversationThemeSchemaAvailable}
           currentThemeHex={currentThemeHex}
           handleWallpaperChange={handleWallpaperChange}
+          handleCustomWallpaperUpload={handleCustomWallpaperUpload}
+          customWallpaperBusy={customWallpaperBusy}
+          customWallpaperSelected={isCustomWallpaperValue(currentWallpaper)}
           currentWallpaper={currentWallpaper}
           setConfirmAction={setConfirmAction}
           restrictedUsersSet={restrictedUsersSet}
@@ -1602,13 +1842,14 @@ export default function Dashboard({ session }) {
           setSearchQuery={setSearchQuery}
           searchResults={searchResults}
           scrollToMessage={chatManagerProps.scrollToMessage}
-          THEME_COLORS={THEME_COLORS}
-          WALLPAPERS={WALLPAPERS}
+          CONVERSATION_THEMES={CONVERSATION_THEMES}
+          WALLPAPERS={CHAT_WALLPAPERS}
           scopedChatStyle={scopedChatStyle}
           messages={chatManagerProps.validMessages}
           pinnedMessages={chatManagerProps.pinnedMessages}
           togglePinnedMessage={chatManagerProps.togglePinnedMessage}
           setSelectedImage={chatManagerProps.setSelectedImage}
+          onReportTarget={setReportTarget}
         />
       )}
 
@@ -1899,6 +2140,7 @@ export default function Dashboard({ session }) {
           return next
         })
       }} onClose={closeUserSettings} />}
+      {reportTarget && <ReportContentModal targetLabel={reportTarget.label} onSubmit={handleSubmitReport} onClose={() => setReportTarget(null)} />}
       {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
     </div>

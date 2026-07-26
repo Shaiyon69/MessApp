@@ -13,7 +13,7 @@ import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import ForgotPassword from './components/ForgotPassword'
 import UpdatePassword from './components/UpdatePassword'
-import { applyThemeMode, normalizeThemeMode } from './lib/theme'
+import { applySurfaceTint, applyThemeMode, normalizeThemeMode } from './lib/theme'
 import { debug } from './lib/debug'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
 
@@ -39,6 +39,8 @@ export default function App() {
 
   useLayoutEffect(() => {
     setThemeMode(applyThemeMode(localStorage.getItem('appTheme') || 'dark'))
+    applySurfaceTint(localStorage.getItem('surfaceTint') || 'neutral')
+    document.documentElement.setAttribute('data-reduce-motion', String(localStorage.getItem('reduceMotion') === 'true'))
   }, [])
 
   useEffect(() => {

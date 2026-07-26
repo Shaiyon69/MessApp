@@ -53,30 +53,30 @@ export default function CallOverlay({
         style={floatingStyle}
         data-ui-overlay-owner="CallOverlay:minimized-card"
         data-composer-tray-open={composerTrayOpen ? 'true' : undefined}
-        className={`direct-call-mini minimized-call-card fixed left-auto right-3 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] w-[min(340px,calc(100vw-1.5rem))] pointer-events-auto max-h-[70dvh] overflow-y-auto md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] border border-[var(--border-subtle)] rounded-[1.35rem] p-2 shadow-2xl animate-fade-in z-[90] ${isDragging ? 'is-dragging select-none' : ''}`}
+        className={`floating-mini-player direct-call-mini minimized-call-card fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] w-[min(248px,calc(100vw-1rem))] pointer-events-auto max-h-[62dvh] overflow-hidden border border-[var(--border-subtle)] rounded-[1.1rem] p-1.5 z-[90] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:w-[min(340px,calc(100vw-2.5rem))] md:max-h-[70dvh] md:rounded-[1.35rem] md:p-2 ${isDragging ? 'is-dragging select-none' : ''}`}
       >
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-        <header className="direct-call-mini-header mb-2 flex items-center gap-2 rounded-2xl px-1.5 py-1">
+        <header className="direct-call-mini-header mb-1.5 flex items-center gap-1 rounded-xl px-1 py-0.5 md:mb-2 md:gap-2 md:rounded-2xl md:px-1.5 md:py-1">
           <button
             type="button"
             {...dragHandleProps}
-            className={`flex min-w-0 flex-1 touch-none cursor-grab items-center gap-2 rounded-xl px-2 py-1.5 text-left text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isDragging ? 'cursor-grabbing text-gray-200' : 'hover:text-gray-200'}`}
+            className={`flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:gap-2 md:rounded-xl md:px-2 md:py-1.5 ${isDragging ? 'cursor-grabbing text-gray-200' : 'hover:text-gray-200'}`}
             aria-label="Move mini call player"
             title="Drag to move. Use arrow keys to move, or double-click to reset."
           >
-            <GripHorizontal size={16} className="shrink-0 text-gray-600" aria-hidden="true" />
-            <span className={`h-2 w-2 shrink-0 rounded-full ${isConnected ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.7)]' : isTerminal ? 'bg-red-400' : 'bg-amber-400 animate-pulse'}`} />
+            <GripHorizontal size={14} className="shrink-0 text-gray-600 md:h-4 md:w-4" aria-hidden="true" />
+            <span className={`h-2 w-2 shrink-0 rounded-full ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} />
             <span className="min-w-0 flex-1 truncate text-[10px] font-black uppercase tracking-[0.16em]">
               {isMiniVideoCall ? 'Video call' : 'Voice call'} · {statusLabel}
             </span>
           </button>
-          <button type="button" onClick={() => setCallMinimized(false)} className="direct-call-mini-control flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400" aria-label="Open full call" title="Open full call">
+          <button type="button" onClick={() => setCallMinimized(false)} className="direct-call-mini-control flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 md:h-8 md:w-8" aria-label="Open full call" title="Open full call">
             <Maximize2 size={14}/>
           </button>
         </header>
 
         {hasMiniVideo ? (
-          <div className="direct-call-mini-media relative mb-2 aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black">
+          <div className="direct-call-mini-media relative mb-1.5 aspect-video overflow-hidden rounded-xl border border-white/10 bg-black md:mb-2 md:rounded-2xl">
             <video
               ref={isVideoLive ? remoteVideoRef : localVideoRef}
               autoPlay
@@ -85,34 +85,34 @@ export default function CallOverlay({
               className="h-full w-full object-cover"
               style={!isVideoLive ? { transform: 'scaleX(-1)' } : undefined}
             />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-3.5 pb-3 pt-12">
-              <p className="truncate text-base font-black tracking-tight text-white">{remoteCaller?.username || 'Call'}</p>
-              <p className={`text-[10px] font-bold uppercase tracking-widest ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2.5 pb-2 pt-8 md:px-3.5 md:pb-3 md:pt-12">
+              <p className="truncate text-sm font-black tracking-tight text-white md:text-base">{remoteCaller?.username || 'Call'}</p>
+              <p className={`text-[9px] font-bold uppercase tracking-widest md:text-[10px] ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
                 {statusLabel}{!isVideoLive ? ' · Your camera' : ''}
               </p>
             </div>
             {isVideoLive && videoEnabled && (
-              <div className="direct-call-mini-pip absolute right-2.5 top-2.5 h-20 w-14 overflow-hidden rounded-xl border border-white/20 bg-[#1c1e22] shadow-xl sm:h-24 sm:w-16">
+              <div className="direct-call-mini-pip absolute right-2 top-2 h-14 w-10 overflow-hidden rounded-lg border border-white/20 bg-[#1c1e22] md:right-2.5 md:top-2.5 md:h-24 md:w-16 md:rounded-xl">
                 <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: 'scaleX(-1)' }} />
               </div>
             )}
           </div>
         ) : (
-          <div className="direct-call-mini-audio relative mb-2 flex min-h-32 min-w-0 items-center gap-4 overflow-hidden rounded-2xl border border-white/[0.07] px-4 py-4">
+          <div className="direct-call-mini-audio relative mb-1.5 flex min-h-20 min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-white/[0.07] px-2.5 py-2 md:mb-2 md:min-h-32 md:gap-4 md:rounded-2xl md:px-4 md:py-4">
             <div className="direct-call-mini-orb direct-call-mini-orb-one" aria-hidden="true" />
             <div className="direct-call-mini-orb direct-call-mini-orb-two" aria-hidden="true" />
             <div className={`direct-call-mini-avatar-shell relative z-[1] shrink-0 rounded-full p-1.5 ${isConnected ? 'is-connected' : ''}`}>
               {isConnected && <span className="direct-call-mini-avatar-wave absolute rounded-full border border-green-400/55" aria-hidden="true" />}
-              <StatusAvatar url={remoteCaller?.avatar_url} username={remoteCaller?.username} showStatus={false} className="relative z-[2] h-16 w-16 rounded-full" />
-              <span className={`absolute bottom-1 right-1 z-[3] h-3.5 w-3.5 rounded-full border-[3px] border-[#151820] ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} aria-hidden="true" />
+              <StatusAvatar url={remoteCaller?.avatar_url} username={remoteCaller?.username} showStatus={false} className="relative z-[2] h-11 w-11 rounded-full md:h-16 md:w-16" />
+              <span className={`absolute bottom-0.5 right-0.5 z-[3] h-3 w-3 rounded-full border-2 border-[#151820] md:bottom-1 md:right-1 md:h-3.5 md:w-3.5 md:border-[3px] ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} aria-hidden="true" />
             </div>
             <div className="relative z-[1] min-w-0 flex-1">
-              <span className="block truncate text-lg font-black tracking-tight text-white">{remoteCaller?.username || 'Call'}</span>
+              <span className="block truncate text-sm font-black tracking-tight text-white md:text-lg">{remoteCaller?.username || 'Call'}</span>
               <span className={`mt-0.5 block truncate text-[10px] font-bold uppercase tracking-[0.15em] ${isConnected ? 'text-green-400' : 'text-[var(--theme-base)]'}`}>
                 {statusLabel}{isConnected ? ` · ${micEnabled ? 'Mic on' : 'Muted'}` : ''}
               </span>
               {isConnected && (
-                <div className="mt-3 flex h-5 items-center gap-1" aria-label="Call audio is live">
+                <div className="mt-3 hidden h-5 items-center gap-1 md:flex" aria-label="Call audio is live">
                   {[7, 12, 18, 10, 15, 8].map((height, index) => (
                     <span key={index} className="direct-call-mini-level w-1 rounded-full bg-green-400" style={{ height: `${height}px`, animationDelay: `${index * 90}ms` }} />
                   ))}
@@ -122,29 +122,29 @@ export default function CallOverlay({
           </div>
         )}
 
-        <div className="direct-call-mini-controls flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-white/[0.06] p-1.5">
+        <div className="direct-call-mini-controls flex flex-wrap items-center justify-center gap-1 rounded-xl border border-white/[0.06] p-1 md:gap-1.5 md:rounded-2xl md:p-1.5">
           {!isTerminal && (
             <>
-              <button type="button" onClick={toggleMic} className={`direct-call-mini-control flex h-9 w-9 items-center justify-center rounded-full md:h-10 md:w-10 ${micEnabled ? 'text-white' : 'is-danger text-red-300'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
+              <button type="button" onClick={toggleMic} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${micEnabled ? 'text-white' : 'is-danger text-red-300'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
                 {micEnabled ? <Mic size={15} /> : <MicOff size={15} />}
               </button>
 
-              <button type="button" onClick={toggleVideo} className={`direct-call-mini-control flex h-9 w-9 items-center justify-center rounded-full md:h-10 md:w-10 ${videoEnabled ? 'is-active text-white' : 'is-danger text-red-300'}`} aria-label={videoEnabled ? 'Turn video off' : 'Turn video on'} title={videoEnabled ? 'Turn video off' : 'Turn video on'}>
+              <button type="button" onClick={toggleVideo} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${videoEnabled ? 'is-active text-white' : 'is-danger text-red-300'}`} aria-label={videoEnabled ? 'Turn video off' : 'Turn video on'} title={videoEnabled ? 'Turn video off' : 'Turn video on'}>
                 {videoEnabled ? <Video size={15} /> : <VideoOff size={15} />}
               </button>
 
-              <button type="button" onClick={toggleSpeaker} className={`direct-call-mini-control flex h-9 w-9 items-center justify-center rounded-full md:h-10 md:w-10 ${speakerEnabled ? 'is-active text-white' : 'text-gray-400'}`} aria-label="Toggle speaker" title="Speaker">
+              <button type="button" onClick={toggleSpeaker} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${speakerEnabled ? 'is-active text-white' : 'text-gray-400'}`} aria-label="Toggle speaker" title="Speaker">
                 <Volume2 size={15} />
               </button>
 
-              <button type="button" onClick={toggleNoiseCancellation} className={`direct-call-mini-control flex h-9 w-9 items-center justify-center rounded-full md:h-10 md:w-10 ${ncEnabled ? 'is-active text-white' : 'is-danger text-red-300'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
+              <button type="button" onClick={toggleNoiseCancellation} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${ncEnabled ? 'is-active text-white' : 'is-danger text-red-300'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
                 <Activity size={15} />
               </button>
 
               {isIncoming ? (
-                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-9 items-center gap-2 rounded-full bg-green-500 px-4 text-xs font-black text-white md:h-10"><Phone size={14} />Accept</button>
+                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 text-[11px] font-black text-white md:h-10 md:gap-2 md:px-4 md:text-xs"><Phone size={14} />Accept</button>
               ) : (
-                <button type="button" onClick={() => endCallNetwork('ended')} className="direct-call-mini-end flex h-9 w-11 items-center justify-center rounded-full bg-red-500 text-white md:h-10 md:w-12" aria-label="End call" title="End call"><PhoneOff size={15}/></button>
+                <button type="button" onClick={() => endCallNetwork('ended')} className="direct-call-mini-end flex h-8 w-10 items-center justify-center rounded-full bg-red-500 text-white md:h-10 md:w-12" aria-label="End call" title="End call"><PhoneOff size={15}/></button>
               )}
             </>
           )}
@@ -164,7 +164,7 @@ export default function CallOverlay({
 
       <div className="relative w-full max-w-5xl flex flex-col items-center justify-center gap-4 mb-8 flex-1">
         
-        <div className={`relative flex items-center justify-center rounded-3xl overflow-hidden shadow-2xl transition-all duration-500 ${isVideoLive ? 'w-full h-full' : 'w-52 h-52 md:w-64 md:h-64 shadow-[0_0_100px_var(--theme-20)]'}`}>
+        <div className={`relative flex items-center justify-center rounded-3xl overflow-hidden transition-all duration-500 ${isVideoLive ? 'w-full h-full' : 'w-52 h-52 md:w-64 md:h-64'}`}>
            <video 
              ref={remoteVideoRef} 
              autoPlay playsInline 
@@ -190,15 +190,15 @@ export default function CallOverlay({
 
         {!isVideoLive && (
           <div className="absolute bottom-[8%] flex flex-col items-center px-4 text-center">
-            <h2 className="text-4xl font-bold text-white mb-2 tracking-tight drop-shadow-lg">{remoteCaller?.username}</h2>
-            <p className="text-[var(--theme-base)] font-bold text-base tracking-widest uppercase drop-shadow-md">
+            <h2 className="mb-1 text-2xl font-bold tracking-tight text-white md:text-3xl">{remoteCaller?.username}</h2>
+            <p className="text-sm font-bold text-gray-300">
               {statusLabel}
             </p>
           </div>
         )}
         
         {pendingVideoRequest && (
-          <div className="absolute top-24 bg-[#1c1e22] border border-indigo-500 p-5 rounded-3xl shadow-[0_0_40px_rgba(99,102,241,0.4)] z-[200] flex flex-col items-center gap-4 animate-slide-up">
+          <div className="absolute top-24 bg-[#1c1e22] border border-white/10 p-5 rounded-3xl shadow-xl z-[200] flex flex-col items-center gap-4 animate-slide-up">
             <div className="bg-indigo-500/20 p-3 rounded-full text-indigo-400">
               <Video size={24} />
             </div>
@@ -208,7 +208,7 @@ export default function CallOverlay({
             </div>
             <div className="flex gap-3 w-full mt-2">
                <button onClick={declineVideoRequest} className="flex-1 bg-white/5 border border-white/10 text-white py-3 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer">Decline</button>
-               <button onClick={acceptVideoRequest} className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-green-500/20 hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
+               <button onClick={acceptVideoRequest} className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
             </div>
           </div>
         )}
@@ -223,27 +223,27 @@ export default function CallOverlay({
           {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
         </button>
 
-        <button onClick={toggleNoiseCancellation} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'bg-[var(--theme-base)] text-white shadow-lg shadow-[var(--theme-50)]' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
+        <button onClick={toggleNoiseCancellation} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'bg-[var(--theme-base)] text-white' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
           <Activity size={24} />
         </button>
 
-        <button onClick={toggleSpeaker} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${speakerEnabled ? 'bg-[var(--theme-base)] text-white shadow-lg shadow-[var(--theme-50)]' : 'bg-white/10 hover:bg-white/20 text-white'}`} title="Speaker">
+        <button onClick={toggleSpeaker} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${speakerEnabled ? 'bg-[var(--theme-base)] text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`} title="Speaker">
           <Volume2 size={24} />
         </button>
         
         <div className="w-[1px] h-10 bg-white/10 mx-1 my-auto"></div>
 
         {isIncoming ? (
-          <button onClick={acceptCall} className="w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center bg-green-500 hover:bg-green-600 text-white transition-all shadow-lg shadow-green-500/30 cursor-pointer animate-pulse" title="Answer">
+          <button onClick={acceptCall} className="w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center bg-green-500 hover:bg-green-600 text-white transition-all cursor-pointer" title="Answer">
             <Phone size={24} />
           </button>
         ) : (
-          <button onClick={() => endCallNetwork('ended')} className="w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white transition-all shadow-lg shadow-red-500/30 cursor-pointer" title="End call">
+          <button onClick={() => endCallNetwork('ended')} className="w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white transition-all cursor-pointer" title="End call">
             <PhoneOff size={24} />
           </button>
         )}
         {isIncoming && (
-          <button onClick={() => endCallNetwork('rejected')} className="w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white transition-all shadow-lg shadow-red-500/30 cursor-pointer" title="Decline">
+          <button onClick={() => endCallNetwork('rejected')} className="w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white transition-all cursor-pointer" title="Decline">
             <PhoneOff size={24} />
           </button>
         )}

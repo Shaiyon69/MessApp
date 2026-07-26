@@ -1,9 +1,8 @@
 /** Owns friend lookup/request UI while Supabase policies authorize writes. */
 import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import { Loader2, UserPlus, UserCheck } from 'lucide-react'
+import { ArrowRight, AtSign, Loader2, Search, ShieldCheck, UserCheck, UserPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { trackSpotlight } from '../../lib/uiEffects'
 
 export default function AddFriendView({ session }) {
   const [tag, setTag] = useState('')
@@ -12,10 +11,10 @@ export default function AddFriendView({ session }) {
   const [foundUser, setFoundUser] = useState(null)
   const [success, setSuccess] = useState(false)
 
-  const handleSearch = async (e) => {
-    e.preventDefault()
+  const handleSearch = async (event) => {
+    event.preventDefault()
     const searchTag = tag.trim().replace(/\s*#\s*/g, '#')
-    if (!searchTag) return setError("Enter a username or tag.")
+    if (!searchTag) return setError('Enter a username or tag.')
     setLoading(true)
     setError('')
     setFoundUser(null)
@@ -25,12 +24,12 @@ export default function AddFriendView({ session }) {
     const targetUser = data?.[0] || null
 
     if (userError || !targetUser) {
-      setError("No user matched that ID or tag.")
+      setError('No user matched that username or tag.')
       setLoading(false)
       return
     }
     if (targetUser.id === session.user.id) {
-      setError("You cannot send a friend request to yourself.")
+      setError('You cannot add yourself.')
       setLoading(false)
       return
     }
@@ -42,67 +41,119 @@ export default function AddFriendView({ session }) {
   const handleSendRequest = async () => {
     setLoading(true)
     setError('')
-    const { error: requestError } = await supabase.from('friendships').insert([{ sender_id: session.user.id, receiver_id: foundUser.id, status: 'pending' }])
+    const { error: requestError } = await supabase.from('friendships').insert([{
+      sender_id: session.user.id,
+      receiver_id: foundUser.id,
+      status: 'pending'
+    }])
 
     if (requestError) {
-      if (requestError.code === '23505') setError("A request already exists between you two.")
-      else setError("Failed to send request.")
+      setError(requestError.code === '23505' ? 'A request already exists.' : 'Could not send the request.')
       setLoading(false)
       return
     }
     setSuccess(true)
     setLoading(false)
-    toast.success('Friend request sent!')
+    toast.success('Friend request sent')
   }
 
   return (
-    <div className="flex-1 w-full h-full overflow-y-auto bg-[var(--bg-base)] custom-scrollbar">
-      <div className="max-w-2xl w-full mx-auto p-4 md:p-8 pt-6 md:pt-12 flex flex-col pb-[calc(8rem+env(safe-area-inset-bottom))]">
-        <div onMouseMove={trackSpotlight} className="premium-card p-6 md:p-10 rounded-2xl">
-          <div className="premium-brand-mark w-16 h-16 rounded-2xl flex items-center justify-center mb-6">
-            <UserPlus size={32} className="text-white" />
-          </div>
+    <section className="add-friend-page min-h-full bg-[var(--bg-base)] px-4 pb-[calc(8rem+env(safe-area-inset-bottom))] pt-8 md:px-8 md:pt-14">
+      <div className="mx-auto w-full max-w-2xl">
+        <header className="mb-7">
+          <span className="add-friend-mark mb-5 flex h-12 w-12 items-center justify-center rounded-2xl" aria-hidden="true">
+            <UserPlus size={23} />
+          </span>
+          <h1 className="font-display text-3xl font-bold tracking-tight text-[var(--text-main)] md:text-4xl">Add someone</h1>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">Search with their exact username or tag.</p>
+        </header>
 
-          <h2 className="gradient-text text-2xl md:text-3xl font-semibold mb-2 tracking-tight">Add a Friend</h2>
-          <p className="text-gray-400 text-sm mb-8 leading-relaxed">Search by username or tag.</p>
+        <form onSubmit={handleSearch} className="add-friend-search flex items-center gap-2 rounded-[1.4rem] p-2">
+          <Search size={20} className="ml-2 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+          <label htmlFor="friend-lookup" className="sr-only">Username or tag</label>
+          <input
+            id="friend-lookup"
+            type="text"
+            value={tag}
+            onChange={(event) => setTag(event.target.value)}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="Username or name#0000"
+            className="h-12 min-w-0 flex-1 bg-transparent px-1 text-[16px] font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] md:text-sm"
+          />
+          <button
+            type="submit"
+            disabled={loading || !tag.trim()}
+            className="add-friend-search-button flex h-12 min-w-12 shrink-0 items-center justify-center rounded-2xl px-4 font-bold disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Search for user"
+          >
+            {loading && !foundUser ? <Loader2 size={19} className="animate-spin" /> : <ArrowRight size={20} />}
+          </button>
+        </form>
 
-          <div className="premium-section rounded-2xl p-4 md:p-5 mb-6">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3 block">Send Friend Request</label>
-            <form onSubmit={handleSearch} className="premium-input flex flex-row items-center rounded-xl ghost-border p-1 transition-all">
-              <input type="text" className="flex-1 h-12 px-3 bg-transparent text-[var(--text-main)] font-medium outline-none placeholder-gray-600 text-[16px] md:text-sm min-w-0" placeholder="Username or Username#0000" value={tag} onChange={(e) => setTag(e.target.value)} />
-              <button type="submit" disabled={loading || !tag} className={`premium-button h-12 px-5 rounded-lg font-bold text-sm flex items-center justify-center shrink-0 ${loading || !tag ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                {loading ? <Loader2 size={18} className="animate-spin" /> : 'Search'}
-              </button>
-            </form>
-          </div>
+        <div className="mt-3 flex items-center gap-2 px-2 text-xs text-[var(--text-muted)]">
+          <ShieldCheck size={15} aria-hidden="true" />
+          <span>Only they can accept your request.</span>
+        </div>
 
-          {foundUser && (
-            <div className="premium-section p-4 rounded-2xl mb-6 flex items-center justify-between">
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="w-12 h-12 rounded-full bg-[var(--border-subtle)] overflow-hidden border border-[var(--bg-base)] flex items-center justify-center shadow-inner shrink-0">
-                  {foundUser.avatar_url ? <img src={foundUser.avatar_url} className="w-full h-full object-cover" alt="User Avatar" /> : <span className="text-[var(--text-main)] font-bold text-lg uppercase">{foundUser.username[0]}</span>}
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-[var(--text-main)] font-bold text-base truncate">{foundUser.username}</h4>
-                  <p className="text-indigo-400 text-xs font-mono truncate">{foundUser.unique_tag}</p>
-                </div>
-              </div>
-              {success && <div className="bg-green-500/20 p-2 rounded-full border border-green-500/30 shrink-0 ml-2"><UserCheck size={20} className="text-green-400" /></div>}
+        <div aria-live="polite" className="mt-7">
+          {error && (
+            <div className="add-friend-error rounded-2xl px-4 py-3 text-sm font-semibold text-red-300">
+              {error}
             </div>
           )}
 
-          {error && <p className="text-red-400 text-sm font-medium mb-4 text-center bg-red-500/10 p-3 rounded-xl">{error}</p>}
+          {foundUser && (
+            <article className="add-friend-result mt-3 rounded-[1.6rem] p-4 sm:p-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[1.15rem] bg-[var(--surface-container-highest)]">
+                  {foundUser.avatar_url
+                    ? <img src={foundUser.avatar_url} className="h-full w-full object-cover" alt="" />
+                    : <span className="text-lg font-black uppercase text-[var(--text-main)]">{foundUser.username?.[0] || '?'}</span>}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-base font-bold text-[var(--text-main)]">{foundUser.username}</h2>
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-xs font-semibold text-[var(--text-muted)]">
+                    <AtSign size={13} aria-hidden="true" />
+                    {foundUser.unique_tag}
+                  </p>
+                </div>
+                {success && (
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-green-500/15 text-green-300" aria-label="Request sent">
+                    <UserCheck size={21} />
+                  </span>
+                )}
+              </div>
 
-          {foundUser && !success && (
-            <div className="flex flex-row gap-3 w-full mt-2">
-              <button type="button" onClick={() => { setFoundUser(null); setError(''); setTag(''); setSuccess(false); }} className="premium-secondary-button flex-1 h-12 rounded-xl font-bold flex items-center justify-center gap-2 cursor-pointer text-sm">Cancel</button>
-              <button type="button" onClick={handleSendRequest} disabled={loading} className={`premium-button flex-[2] h-12 rounded-xl font-bold flex items-center justify-center gap-2 text-sm ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                {loading ? <Loader2 size={18} className="animate-spin" /> : 'Send Request'}
-              </button>
-            </div>
+              {!success && (
+                <div className="mt-5 grid grid-cols-[auto_1fr] gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFoundUser(null)
+                      setError('')
+                      setTag('')
+                    }}
+                    className="add-friend-secondary h-12 rounded-2xl px-4 text-sm font-bold"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendRequest}
+                    disabled={loading}
+                    className="add-friend-primary flex h-12 items-center justify-center gap-2 rounded-2xl px-5 text-sm font-bold disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 size={18} className="animate-spin" /> : <UserPlus size={18} />}
+                    Send request
+                  </button>
+                </div>
+              )}
+            </article>
           )}
         </div>
       </div>
-    </div>
+    </section>
   )
 }
