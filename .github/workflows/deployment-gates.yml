@@ -1,0 +1,58 @@
+name: Vercel deployment gates
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+  push:
+    branches:
+      - staging
+
+concurrency:
+  group: vercel-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+
+jobs:
+  promotion-policy:
+    name: Enforce staging promotion
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require staging as the production source
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          if [ "$HEAD_BRANCH" != "staging" ]; then
+            echo "Production pull requests must originate from the staging branch." >&2
+            exit 1
+          fi
+
+  validate:
+    name: Validate Vercel deployment
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Verify client configuration
+        shell: bash
+        run: |
+          test -n "$VITE_SUPABASE_URL"
+          test -n "$VITE_SUPABASE_ANON_KEY"
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build

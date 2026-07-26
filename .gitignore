@@ -12,6 +12,8 @@
 /android/.gradle/
 /android/build/
 /android/app/build/
+/APPLICATION/
+/APPLICATIONS/
 
 # Environment files and local secrets
 .env
