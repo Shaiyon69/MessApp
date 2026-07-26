@@ -31,7 +31,6 @@ export default function CallOverlay({
   const {
     playerRef,
     floatingStyle,
-    isDragging,
     dragHandleProps
   } = useFloatingMiniPlayer('messapp:mini-player:direct-call')
 
@@ -53,14 +52,15 @@ export default function CallOverlay({
         style={floatingStyle}
         data-ui-overlay-owner="CallOverlay:minimized-card"
         data-composer-tray-open={composerTrayOpen ? 'true' : undefined}
-        className={`floating-mini-player direct-call-mini minimized-call-card fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] w-[min(248px,calc(100vw-1rem))] pointer-events-auto max-h-[62dvh] overflow-hidden border border-[var(--border-subtle)] rounded-[1.1rem] p-1.5 z-[90] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:w-[min(340px,calc(100vw-2.5rem))] md:max-h-[70dvh] md:rounded-[1.35rem] md:p-2 ${isDragging ? 'is-dragging select-none' : ''}`}
+        className="floating-mini-player direct-call-mini minimized-call-card fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] w-[min(248px,calc(100vw-1rem))] pointer-events-auto max-h-[62dvh] overflow-hidden border border-[var(--border-subtle)] rounded-[1.1rem] p-1.5 z-[90] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:w-[min(340px,calc(100vw-2.5rem))] md:max-h-[70dvh] md:rounded-[1.35rem] md:p-2"
       >
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
         <header className="direct-call-mini-header mb-1.5 flex items-center gap-1 rounded-xl px-1 py-0.5 md:mb-2 md:gap-2 md:rounded-2xl md:px-1.5 md:py-1">
           <button
             type="button"
             {...dragHandleProps}
-            className={`flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:gap-2 md:rounded-xl md:px-2 md:py-1.5 ${isDragging ? 'cursor-grabbing text-gray-200' : 'hover:text-gray-200'}`}
+            className="mini-player-drag-handle flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-gray-400 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:gap-2 md:rounded-xl md:px-2 md:py-1.5"
+            aria-grabbed="false"
             aria-label="Move mini call player"
             title="Drag to move. Use arrow keys to move, or double-click to reset."
           >
@@ -223,11 +223,11 @@ export default function CallOverlay({
           {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
         </button>
 
-        <button onClick={toggleNoiseCancellation} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'bg-[var(--theme-base)] text-white' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
+        <button onClick={toggleNoiseCancellation} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
           <Activity size={24} />
         </button>
 
-        <button onClick={toggleSpeaker} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${speakerEnabled ? 'bg-[var(--theme-base)] text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`} title="Speaker">
+        <button onClick={toggleSpeaker} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${speakerEnabled ? 'border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'bg-white/10 hover:bg-white/20 text-white'}`} title="Speaker">
           <Volume2 size={24} />
         </button>
         

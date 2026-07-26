@@ -590,7 +590,7 @@ function MicTestPanel({ stream, onClose }) {
               <Square size={15} fill="currentColor" /> Stop recording
             </button>
           ) : (
-            <button type="button" onClick={startRecording} className="voice-control-button inline-flex items-center gap-2 rounded-xl bg-[var(--theme-base)] px-4 py-2.5 text-sm font-black text-white">
+            <button type="button" onClick={startRecording} className="voice-control-button inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 text-sm font-black text-[var(--chat-control-text)]">
               <Mic size={16} /> {phase === 'ready' ? 'Record again' : 'Start mic test'}
             </button>
           )}
@@ -694,7 +694,6 @@ export default function SfuScreenShare({
   const {
     playerRef: miniPlayerRef,
     floatingStyle: miniPlayerStyle,
-    isDragging: isMiniPlayerDragging,
     dragHandleProps: miniPlayerDragHandleProps
   } = useFloatingMiniPlayer('messapp:mini-player:voice-channel')
 
@@ -1127,15 +1126,25 @@ export default function SfuScreenShare({
 
   const startShare = async () => {
     if (!client || !navigator.mediaDevices?.getDisplayMedia) return
+    let stream = null
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
       localScreenRef.current = stream
       setLocalScreenStream(stream)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stopShare(stream), { once: true })
       await publishStream(stream, 'screen')
       audioSys.playScreenShareStarted()
     } catch (_err) {
-      setStatus('failed')
+      // Closing the browser picker is a local media cancellation, not a voice
+      // connection failure. A publish failure must also leave the joined voice
+      // session intact and clean up any partially acquired tracks.
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+        if (localScreenRef.current === stream) {
+          localScreenRef.current = null
+          setLocalScreenStream(null)
+        }
+      }
     }
   }
 
@@ -1151,14 +1160,21 @@ export default function SfuScreenShare({
 
   const startCamera = async () => {
     if (!client || !navigator.mediaDevices?.getUserMedia) return
+    let stream = null
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       localCameraRef.current = stream
       setLocalCameraStream(stream)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stopCamera(stream), { once: true })
       await publishStream(stream, 'camera')
     } catch (_err) {
-      setStatus('failed')
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+        if (localCameraRef.current === stream) {
+          localCameraRef.current = null
+          setLocalCameraStream(null)
+        }
+      }
     }
   }
 
@@ -1281,7 +1297,7 @@ export default function SfuScreenShare({
           <MonitorX size={compact ? 16 : 18} />
         </button>
       ) : (
-        <button type="button" onClick={startShare} disabled={status !== 'connected'} className="voice-control-button voice-share-button rounded-full border border-[var(--theme-50)] bg-[var(--theme-base)] p-2.5 text-white disabled:opacity-50 sm:p-3" aria-label="Share screen" title="Share screen">
+        <button type="button" onClick={startShare} disabled={status !== 'connected'} className="voice-control-button voice-share-button rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] p-2.5 text-[var(--chat-control-text)] disabled:opacity-50 sm:p-3" aria-label="Share screen" title="Share screen">
           <MonitorUp size={compact ? 16 : 18} />
         </button>
       )}
@@ -1298,13 +1314,14 @@ export default function SfuScreenShare({
       <section
         ref={miniPlayerRef}
         style={miniPlayerStyle}
-        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[#0b0b0c] p-1.5 md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:overflow-y-auto md:rounded-2xl md:p-2.5 ${isMiniPlayerDragging ? 'is-dragging select-none' : ''} ${className}`}
+        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[#0b0b0c] p-1.5 md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:overflow-y-auto md:rounded-2xl md:p-2.5 ${className}`}
       >
         {remoteAudioPlayers}
         <button
           type="button"
           {...miniPlayerDragHandleProps}
-          className={`mb-0.5 flex h-5 w-full touch-none cursor-grab items-center justify-center rounded-lg text-gray-500 hover:bg-white/5 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:mb-1 md:h-6 ${isMiniPlayerDragging ? 'cursor-grabbing bg-white/5 text-gray-300' : ''}`}
+          className="mini-player-drag-handle mb-0.5 flex h-5 w-full touch-none cursor-grab items-center justify-center rounded-lg text-gray-500 hover:bg-white/5 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:mb-1 md:h-6"
+          aria-grabbed="false"
           aria-label="Move voice channel mini player"
           title="Drag to move. Use arrow keys to move, or double-click to reset."
         >
@@ -1561,13 +1578,13 @@ export default function SfuScreenShare({
           </div>
           <div className="voice-control-dock custom-scrollbar mx-auto hidden w-fit max-w-full items-center justify-center gap-2 overflow-x-auto rounded-2xl border border-[var(--border-subtle)] p-2 shadow-2xl md:flex">
             <div className="voice-view-switcher flex rounded-xl border border-[var(--border-subtle)] p-0.5 sm:p-1">
-              <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} aria-label="Focus view" title="Focus view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.PINNED ? 'is-active bg-[var(--theme-base)] text-white' : 'text-gray-400 hover:text-white'}`}>
+              <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} aria-label="Focus view" title="Focus view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.PINNED ? 'is-active border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'text-gray-400 hover:text-white'}`}>
                 <Maximize2 size={17} />
               </button>
-              <button type="button" onClick={() => setViewMode(VIEW_MODES.GRID)} aria-pressed={viewMode === VIEW_MODES.GRID} aria-label="Grid view" title="Grid view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.GRID ? 'is-active bg-[var(--theme-base)] text-white' : 'text-gray-400 hover:text-white'}`}>
+              <button type="button" onClick={() => setViewMode(VIEW_MODES.GRID)} aria-pressed={viewMode === VIEW_MODES.GRID} aria-label="Grid view" title="Grid view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.GRID ? 'is-active border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'text-gray-400 hover:text-white'}`}>
                 <Grid2X2 size={17} />
               </button>
-              <button type="button" onClick={() => setViewMode(VIEW_MODES.CAROUSEL)} aria-pressed={viewMode === VIEW_MODES.CAROUSEL} aria-label="Slideshow view" title="Slideshow view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.CAROUSEL ? 'is-active bg-[var(--theme-base)] text-white' : 'text-gray-400 hover:text-white'}`}>
+              <button type="button" onClick={() => setViewMode(VIEW_MODES.CAROUSEL)} aria-pressed={viewMode === VIEW_MODES.CAROUSEL} aria-label="Slideshow view" title="Slideshow view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.CAROUSEL ? 'is-active border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'text-gray-400 hover:text-white'}`}>
                 <ChevronRight size={17} />
               </button>
             </div>
