@@ -1,7 +1,7 @@
 {
   "name": "messapp",
   "private": true,
-  "version": "0.1.13",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "test": "node --test src/**/*.test.js",
