@@ -207,6 +207,7 @@ jobs:
           else
             gh release create "$TAG" release-artifacts/* \
               --generate-notes \
+              --prerelease \
               --title "MessApp $TAG" \
               --repo "$GITHUB_REPOSITORY"
           fi
