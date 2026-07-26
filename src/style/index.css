@@ -1023,6 +1023,474 @@ iframe {
   to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
+.direct-call-mini {
+  background:
+    radial-gradient(circle at 12% 0%, var(--theme-20), transparent 38%),
+    linear-gradient(155deg, rgba(25, 27, 36, 0.97), rgba(9, 10, 15, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 26px 70px rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(24px) saturate(135%);
+}
+
+.direct-call-mini.is-dragging {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 32px 85px rgba(0, 0, 0, 0.68), 0 0 0 1px var(--theme-20);
+}
+
+.direct-call-mini-header {
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.direct-call-mini-media {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 36px rgba(0, 0, 0, 0.32);
+}
+
+.direct-call-mini-pip {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.direct-call-mini-audio {
+  background:
+    radial-gradient(circle at 18% 45%, var(--theme-20), transparent 34%),
+    linear-gradient(135deg, rgba(28, 30, 42, 0.88), rgba(10, 11, 17, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.direct-call-mini-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(32px);
+  pointer-events: none;
+  animation: directCallOrbDrift 7s ease-in-out infinite alternate;
+}
+
+.direct-call-mini-orb-one {
+  top: -2.5rem;
+  right: 12%;
+  width: 7rem;
+  height: 7rem;
+  background: var(--theme-base);
+  opacity: 0.13;
+}
+
+.direct-call-mini-orb-two {
+  right: -1rem;
+  bottom: -2.5rem;
+  width: 6rem;
+  height: 6rem;
+  background: #22c55e;
+  opacity: 0.09;
+  animation-delay: -3s;
+}
+
+.direct-call-mini-avatar-shell {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.direct-call-mini-avatar-shell.is-connected {
+  border-color: rgba(74, 222, 128, 0.32);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 26px rgba(34, 197, 94, 0.13), 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.direct-call-mini-avatar-wave {
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  width: calc(100% + 0.8rem);
+  height: calc(100% + 0.8rem);
+  animation: directCallAvatarWave 1.9s ease-out infinite;
+}
+
+.direct-call-mini-level {
+  transform-origin: center;
+  animation: directCallLevel 1.1s ease-in-out infinite alternate;
+  box-shadow: 0 0 7px rgba(74, 222, 128, 0.5);
+}
+
+.direct-call-mini-controls {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(0, 0, 0, 0.12));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.direct-call-mini-control,
+.direct-call-mini-accept,
+.direct-call-mini-end {
+  outline: none;
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 180ms ease, transform 150ms ease;
+}
+
+.direct-call-mini-control {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.direct-call-mini-control:hover {
+  border-color: rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.direct-call-mini-control.is-active {
+  border-color: var(--theme-50);
+  background: var(--theme-base);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 6px 18px var(--theme-20);
+}
+
+.direct-call-mini-control.is-danger {
+  border-color: rgba(248, 113, 113, 0.22);
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.direct-call-mini-control:active,
+.direct-call-mini-accept:active,
+.direct-call-mini-end:active {
+  transform: scale(0.92);
+}
+
+.direct-call-mini-control:focus-visible,
+.direct-call-mini-accept:focus-visible,
+.direct-call-mini-end:focus-visible {
+  box-shadow: 0 0 0 2px #0d0e14, 0 0 0 4px var(--theme-base);
+}
+
+.direct-call-mini-accept {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 22px rgba(34, 197, 94, 0.2);
+}
+
+.direct-call-mini-end {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8px 22px rgba(239, 68, 68, 0.2);
+}
+
+@keyframes directCallAvatarWave {
+  0% { opacity: 0.8; transform: translate(-50%, -50%) scale(0.86); }
+  75%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }
+}
+
+@keyframes directCallLevel {
+  from { transform: scaleY(0.55); opacity: 0.65; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes directCallOrbDrift {
+  from { transform: translate3d(-8%, -4%, 0) scale(0.92); }
+  to { transform: translate3d(10%, 8%, 0) scale(1.08); }
+}
+
+.voice-stage-shell {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% -15%, rgba(99, 102, 241, 0.16), transparent 42%),
+    radial-gradient(circle at 105% 75%, rgba(34, 197, 94, 0.08), transparent 32%),
+    linear-gradient(160deg, #08090e 0%, #05060a 52%, #08090d 100%);
+}
+
+.voice-stage-shell::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px);
+  background-size: 34px 34px;
+  content: "";
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+  pointer-events: none;
+}
+
+.voice-stage-ambient {
+  position: absolute;
+  z-index: 0;
+  width: 22rem;
+  height: 22rem;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.13;
+  pointer-events: none;
+  animation: voiceAmbientDrift 14s ease-in-out infinite alternate;
+}
+
+.voice-stage-ambient-one {
+  top: 5%;
+  left: 8%;
+  background: var(--theme-base);
+}
+
+.voice-stage-ambient-two {
+  right: 3%;
+  bottom: 3%;
+  width: 16rem;
+  height: 16rem;
+  background: #22c55e;
+  animation-delay: -6s;
+  animation-duration: 18s;
+}
+
+.voice-stage-header {
+  background: linear-gradient(180deg, rgba(18, 20, 29, 0.94), rgba(11, 12, 18, 0.82));
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(20px) saturate(130%);
+}
+
+.voice-channel-live-icon {
+  border: 1px solid rgba(251, 191, 36, 0.18);
+  background: linear-gradient(145deg, rgba(251, 191, 36, 0.13), rgba(255, 255, 255, 0.035));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.voice-channel-live-icon.is-connected {
+  border-color: rgba(74, 222, 128, 0.22);
+  background: linear-gradient(145deg, rgba(34, 197, 94, 0.17), rgba(255, 255, 255, 0.035));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 26px rgba(34, 197, 94, 0.08);
+}
+
+.voice-stage-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #aeb4c0;
+  font-size: 0.625rem;
+  font-weight: 800;
+}
+
+.voice-participant-count {
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px);
+}
+
+.voice-stage-surface {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.07), transparent 48%),
+    rgba(5, 6, 10, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 20px 60px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.voice-stage-grid {
+  perspective: 1000px;
+}
+
+.voice-stage-grid-item {
+  animation: voiceTileEnter 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--voice-tile-index, 0) * 45ms);
+}
+
+.voice-stage-card {
+  background:
+    radial-gradient(circle at 50% 42%, var(--theme-20), transparent 36%),
+    linear-gradient(145deg, rgba(25, 27, 37, 0.96), rgba(10, 11, 16, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 38px rgba(0, 0, 0, 0.28);
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease, box-shadow 220ms ease;
+}
+
+.voice-stage-card.is-speaking {
+  animation: voiceSpeakingGlow 1.8s ease-in-out infinite;
+}
+
+.voice-stage-fallback {
+  background:
+    radial-gradient(circle at 50% 38%, var(--theme-20), transparent 34%),
+    linear-gradient(150deg, #171924, #090a0f 70%);
+}
+
+.voice-stage-avatar-halo::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 145%;
+  height: 145%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--theme-20), transparent 67%);
+  content: "";
+  pointer-events: none;
+  animation: voiceAvatarBreathe 4s ease-in-out infinite;
+}
+
+.voice-stage-avatar-halo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-stage-avatar-halo > :not(.voice-stage-speaking-wave) {
+  position: relative;
+  z-index: 1;
+}
+
+.voice-stage-speaking-wave {
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  animation: voiceSpeakingWave 1.7s ease-out infinite;
+}
+
+.voice-level-bar[data-active="true"] {
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.72);
+}
+
+.voice-camera-overlay {
+  animation: voiceCameraIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  backdrop-filter: blur(12px);
+}
+
+.voice-stage-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  background: linear-gradient(0deg, rgba(5, 6, 10, 0.96), rgba(8, 9, 14, 0.72));
+  backdrop-filter: blur(18px);
+}
+
+.voice-control-dock {
+  background: linear-gradient(180deg, rgba(28, 30, 40, 0.9), rgba(14, 15, 21, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.075), 0 18px 45px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(22px) saturate(135%);
+}
+
+.voice-view-switcher {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.voice-view-button,
+.voice-control-button {
+  position: relative;
+  flex-shrink: 0;
+  outline: none;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 180ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.voice-view-button:hover,
+.voice-control-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.voice-view-button:active,
+.voice-control-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.94);
+}
+
+.voice-view-button:focus-visible,
+.voice-control-button:focus-visible {
+  box-shadow: 0 0 0 2px #0d0e14, 0 0 0 4px var(--theme-base);
+}
+
+.voice-view-button.is-active,
+.voice-control-button.is-active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 6px 18px var(--theme-20);
+}
+
+.voice-control-button.is-danger {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 18px rgba(239, 68, 68, 0.08);
+}
+
+.voice-share-button {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 22px var(--theme-20);
+}
+
+.voice-leave-button {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 8px 20px rgba(239, 68, 68, 0.16);
+}
+
+.voice-mic-test-panel {
+  background:
+    radial-gradient(circle at 18% 0%, var(--theme-20), transparent 36%),
+    linear-gradient(155deg, rgba(25, 27, 37, 0.98), rgba(10, 11, 16, 0.99));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.075), 0 30px 90px rgba(0, 0, 0, 0.62);
+  animation: voiceTileEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.voice-mic-test-panel audio {
+  color-scheme: dark;
+}
+
+.voice-volume-slider {
+  height: 1.25rem;
+  cursor: pointer;
+  accent-color: var(--theme-base);
+}
+
+.voice-volume-slider::-webkit-slider-runnable-track {
+  height: 0.3rem;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, var(--theme-base), rgba(255, 255, 255, 0.12));
+}
+
+.voice-volume-slider::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+  margin-top: -0.35rem;
+  border: 2px solid #151720;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  appearance: none;
+}
+
+.voice-volume-slider::-moz-range-track {
+  height: 0.3rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.voice-volume-slider::-moz-range-progress {
+  height: 0.3rem;
+  border-radius: 9999px;
+  background: var(--theme-base);
+}
+
+.voice-volume-slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid #151720;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.voice-mic-test-progress > span {
+  transform-origin: left center;
+  animation: voiceMicTestProgress 5s linear forwards;
+}
+
+@keyframes voiceTileEnter {
+  from { opacity: 0; transform: translateY(12px) scale(0.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes voiceMicTestProgress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes voiceSpeakingGlow {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(74, 222, 128, 0.2), 0 14px 38px rgba(0, 0, 0, 0.32); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 2px rgba(74, 222, 128, 0.48), 0 0 32px rgba(34, 197, 94, 0.16), 0 18px 44px rgba(0, 0, 0, 0.38); }
+}
+
+@keyframes voiceSpeakingWave {
+  0% { opacity: 0.75; transform: translate(-50%, -50%) scale(0.82); }
+  70%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.28); }
+}
+
+@keyframes voiceAvatarBreathe {
+  0%, 100% { opacity: 0.48; transform: translate(-50%, -50%) scale(0.96); }
+  50% { opacity: 0.78; transform: translate(-50%, -50%) scale(1.05); }
+}
+
+@keyframes voiceCameraIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes voiceAmbientDrift {
+  from { transform: translate3d(-3%, -2%, 0) scale(0.92); }
+  to { transform: translate3d(8%, 6%, 0) scale(1.08); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1054,18 +1522,17 @@ iframe {
 }
 
 @media (max-width: 360px) {
-  .message-action-toolbar {
-    transform: translateY(-50%) scale(0.92);
-    transform-origin: center;
-  }
-
-  .message-action-button {
-    width: 1.75rem;
-    height: 1.75rem;
-    min-width: 1.75rem;
-  }
-
   .message-touch-target {
     max-width: min(68vw, 32rem) !important;
   }
+}
+
+.message-action-toolbar[data-toolbar-owner="touch-longpress"] .message-action-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+}
+
+.message-action-toolbar[data-toolbar-owner="touch-longpress"] {
+  min-width: 3.25rem;
 }

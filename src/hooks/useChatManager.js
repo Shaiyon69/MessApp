@@ -172,6 +172,7 @@ const findMatchingLocalMessage = (messageList, nextMessage) => {
   return messageList.find(message => {
     if (!message?.__local || message.profile_id !== nextMessage.profile_id) return false
     if (message.reply_to_message_id !== nextMessage.reply_to_message_id) return false
+    if (Boolean(message.is_spoiler) !== Boolean(nextMessage.is_spoiler)) return false
     const sameText = String(message.content || '') === String(nextMessage.content || '')
     const localHasAttachment = (message.message_attachments || []).length > 0
     const nextHasAttachment = (nextMessage.message_attachments || []).length > 0
@@ -233,6 +234,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [showGifPicker, setShowGifPicker] = useState(false)
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
   const [pendingFiles, setPendingFiles] = useState([])
+  const [composerSpoiler, setComposerSpoiler] = useState(false)
   const [keyboardImageFallbackMessage, setKeyboardImageFallbackMessage] = useState('')
   const [showLatestMessagesButton, setShowLatestMessagesButton] = useState(false)
   const [peerReadAt, setPeerReadAt] = useState(null)
@@ -647,6 +649,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     setPendingFiles(previous => previous.filter((_, itemIndex) => itemIndex !== index))
   }, [])
 
+  const togglePendingFileSpoiler = useCallback((index) => {
+    setPendingFiles(previous => previous.map((item, itemIndex) => itemIndex === index
+      ? { ...item, isSpoiler: !item.isSpoiler }
+      : item
+    ))
+  }, [])
+
   const fileFromNativeKeyboardImage = useCallback(async ({ uri, path, filename, mimeType }) => {
     const sourceUri = uri || (path ? `file://${path}` : '')
     if (!sourceUri) throw new Error('Keyboard image URI missing')
@@ -1036,11 +1045,17 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
     })
 
-    roomChannel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_attachments' }, (payload) => {
+    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'message_attachments' }, (payload) => {
       (async () => {
-        const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', payload.new.message_id).single()
+        const messageId = payload.new?.message_id || payload.old?.message_id
+        if (!messageId) return
+        const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', messageId).single()
         if (!fullMsg || fullMsg[field] !== targetId) return
-        const attachments = fullMsg.message_attachments?.length ? fullMsg.message_attachments : [payload.new]
+        const attachments = fullMsg.message_attachments?.length
+          ? fullMsg.message_attachments
+          : payload.eventType === 'INSERT' && payload.new
+            ? [payload.new]
+            : []
         const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg])
         const [decryptedMsg] = await decryptMessageList([{ ...fullMsg, message_attachments: attachments }], sharedKeys)
         if (!isCurrentScope()) return
@@ -1180,7 +1195,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }, 3000)
   }
 
-  const prepareMessageAttachment = async ({ file, sharedKeys, targetId, gifUrl }) => {
+  const prepareMessageAttachment = async ({ file, sharedKeys, targetId, gifUrl, isSpoiler = false }) => {
     if (gifUrl) {
       const safeGifUrl = safeHttpUrl(gifUrl)
       if (!safeGifUrl) throw new Error('Invalid GIF URL')
@@ -1188,7 +1203,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         file_url: safeGifUrl,
         file_type: 'image/gif',
         file_name: 'animation.gif',
-        file_size: 0
+        file_size: 0,
+        is_spoiler: isSpoiler
       }
     }
 
@@ -1221,7 +1237,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       file_url: publicUrl,
       file_type: fileType,
       file_name: (file.name || `attachment.${fileExt}`).slice(0, 160),
-      file_size: file.size
+      file_size: file.size,
+      is_spoiler: isSpoiler
     }
   }
 
@@ -1232,7 +1249,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       file_url: attachment.file_url,
       file_type: attachment.file_type,
       file_name: attachment.file_name,
-      file_size: attachment.file_size
+      file_size: attachment.file_size,
+      is_spoiler: Boolean(attachment.is_spoiler)
     }))
     const { data: createdAttachments, error: attachmentError } = await supabase.from('message_attachments').insert(payload).select()
     if (attachmentError) throw attachmentError
@@ -1263,7 +1281,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
   }, [])
 
-  const uploadPendingFiles = async (items, caption) => {
+  const uploadPendingFiles = async (items, caption, captionIsSpoiler = false) => {
     const attachmentsToSend = (items || []).slice(0, MAX_PENDING_ATTACHMENTS)
     if (!attachmentsToSend.length) return false
     setIsUploading(true);
@@ -1291,7 +1309,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           file_url: localUrl,
           file_type: item.gifUrl ? 'image/gif' : file?.type || 'application/octet-stream',
           file_name: item.name || file?.name || 'attachment',
-          file_size: item.size || file?.size || 0
+          file_size: item.size || file?.size || 0,
+          is_spoiler: Boolean(item.isSpoiler)
         }
       })
       const localCreatedAt = new Date().toISOString()
@@ -1300,10 +1319,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           id: localId,
           __local: true,
           __delivery_status: 'sending',
-          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption },
+          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler },
           profile_id: session.user.id,
           profiles: getLocalProfile(session, myUsername),
           content: caption || '',
+          is_spoiler: captionIsSpoiler,
           created_at: localCreatedAt,
           updated_at: localCreatedAt,
           is_encrypted: view === 'home',
@@ -1325,13 +1345,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         file: item.file,
         gifUrl: item.gifUrl,
         sharedKeys,
-        targetId
+        targetId,
+        isSpoiler: Boolean(item.isSpoiler)
       })))
 
       const messagePayload = {
         profile_id: session.user.id,
         content: contentToSave,
         is_encrypted: view === 'home',
+        is_spoiler: captionIsSpoiler,
         [field]: targetId,
         reply_to_message_id: replyToMessageId
       }
@@ -1360,7 +1382,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       logMessageSendError('attachment-send', err, { targetId, attachmentCount: attachmentsToSend.length, captionLength: caption?.length || 0 })
       toast.error('Upload failed', { id: toastId });
       ownSendScrollRef.current = { targetId: null, active: false }
-      if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachments', items: attachmentsToSend, caption })
+      if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler })
       return false
     } finally {
       setIsUploading(false);
@@ -1371,16 +1393,19 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault()
     const text = messageInputRef.current?.value.trim()
+    const sendAsSpoiler = composerSpoiler
     
     if (pendingFiles.length) {
       const itemsToSend = pendingFiles
       setPendingFiles([])
+      setComposerSpoiler(false)
       if (messageInputRef.current) messageInputRef.current.value = ''
-      await uploadPendingFiles(itemsToSend, text)
+      await uploadPendingFiles(itemsToSend, text, sendAsSpoiler)
       return;
     }
 
     if (!text) return
+    setComposerSpoiler(false)
     if (messageInputRef.current) messageInputRef.current.value = ''
     
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
@@ -1402,10 +1427,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text },
+        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
         content: text,
+        is_spoiler: sendAsSpoiler,
         created_at: localCreatedAt,
         updated_at: localCreatedAt,
         is_encrypted: view === 'home',
@@ -1426,7 +1452,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const contentToSave = await buildEncryptedPayload(text, targetId, sharedKeys, messages);
 
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', [field]: targetId, reply_to_message_id: replyToMessageId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, [field]: targetId, reply_to_message_id: replyToMessageId }])
         .select(MESSAGE_SELECT)
         .single()
         
@@ -1445,7 +1471,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       logMessageSendError('text-send', err, { targetId, textLength: text.length, reply_to_message_id: replyToMessageId })
       toast.error('Failed to send message.')
       ownSendScrollRef.current = { targetId: null, active: false }
-      failLocalMessage(targetId, localId, { type: 'text', text })
+      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
+      setComposerSpoiler(sendAsSpoiler)
       if (messageInputRef.current) messageInputRef.current.value = text
     }
   }
@@ -1485,13 +1512,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
 
     if (retryPayload.type === 'attachments' && retryPayload.items?.length) {
-      await uploadPendingFiles(retryPayload.items, retryPayload.caption || '')
+      await uploadPendingFiles(retryPayload.items, retryPayload.caption || '', Boolean(retryPayload.captionIsSpoiler))
       return
     }
 
     if (retryPayload.type !== 'text' || !retryPayload.text) return
 
     const text = retryPayload.text
+    const sendAsSpoiler = Boolean(retryPayload.isSpoiler)
     const localId = createLocalMessageId()
     const localCreatedAt = new Date().toISOString()
     setMessages(prev => {
@@ -1499,10 +1527,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text },
+        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
         content: text,
+        is_spoiler: sendAsSpoiler,
         created_at: localCreatedAt,
         updated_at: localCreatedAt,
         is_encrypted: view === 'home',
@@ -1522,7 +1551,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages)
       const contentToSave = await buildEncryptedPayload(text, targetId, sharedKeys, messages)
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', [field]: targetId, reply_to_message_id: replyToMessageId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, [field]: targetId, reply_to_message_id: replyToMessageId }])
         .select(MESSAGE_SELECT)
         .single()
 
@@ -1538,7 +1567,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       logMessageSendError('retry-send', err, { targetId, textLength: text.length, reply_to_message_id: replyToMessageId })
       toast.error('Failed to resend message.')
       ownSendScrollRef.current = { targetId: null, active: false }
-      failLocalMessage(targetId, localId, { type: 'text', text })
+      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
     }
   }
 
@@ -1588,6 +1617,36 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
     } catch (_err) { toast.error("Failed to update message") }
   }, [editContent, activeChannel, activeDm, view, getSharedKeysForTarget, messages, buildEncryptedPayload])
+
+  const handleToggleMessageSpoiler = useCallback(async (message) => {
+    const nextSpoiler = !message?.is_spoiler
+    try {
+      const { error } = await supabase.from('messages').update({ is_spoiler: nextSpoiler }).eq('id', message.id)
+      if (error) throw error
+      setMessages(current => current.map(item => item.id === message.id ? { ...item, is_spoiler: nextSpoiler } : item))
+      toast.success(nextSpoiler ? 'Message marked as spoiler' : 'Message spoiler removed')
+    } catch (_err) {
+      toast.error('Failed to update spoiler')
+    }
+  }, [])
+
+  const handleToggleAttachmentSpoiler = useCallback(async (messageId, attachment) => {
+    const nextSpoiler = !attachment?.is_spoiler
+    try {
+      const { error } = await supabase.from('message_attachments').update({ is_spoiler: nextSpoiler }).eq('id', attachment.id)
+      if (error) throw error
+      setMessages(current => current.map(message => message.id === messageId ? {
+        ...message,
+        message_attachments: (message.message_attachments || []).map(item => item.id === attachment.id
+          ? { ...item, is_spoiler: nextSpoiler }
+          : item
+        )
+      } : message))
+      toast.success(nextSpoiler ? 'Image marked as spoiler' : 'Image spoiler removed')
+    } catch (_err) {
+      toast.error('Failed to update image spoiler')
+    }
+  }, [])
 
   const executeInlineDelete = useCallback(async (message, mode) => {
     try {
@@ -1655,11 +1714,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     typingUsers,
     isUploading, selectedImage, setSelectedImage,
     showGifPicker, setShowGifPicker,
-    pendingFiles, setPendingFiles, removePendingFile, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
+    pendingFiles, setPendingFiles, removePendingFile, togglePendingFileSpoiler, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
+    composerSpoiler, setComposerSpoiler,
     keyboardImageFallbackMessage,
     showLatestMessagesButton, scrollToLatestMessages,
     fileInputRef, genericFileInputRef, messageInputRef, messagesEndRef, scrollContainerRef,
     handleSendMessage, handleSendGif, handleFileUpload, handleGenericFileUpload, handleUpdateMessage,
+    handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
     executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt
   }
 }
