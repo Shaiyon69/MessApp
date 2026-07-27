@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="16" fill="#111827"/>
-  <path d="M14 18.5C14 14.9 16.9 12 20.5 12h23C47.1 12 50 14.9 50 18.5v17C50 39.1 47.1 42 43.5 42H31.7L21 51v-9h-.5C16.9 42 14 39.1 14 35.5v-17Z" fill="#6366f1"/>
-  <path d="M22 24h20M22 31h14" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="44" cy="44" r="8" fill="#22c55e" stroke="#111827" stroke-width="4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>MessApp</title>
+  <rect width="1024" height="1024" rx="224" fill="#000"/>
+  <g transform="translate(512 512) scale(.62) translate(-512 -512)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M224 480C224 350 325 280 460 280H580C715 280 800 360 800 480C800 600 710 670 580 670H450L310 755L335 640C265 600 224 545 224 480Z" stroke="#fff" stroke-width="72"/>
+  </g>
 </svg>

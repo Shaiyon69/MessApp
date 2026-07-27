@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>MessApp</title>
+  <g transform="translate(512 512) scale(.62) translate(-512 -512)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M224 480C224 350 325 280 460 280H580C715 280 800 360 800 480C800 600 710 670 580 670H450L310 755L335 640C265 600 224 545 224 480Z" stroke="#fff" stroke-width="72"/>
+  </g>
+</svg>

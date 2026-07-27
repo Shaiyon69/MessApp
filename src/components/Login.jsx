@@ -69,8 +69,8 @@ export default function Login({ switchToRegister, switchToForgotPassword, initia
       <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
         <div>
           <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
-            <div className="premium-brand-mark w-8 h-8 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-white text-sm" aria-hidden="true">apps</span>
+            <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
+              <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
             </div>
             <span className="font-bold tracking-wider text-sm">MESSAPP</span>
           </div>
@@ -86,7 +86,7 @@ export default function Login({ switchToRegister, switchToForgotPassword, initia
         </div>
       </div>
 
-      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--surface-strong)] flex-1 md:overflow-y-auto custom-scrollbar">
+      <div className="auth-form-panel w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--surface-strong)] flex-1 md:overflow-y-auto custom-scrollbar">
         <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-2 font-display">Welcome Back</h2>
           <p className="text-gray-400 text-sm mb-6 md:mb-8">Enter your credentials to access MessApp.</p>
