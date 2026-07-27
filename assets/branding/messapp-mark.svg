@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>MessApp interlocking conversation mark</title>
+  <defs>
+    <mask id="weave-cut">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path d="M548 620C594 580 620 528 620 470" fill="none" stroke="#000" stroke-linecap="round" stroke-width="96"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round">
+    <g mask="url(#weave-cut)">
+      <path d="M190 470C190 350 280 280 400 280H430C550 280 620 360 620 470C620 580 540 650 430 650H340L230 725L248 620C210 580 190 530 190 470Z" stroke-width="72"/>
+      <path d="M834 470C834 350 744 280 624 280H594C474 280 404 360 404 470C404 580 484 650 594 650H684L794 725L776 620C814 580 834 530 834 470Z" stroke-width="72"/>
+    </g>
+    <path d="M548 620C594 580 620 528 620 470" stroke-width="72"/>
+  </g>
+</svg>

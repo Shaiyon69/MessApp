@@ -15,6 +15,7 @@ import { configureNativePushRegistration, disableCurrentPushDevice, registerWebP
 import { getModeratorRole } from '../../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../../lib/profileSecrets'
 import ModerationPanel from './ModerationPanel'
+import MediaEditorModal from '../media/MediaEditorModal'
 
 const BANNER_OPTIONS = [
   { id: 'indigo', value: 'linear-gradient(to right, #4f46e5, #9333ea)' },
@@ -27,7 +28,8 @@ const BANNER_OPTIONS = [
 ]
 
 const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
-const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024
+const MAX_AVATAR_SOURCE_SIZE_BYTES = 20 * 1024 * 1024
+const MAX_AVATAR_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
 const SURFACE_TINT_LABELS = {
   neutral: 'Neutral',
   indigo: 'Indigo',
@@ -59,6 +61,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   const [moderatorRole, setModeratorRole] = useState(null)
 
   const [avatarUrl, setAvatarUrl] = useState(null)
+  const [avatarEditorFile, setAvatarEditorFile] = useState(null)
   const [bannerUrl, setBannerUrl] = useState(BANNER_OPTIONS[0].value)
   const [username, setUsername] = useState(session?.user?.user_metadata?.username || '')
   const [uniqueTag, setUniqueTag] = useState(session?.user?.user_metadata?.unique_tag || '')
@@ -279,17 +282,47 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     }
   }
 
-  const uploadAvatar = async (event) => {
+  const selectAvatarForEditing = (event) => {
+    try {
+      const file = event.target.files?.[0]
+      event.target.value = ''
+      if (!file) return
+      if (!ALLOWED_AVATAR_TYPES.has((file.type || '').toLowerCase())) throw new Error('Avatar must be JPG, PNG, GIF, WebP, or AVIF.')
+      if (file.size > MAX_AVATAR_SOURCE_SIZE_BYTES) throw new Error('Source photo must be 20 MB or smaller.')
+      setAvatarEditorFile(file)
+    } catch (error) {
+      toast.error(error.message)
+    }
+  }
+
+  const editCurrentAvatar = async () => {
+    if (!avatarUrl) return
+    setLoading(true)
+    try {
+      const response = await fetch(avatarUrl)
+      if (!response.ok) throw new Error('Current avatar could not be loaded for editing.')
+      const blob = await response.blob()
+      setAvatarEditorFile(new File([blob], 'current-avatar', { type: blob.type || 'image/jpeg' }))
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const uploadAvatar = async (file) => {
     try {
       setLoading(true)
-      if (!event.target.files || event.target.files.length === 0) throw new Error('You must select an image to upload.')
-      const file = event.target.files[0]
       if (!ALLOWED_AVATAR_TYPES.has((file.type || '').toLowerCase())) throw new Error('Avatar must be JPG, PNG, GIF, WebP, or AVIF.')
-      if (file.size > MAX_AVATAR_SIZE_BYTES) throw new Error('Avatar must be 5 MB or smaller.')
-      const fileExt = file.name.split('.').pop()
+      if (file.size > MAX_AVATAR_UPLOAD_SIZE_BYTES) throw new Error('Edited avatar must be 5 MB or smaller.')
+      const fileExt = file.name.split('.').pop() || 'webp'
       const fileName = `${session.user.id}-avatar-${crypto.randomUUID()}.${fileExt}`
 
-      const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file)
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file, {
+        contentType: file.type,
+        cacheControl: '31536000',
+        upsert: false
+      })
       if (uploadError) throw uploadError
 
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
@@ -300,6 +333,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       setAvatarUrl(publicUrl)
       localStorage.setItem(`profile_cache_${session.user.id}`, JSON.stringify({ ...(JSON.parse(localStorage.getItem(`profile_cache_${session.user.id}`)) || {}), avatar_url: publicUrl }))
       onProfileUpdated?.({ avatar_url: publicUrl })
+      setAvatarEditorFile(null)
       toast.success('Avatar updated successfully')
     } catch (error) { toast.error(error.message) } 
     finally { setLoading(false) }
@@ -531,15 +565,20 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                         <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full bg-[var(--bg-base)] flex items-center justify-center border-4 border-[var(--bg-element)] shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden">
                           {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <User size={48} className="text-gray-500" aria-hidden="true" />}
                         </div>
-                        <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border-4 border-transparent">
+                        <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm border-4 border-transparent">
                           <Upload size={18} className="mb-1 text-white" />
-                          <span className="text-white">Avatar</span>
-                          <input type="file" accept="image/*" onChange={uploadAvatar} disabled={loading} className="hidden" />
+                          <span className="text-white">Change</span>
+                          <input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/avif" onChange={selectAvatarForEditing} disabled={loading} className="hidden" />
                         </label>
                       </div>
                       <div className="flex flex-col flex-1 pb-1">
                         <h4 className="text-xl sm:text-2xl font-bold text-[var(--text-main)] leading-tight">{username}</h4>
                         <p className="text-sm text-gray-500 font-medium">{fullTag}</p>
+                        {avatarUrl && (
+                          <button type="button" onClick={editCurrentAvatar} disabled={loading} className="mt-2 w-fit text-xs font-bold text-[var(--theme-base)] hover:text-[var(--text-main)] disabled:opacity-50">
+                            Crop or modify current photo
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1012,6 +1051,14 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           </div>
         </main>
       </div>
+      {avatarEditorFile && (
+        <MediaEditorModal
+          file={avatarEditorFile}
+          profile
+          onCancel={() => setAvatarEditorFile(null)}
+          onSave={uploadAvatar}
+        />
+      )}
     </div>
   )
 }

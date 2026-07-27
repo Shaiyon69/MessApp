@@ -5,6 +5,7 @@ package com.shaiyon.messapp;
  * pre-call AudioManager state is restored so routing does not leak after calls.
  */
 
+import android.Manifest;
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
@@ -12,14 +13,23 @@ import android.os.Build;
 import android.util.Log;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.util.List;
 
-@CapacitorPlugin(name = "CallAudio")
+@CapacitorPlugin(
+    name = "CallAudio",
+    permissions = {
+        @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO }),
+        @Permission(alias = "camera", strings = { Manifest.permission.CAMERA })
+    }
+)
 public class CallAudioPlugin extends Plugin {
     private static final String TAG = "CALL_AUDIO_DEBUG";
     private AudioManager audioManager;
@@ -69,6 +79,25 @@ public class CallAudioPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void checkMediaPermissions(PluginCall call) {
+        call.resolve(buildPermissionResult());
+    }
+
+    @PluginMethod
+    public void requestMicrophonePermission(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            call.resolve(buildPermissionResult());
+            return;
+        }
+        requestPermissionForAlias("microphone", call, "microphonePermissionCallback");
+    }
+
+    @PermissionCallback
+    private void microphonePermissionCallback(PluginCall call) {
+        call.resolve(buildPermissionResult());
+    }
+
+    @PluginMethod
     public void endCall(PluginCall call) {
         restoreNormalAudio();
         JSObject ret = new JSObject();
@@ -92,6 +121,13 @@ public class CallAudioPlugin extends Plugin {
         speakerEnabled = false;
         callStarted = false;
         Log.d(TAG, "restoreNormalAudio modeAfter=" + audioManager.getMode() + " speakerAfter=" + audioManager.isSpeakerphoneOn());
+    }
+
+    private JSObject buildPermissionResult() {
+        JSObject ret = new JSObject();
+        ret.put("microphone", getPermissionState("microphone").toString().toLowerCase());
+        ret.put("camera", getPermissionState("camera").toString().toLowerCase());
+        return ret;
     }
 
     private void beginCommunicationMode(boolean speaker) {
