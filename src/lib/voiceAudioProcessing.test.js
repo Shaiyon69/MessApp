@@ -54,7 +54,11 @@ test('respects independent echo cancellation and automatic gain preferences', ()
 
 test('falls back to core constraints when enhanced capture is overconstrained', async () => {
   const calls = []
-  const expectedStream = { id: 'stream' }
+  const expectedStream = {
+    id: 'stream',
+    getAudioTracks: () => [{ readyState: 'live', enabled: true }],
+    getTracks: () => []
+  }
   const mediaDevices = {
     getSupportedConstraints: () => ({ echoCancellation: true, sampleRate: true }),
     getUserMedia: async constraints => {
@@ -75,6 +79,23 @@ test('falls back to core constraints when enhanced capture is overconstrained', 
     noiseSuppression: true,
     autoGainControl: true
   })
+})
+
+test('rejects capture when the device returns no live microphone track', async () => {
+  const stopped = []
+  await assert.rejects(
+    getVoiceMediaStream({
+      mediaDevices: {
+        getSupportedConstraints: () => ({}),
+        getUserMedia: async () => ({
+          getAudioTracks: () => [],
+          getTracks: () => [{ stop: () => stopped.push(true) }]
+        })
+      }
+    }),
+    error => error.name === 'NotFoundError'
+  )
+  assert.equal(stopped.length, 1)
 })
 
 test('dynamic processing falls back without replacing the microphone track', async () => {

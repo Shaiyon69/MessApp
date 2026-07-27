@@ -30,8 +30,8 @@ self.addEventListener('push', (event) => {
   if (!notification.title || !['dm_message', 'channel_message'].includes(data.type)) return;
   event.waitUntil(self.registration.showNotification(notification.title, {
     body: notification.body || 'New message',
-    icon: '/messapp-icon.svg',
-    badge: '/messapp-icon.svg',
+    icon: '/messapp-icon-192.png',
+    badge: '/messapp-icon-192.png',
     tag: data.dm_room_id ? `dm-${data.dm_room_id}` : `channel-${data.channel_id}`,
     renotify: true,
     data

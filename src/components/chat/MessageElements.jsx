@@ -9,12 +9,13 @@ import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Mic } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
 import { getVideoAspectRatio, primeVideoPreview } from '../../lib/videoPreview'
 import ChatEmojiPicker from './ChatEmojiPicker'
+import VoiceMessagePlayer from './VoiceMessagePlayer'
 import StatusAvatar from '../ui/StatusAvatar'
 import { debug } from '../../lib/debug'
 
@@ -723,27 +724,42 @@ export const MemoizedMessage = React.memo(({
     }
   }, [alignRight, m.id])
 
-  const calculateActionMenuPositionFromAnchor = useCallback((anchor, menuSize = {}) => {
+  const calculateActionMenuPositionFromAnchor = useCallback((anchor, menuSize = {}, overlayQuickReactions = showReactionPicker) => {
     const isMobileViewport = window.innerWidth < 768
     return getTouchMessageActionPosition(anchor, {
       width: menuSize.width || (isMobileViewport ? (isMe ? 244 : 200) : hasImageAttachments ? 44 : 210),
-      height: menuSize.height || (isMobileViewport ? 52 : 44)
+      height: menuSize.height || (isMobileViewport ? 52 : 44),
+      topOffset: overlayQuickReactions && isMobileViewport ? 54 : 0
     })
-  }, [hasImageAttachments, isMe])
+  }, [hasImageAttachments, isMe, showReactionPicker])
 
   const getReactionPopoverPosition = useCallback((expanded = showMoreReactions || editingQuickReactions) => {
-    const rect = actionMenuRef.current?.getBoundingClientRect?.() || bubbleRef.current?.getBoundingClientRect?.()
+    const bubbleRect = bubbleRef.current?.getBoundingClientRect?.()
+    const rect = reactionInputMode === 'touch'
+      ? bubbleRect
+      : actionMenuRef.current?.getBoundingClientRect?.() || bubbleRect
     if (!rect) return null
     const margin = 8
     const width = Math.min(336, window.innerWidth - margin * 2)
     const height = expanded ? Math.min(460, window.innerHeight - margin * 2) : 56
-    const rawLeft = rect.left + (rect.width - width) / 2
+    const rawLeft = reactionInputMode === 'touch'
+      ? alignRight ? rect.right - width : rect.left
+      : rect.left + (rect.width - width) / 2
     const left = Math.min(Math.max(rawLeft, margin), window.innerWidth - width - margin)
+    if (reactionInputMode === 'touch') {
+      const overlayTop = rect.top + 6
+      const overlayStackHeight = expanded ? height : height + 54
+      return {
+        left,
+        top: Math.min(Math.max(overlayTop, margin), Math.max(margin, window.innerHeight - overlayStackHeight - margin)),
+        width
+      }
+    }
     const aboveTop = rect.top - height - margin
     const belowTop = rect.bottom + margin
     const top = aboveTop >= margin ? aboveTop : Math.min(belowTop, window.innerHeight - height - margin)
     return { left, top: Math.max(margin, top), width }
-  }, [editingQuickReactions, showMoreReactions])
+  }, [alignRight, editingQuickReactions, reactionInputMode, showMoreReactions])
 
   const updateReactionPopoverPosition = useCallback(() => {
     const nextPosition = getReactionPopoverPosition()
@@ -763,9 +779,10 @@ export const MemoizedMessage = React.memo(({
     }
     const nextAnchor = captureBubbleAnchor()
     if (!nextAnchor?.rect) return
-    const nextPosition = calculateActionMenuPositionFromAnchor(nextAnchor)
+    const isTouchInput = event?.pointerType === 'touch' || event?.pointerType === 'pen'
+    const nextPosition = calculateActionMenuPositionFromAnchor(nextAnchor, {}, isTouchInput)
     if (!nextPosition) return
-    setReactionInputMode(event?.pointerType === 'touch' || event?.pointerType === 'pen' ? 'touch' : 'desktop')
+    setReactionInputMode(isTouchInput ? 'touch' : 'desktop')
     setActionMenuPosition(nextPosition)
     setMessageActionMenuPosition?.(nextPosition)
     setMessageActionMenuId(m.id)
@@ -1554,23 +1571,14 @@ export const MemoizedMessage = React.memo(({
                             />
                           ) : attachmentIsAudio ? (
                             <div
-                              className="file-message-card flex min-w-[min(76vw,280px)] max-w-[min(86vw,390px)] items-center gap-3 rounded-2xl border px-3 py-3 text-[var(--chat-text,var(--text-main))]"
+                              className="file-message-card w-[min(72vw,260px)] rounded-full border p-0.5 text-[var(--chat-text,var(--text-main))]"
                               onClick={(event) => event.stopPropagation()}
                             >
-                              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-[var(--theme-50)] bg-[var(--theme-20)] text-[var(--theme-base)]">
-                                <Mic size={20} aria-hidden="true" />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <span className="mb-1.5 block truncate text-xs font-bold">{attachment.file_name || 'Voice message'}</span>
-                                <audio
-                                  src={attachmentUrl}
-                                  controls
-                                  preload="metadata"
-                                  className="h-9 w-full min-w-0 max-w-[300px]"
-                                  aria-label={attachment.file_name || 'Voice message'}
-                                />
-                                {attachmentSize && <span className="mt-1 block text-[10px] font-semibold text-gray-500">{attachmentSize}</span>}
-                              </div>
+                              <VoiceMessagePlayer
+                                src={attachmentUrl}
+                                label={attachment.file_name || 'Voice message'}
+                                className="w-full"
+                              />
                             </div>
                           ) : (
                             <a

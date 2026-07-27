@@ -3,7 +3,7 @@
  * receive streams from useWebRTC; this component never creates or stops tracks.
  */
 import React from 'react'
-import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff, Volume2, GripHorizontal } from 'lucide-react'
+import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff, Volume2, GripHorizontal, SwitchCamera } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
 
@@ -23,9 +23,9 @@ const CALL_STATUS_LABELS = {
 
 export default function CallOverlay({
   callActive, callMinimized, setCallMinimized, callDirection, remoteCaller,
-  ncEnabled, micEnabled, videoEnabled, remoteVideoEnabled, pendingVideoRequest, speakerEnabled,
+  ncEnabled, micEnabled, videoEnabled, remoteVideoEnabled, pendingVideoRequest, speakerEnabled, isSwitchingCamera, cameraFacingMode,
   localVideoRef, remoteVideoRef, remoteAudioRef,
-  acceptCall, endCallNetwork, toggleMic, toggleVideo, toggleNoiseCancellation, toggleSpeaker,
+  acceptCall, endCallNetwork, toggleMic, toggleVideo, switchCamera, toggleNoiseCancellation, toggleSpeaker,
   acceptVideoRequest, declineVideoRequest, composerTrayOpen = false
 }) {
   const {
@@ -44,6 +44,7 @@ export default function CallOverlay({
   const hasMiniVideo = isVideoLive || (videoEnabled && !isIncoming)
   const isMiniVideoCall = hasMiniVideo || videoEnabled || remoteVideoEnabled
   const statusLabel = CALL_STATUS_LABELS[callDirection] || 'Call'
+  const localVideoStyle = cameraFacingMode === 'environment' ? undefined : { transform: 'scaleX(-1)' }
 
   if (callMinimized) {
     return (
@@ -83,7 +84,7 @@ export default function CallOverlay({
               playsInline
               muted={!isVideoLive}
               className="h-full w-full object-cover"
-              style={!isVideoLive ? { transform: 'scaleX(-1)' } : undefined}
+              style={!isVideoLive ? localVideoStyle : undefined}
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2.5 pb-2 pt-8 md:px-3.5 md:pb-3 md:pt-12">
               <p className="truncate text-sm font-black tracking-tight text-white md:text-base">{remoteCaller?.username || 'Call'}</p>
@@ -93,7 +94,7 @@ export default function CallOverlay({
             </div>
             {isVideoLive && videoEnabled && (
               <div className="direct-call-mini-pip absolute right-2 top-2 h-14 w-10 overflow-hidden rounded-lg border border-white/20 bg-[#1c1e22] md:right-2.5 md:top-2.5 md:h-24 md:w-16 md:rounded-xl">
-                <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: 'scaleX(-1)' }} />
+                <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={localVideoStyle} />
               </div>
             )}
           </div>
@@ -132,6 +133,12 @@ export default function CallOverlay({
               <button type="button" onClick={toggleVideo} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${videoEnabled ? 'is-active text-white' : 'is-danger text-red-300'}`} aria-label={videoEnabled ? 'Turn video off' : 'Turn video on'} title={videoEnabled ? 'Turn video off' : 'Turn video on'}>
                 {videoEnabled ? <Video size={15} /> : <VideoOff size={15} />}
               </button>
+
+              {videoEnabled && (
+                <button type="button" onClick={switchCamera} disabled={isSwitchingCamera} className="direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full text-white disabled:cursor-wait disabled:opacity-50 md:h-10 md:w-10" aria-label="Switch camera" title="Switch camera">
+                  <SwitchCamera size={15} />
+                </button>
+              )}
 
               <button type="button" onClick={toggleSpeaker} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${speakerEnabled ? 'is-active text-white' : 'text-gray-400'}`} aria-label="Toggle speaker" title="Speaker">
                 <Volume2 size={15} />
@@ -184,7 +191,7 @@ export default function CallOverlay({
              ref={localVideoRef} 
              autoPlay playsInline muted 
              className="w-full h-full object-cover"
-             style={{ transform: 'scaleX(-1)' }} 
+             style={localVideoStyle}
            />
         </div>
 
@@ -222,6 +229,12 @@ export default function CallOverlay({
         <button onClick={toggleVideo} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${videoEnabled ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`}>
           {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
         </button>
+
+        {videoEnabled && (
+          <button onClick={switchCamera} disabled={isSwitchingCamera} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20 disabled:cursor-wait disabled:opacity-50 md:h-14 md:w-14" aria-label="Switch camera" title="Switch camera">
+            <SwitchCamera size={24} />
+          </button>
+        )}
 
         <button onClick={toggleNoiseCancellation} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
           <Activity size={24} />

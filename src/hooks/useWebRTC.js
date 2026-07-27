@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../lib/voiceAudioProcessing';
+import { acquireAlternateCamera } from '../lib/mediaDevices';
 
 const CallAudio = registerPlugin('CallAudio');
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
@@ -56,6 +57,8 @@ export function useWebRTC(session, activeDm) {
   const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(false);
   const [pendingVideoRequest, setPendingVideoRequest] = useState(false);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState('user');
 
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -73,6 +76,7 @@ export function useWebRTC(session, activeDm) {
   const mountedRef = useRef(true);
   const nativeAudioActiveRef = useRef(false);
   const callLifecycleIdRef = useRef(0);
+  const cameraFacingModeRef = useRef('user');
 
   // Using refs to keep signaling callback readouts up to date without cycling subscriptions
   const callActiveRef = useRef(callActive);
@@ -472,6 +476,8 @@ export function useWebRTC(session, activeDm) {
       }
 
       localStreamRef.current = stream;
+      cameraFacingModeRef.current = stream.getVideoTracks()[0]?.getSettings?.().facingMode || 'user';
+      setCameraFacingMode(cameraFacingModeRef.current);
       await startNativeCallAudio();
       if (!isCurrentCallLifecycle(lifecycleId)) {
         stopStream(localStreamRef);
@@ -523,6 +529,8 @@ export function useWebRTC(session, activeDm) {
       }
 
       localStreamRef.current = stream;
+      cameraFacingModeRef.current = stream.getVideoTracks()[0]?.getSettings?.().facingMode || 'user';
+      setCameraFacingMode(cameraFacingModeRef.current);
       await startNativeCallAudio();
       if (!isCurrentCallLifecycle(lifecycleId)) {
         stopStream(localStreamRef);
@@ -590,6 +598,8 @@ export function useWebRTC(session, activeDm) {
     setRemoteVideoEnabled(false);
     setPendingVideoRequest(false);
     setSpeakerEnabled(false);
+    setIsSwitchingCamera(false);
+    setCameraFacingMode('user');
 
     if (alreadyEnding) {
       logCallEndDebug('cleanup skipped after hard UI close', { finalState });
@@ -651,6 +661,46 @@ export function useWebRTC(session, activeDm) {
     }
   };
 
+  const switchCamera = async () => {
+    const localStream = localStreamRef.current;
+    const currentTrack = localStream?.getVideoTracks?.()[0];
+    if (!currentTrack || !videoEnabled || isSwitchingCamera) return;
+
+    setIsSwitchingCamera(true);
+    let replacementStream = null;
+    try {
+      const replacement = await acquireAlternateCamera({
+        mediaDevices: navigator.mediaDevices,
+        currentTrack,
+        preferredFacingMode: cameraFacingModeRef.current
+      });
+      replacementStream = replacement.stream;
+
+      const videoSender = pcRef.current?.getSenders?.().find(sender => sender.track?.kind === 'video');
+      if (!videoSender?.replaceTrack) throw new Error('The active call cannot replace its camera track');
+      await videoSender.replaceTrack(replacement.track);
+
+      localStream.removeTrack(currentTrack);
+      localStream.addTrack(replacement.track);
+      currentTrack.stop();
+      cameraFacingModeRef.current = replacement.facingMode;
+      setCameraFacingMode(replacement.facingMode);
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+        localVideoRef.current.srcObject = localStream;
+        localVideoRef.current.play().catch(() => {});
+      }
+      toast.success(replacement.facingMode === 'environment' ? 'Rear camera selected' : 'Front camera selected');
+    } catch (error) {
+      replacementStream?.getTracks?.().forEach(track => track.stop());
+      debug.error('WEBRTC_ERROR', { operation: 'switch-camera', error: serializeCallError(error) });
+      toast.error('Could not switch cameras.');
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  };
+
   const initiateVideoUpgrade = async () => {
     const lifecycleId = callLifecycleIdRef.current;
     try {
@@ -666,6 +716,8 @@ export function useWebRTC(session, activeDm) {
       }
       
       localStreamRef.current.addTrack(newVidTrack);
+      cameraFacingModeRef.current = newVidTrack.getSettings?.().facingMode || 'user';
+      setCameraFacingMode(cameraFacingModeRef.current);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       bindMediaElements();
       setVideoEnabled(true);
@@ -710,6 +762,8 @@ export function useWebRTC(session, activeDm) {
       }
       
       localStreamRef.current.addTrack(newVidTrack);
+      cameraFacingModeRef.current = newVidTrack.getSettings?.().facingMode || 'user';
+      setCameraFacingMode(cameraFacingModeRef.current);
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
       bindMediaElements();
       setVideoEnabled(true);
@@ -781,9 +835,9 @@ export function useWebRTC(session, activeDm) {
 
   return {
     callActive, callMinimized, setCallMinimized, callDirection, remoteCaller,
-    ncEnabled, micEnabled, videoEnabled, remoteVideoEnabled, pendingVideoRequest, speakerEnabled,
+    ncEnabled, micEnabled, videoEnabled, remoteVideoEnabled, pendingVideoRequest, speakerEnabled, isSwitchingCamera, cameraFacingMode,
     localVideoRef, remoteVideoRef, remoteAudioRef,
-    startCall, acceptCall, endCallNetwork, toggleMic, toggleVideo, toggleNoiseCancellation, toggleSpeaker,
+    startCall, acceptCall, endCallNetwork, toggleMic, toggleVideo, switchCamera, toggleNoiseCancellation, toggleSpeaker,
     acceptVideoRequest, declineVideoRequest
   };
 }
