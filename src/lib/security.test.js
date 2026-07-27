@@ -7,6 +7,11 @@ test('media URL validation accepts supported encrypted video previews', () => {
   assert.equal(safeMediaUrl('blob:https://messapp.example/video-id'), 'blob:https://messapp.example/video-id')
 })
 
+test('media URL validation accepts voice message audio', () => {
+  assert.equal(safeMediaUrl('data:audio/webm;base64,AAAA'), 'data:audio/webm;base64,AAAA')
+  assert.equal(safeMediaUrl('data:audio/mp4;base64,AAAA'), 'data:audio/mp4;base64,AAAA')
+})
+
 test('media URL validation rejects active content schemes', () => {
   assert.equal(safeMediaUrl('javascript:alert(1)'), null)
   assert.equal(safeMediaUrl('data:text/html;base64,PGgxPkJhZDwvaDE+'), null)

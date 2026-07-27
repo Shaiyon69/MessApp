@@ -87,6 +87,7 @@ export default function RightSidebar({
   handleConversationThemeChange,
   currentConversationThemeId,
   conversationThemeSchemaAvailable,
+  serverWallpaperSchemaAvailable,
   currentThemeHex,
   handleWallpaperChange,
   handleCustomWallpaperUpload,
@@ -320,6 +321,50 @@ export default function RightSidebar({
                     onChange={handleConversationThemeChange}
                     disabled={conversationThemeSchemaAvailable === false || !['owner', 'admin'].includes(activeServerRole)}
                   />
+                  <div className="pt-2">
+                    <div className="mb-3">
+                      <p className="text-sm font-medium text-[var(--text-main)]">Server wallpaper</p>
+                      <p className="text-xs text-gray-500">
+                        {serverWallpaperSchemaAvailable === false
+                          ? ['owner', 'admin'].includes(activeServerRole) ? 'Saved for you on this device' : 'Managed by server admins'
+                          : ['owner', 'admin'].includes(activeServerRole) ? 'Visible to everyone in this server' : 'Managed by server admins'}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2" role="group" aria-label="Server wallpaper">
+                      {WALLPAPERS.map(wallpaper => {
+                        const disabled = !['owner', 'admin'].includes(activeServerRole)
+                        return (
+                          <button
+                            key={`server-wall-${wallpaper.id}`}
+                            type="button"
+                            onClick={() => handleWallpaperChange(wallpaper.id)}
+                            disabled={disabled}
+                            aria-pressed={currentWallpaper === wallpaper.id}
+                            className={`rounded-2xl border p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${
+                              currentWallpaper === wallpaper.id
+                                ? 'border-[var(--theme-base)] bg-[var(--theme-10)]'
+                                : 'border-[var(--border-subtle)] bg-[var(--bg-element)] hover:bg-[var(--bg-element-hover)]'
+                            } ${disabled ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
+                          >
+                            <span
+                              className="relative block h-14 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--chat-bg-base)]"
+                              style={{
+                                backgroundImage: wallpaper.css,
+                                backgroundSize: wallpaper.size || 'cover',
+                                backgroundRepeat: wallpaper.repeat || 'no-repeat',
+                                backgroundPosition: wallpaper.position || 'center'
+                              }}
+                              aria-hidden="true"
+                            >
+                              <span className="absolute bottom-2 left-2 h-2.5 w-9 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg-element)]" />
+                              <span className="absolute right-2 top-2 h-3 w-10 rounded-full border border-[var(--chat-outgoing-border)] bg-[var(--chat-outgoing-bg)]" />
+                            </span>
+                            <span className="mt-2 block truncate px-1 text-[11px] font-bold text-[var(--text-main)]">{wallpaper.name}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
               </AccordionSection>
 

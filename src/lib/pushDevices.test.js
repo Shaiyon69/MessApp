@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getInstallationId, getPushPlatform, PUSH_INSTALLATION_ID_KEY } from './pushDevices.js'
+import { getInstallationId, getPushPlatform, PUSH_INSTALLATION_ID_KEY, upsertPushDevice } from './pushDevices.js'
 
 const createStorage = () => {
   const values = new Map()
@@ -25,4 +25,30 @@ test('push platform is restricted to supported database labels', () => {
   assert.equal(getPushPlatform({ getPlatform: () => 'ios' }), 'ios')
   assert.equal(getPushPlatform({ getPlatform: () => 'web' }), 'web')
   assert.equal(getPushPlatform({ getPlatform: () => 'electron' }), 'web')
+})
+
+test('push registration uses the authenticated ownership-transfer RPC', async () => {
+  const calls = []
+  const client = {
+    rpc: async (name, values) => {
+      calls.push({ name, values })
+      return { data: { refreshed: true, reenabled: false }, error: null }
+    }
+  }
+  const result = await upsertPushDevice({
+    profileId: 'profile-a',
+    installationId: 'installation-0001',
+    platform: 'android',
+    pushToken: 'provider-token',
+    client
+  })
+  assert.equal(result.refreshed, true)
+  assert.deepEqual(calls, [{
+    name: 'register_push_device',
+    values: {
+      target_installation_id: 'installation-0001',
+      target_platform: 'android',
+      target_push_token: 'provider-token'
+    }
+  }])
 })
