@@ -4,7 +4,8 @@
  * with native keyboard and safe-area behavior.
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
-import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, CircleDot, SlidersHorizontal } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, CircleDot, SlidersHorizontal, Camera, Square } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import AddFriendView from '../modals/AddFriendView'
@@ -14,6 +15,12 @@ import SfuScreenShare from '../screen-share/SfuScreenShare'
 import { debug } from '../../lib/debug'
 import { openDmEntry } from '../../lib/chatActions'
 import { primeVideoPreview } from '../../lib/videoPreview'
+import {
+  formatVoiceMessageDuration,
+  getVoiceMessageExtension,
+  getVoiceMessageMimeType,
+  normalizeVoiceMessageMimeType
+} from '../../lib/voiceMessages'
 
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
@@ -31,10 +38,18 @@ export default function ChatArea(props) {
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
   const [voiceControlsOpen, setVoiceControlsOpen] = useState(false);
+  const [voiceRecorderState, setVoiceRecorderState] = useState({ status: 'idle', elapsed: 0 });
   
   const emojiPickerRef = useRef(null);
   const gifPickerRef = useRef(null);
   const attachMenuRef = useRef(null);
+  const cameraPhotoInputRef = useRef(null);
+  const cameraVideoInputRef = useRef(null);
+  const voiceRecorderRef = useRef(null);
+  const voiceRecorderStreamRef = useRef(null);
+  const voiceRecorderChunksRef = useRef([]);
+  const voiceRecorderTimerRef = useRef(null);
+  const voiceRecorderCancelledRef = useRef(false);
   const edgeGestureRef = useRef(null);
   const previousChatKeyRef = useRef('');
   const initialPositionRef = useRef({ chatKey: '', positioned: false });
@@ -74,6 +89,108 @@ export default function ChatArea(props) {
     props.setVoiceMuted?.(nextDeafened)
     props.setVoiceDeafened?.(nextDeafened)
   }
+
+  const releaseVoiceRecorder = useCallback(() => {
+    if (voiceRecorderTimerRef.current) {
+      clearInterval(voiceRecorderTimerRef.current)
+      voiceRecorderTimerRef.current = null
+    }
+    voiceRecorderStreamRef.current?.getTracks().forEach(track => track.stop())
+    voiceRecorderStreamRef.current = null
+    voiceRecorderRef.current = null
+  }, [])
+
+  const finishVoiceRecording = useCallback((cancelled = false) => {
+    const recorder = voiceRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') return
+    voiceRecorderCancelledRef.current = cancelled
+    setVoiceRecorderState(current => ({ ...current, status: 'stopping' }))
+    recorder.stop()
+  }, [])
+
+  const startVoiceRecording = async () => {
+    setShowAttachMenu(false)
+    setShowInputEmojiPicker(false)
+    props.setShowGifPicker(false)
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder !== 'function') {
+      toast.error('Voice recording is not available on this device.')
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      })
+      const preferredMimeType = getVoiceMessageMimeType(MediaRecorder)
+      const recorder = preferredMimeType
+        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new MediaRecorder(stream)
+      const startedAt = Date.now()
+
+      voiceRecorderStreamRef.current = stream
+      voiceRecorderRef.current = recorder
+      voiceRecorderChunksRef.current = []
+      voiceRecorderCancelledRef.current = false
+
+      recorder.ondataavailable = event => {
+        if (event.data?.size) voiceRecorderChunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        voiceRecorderCancelledRef.current = true
+        toast.error('Voice recording stopped unexpectedly.')
+        if (recorder.state !== 'inactive') recorder.stop()
+        else {
+          releaseVoiceRecorder()
+          setVoiceRecorderState({ status: 'idle', elapsed: 0 })
+        }
+      }
+      recorder.onstop = () => {
+        const cancelled = voiceRecorderCancelledRef.current
+        const chunks = voiceRecorderChunksRef.current
+        const recordedType = normalizeVoiceMessageMimeType(recorder.mimeType || preferredMimeType)
+        voiceRecorderChunksRef.current = []
+        releaseVoiceRecorder()
+        setVoiceRecorderState({ status: 'idle', elapsed: 0 })
+        if (cancelled || !chunks.length) return
+
+        const blob = new Blob(chunks, { type: recordedType })
+        if (!blob.size) {
+          toast.error('No audio was captured.')
+          return
+        }
+        const extension = getVoiceMessageExtension(recordedType)
+        const file = new File([blob], `voice-message-${Date.now()}.${extension}`, {
+          type: recordedType,
+          lastModified: Date.now()
+        })
+        props.queuePendingAttachmentFromFile?.(file)
+      }
+
+      recorder.start(250)
+      setVoiceRecorderState({ status: 'recording', elapsed: 0 })
+      voiceRecorderTimerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000)
+        setVoiceRecorderState({ status: 'recording', elapsed })
+        if (elapsed >= 300 && recorder.state === 'recording') recorder.stop()
+      }, 250)
+    } catch (error) {
+      releaseVoiceRecorder()
+      const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError'
+      toast.error(denied ? 'Microphone permission is needed to record a voice message.' : 'Could not start voice recording.')
+    }
+  }
+
+  useEffect(() => () => {
+    voiceRecorderCancelledRef.current = true
+    const recorder = voiceRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') recorder.stop()
+    releaseVoiceRecorder()
+  }, [activeChatKey, releaseVoiceRecorder])
 
   useEffect(() => {
     if (!isActiveVoiceSession) setVoiceControlsOpen(false)
@@ -219,7 +336,7 @@ useEffect(() => {
   useEffect(() => {
     const urls = (props.pendingFiles || []).map(item => {
       if (item.gifUrl) return item.gifUrl
-      return item.file && /^(?:image|video)\//.test(item.file.type || '') ? URL.createObjectURL(item.file) : ''
+      return item.file && /^(?:image|video|audio)\//.test(item.file.type || '') ? URL.createObjectURL(item.file) : ''
     })
     setPendingPreviewUrls(urls)
     return () => urls.filter(url => url.startsWith('blob:')).forEach(url => URL.revokeObjectURL(url))
@@ -697,7 +814,14 @@ useEffect(() => {
                       <div className="flex max-w-full gap-2 overflow-x-auto pb-1 custom-scrollbar">
                         {props.pendingFiles.map((item, index) => (
                           <div key={item.id || `${item.name}-${item.size}-${index}`} className="group relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]">
-                            {pendingPreviewUrls[index] && item.type === 'video' ? (
+                            {item.type === 'audio' ? (
+                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center">
+                                <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--theme-20)] text-[var(--theme-base)]">
+                                  <Mic size={20} aria-hidden="true" />
+                                </span>
+                                <span className="w-full truncate text-[9px] font-bold text-gray-300">Voice message</span>
+                              </div>
+                            ) : pendingPreviewUrls[index] && item.type === 'video' ? (
                               <video
                                 src={pendingPreviewUrls[index]}
                                 className="h-full w-full bg-black object-cover"
@@ -730,7 +854,7 @@ useEffect(() => {
                               <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white drop-shadow">Spoiler</span>
                             )}
                             {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
-                            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>
+                            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.type === 'audio' ? 'VOICE • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>
                           </div>
                         ))}
                       </div>
@@ -795,6 +919,38 @@ useEffect(() => {
                       </div>
                     </div>
                   )}
+                  {voiceRecorderState.status !== 'idle' && (
+                    <div className="premium-section mx-2 mb-2 flex items-center gap-3 rounded-2xl px-3 py-2.5 md:mx-4" role="status" aria-live="polite">
+                      <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-500/15 text-red-400">
+                        <span className="absolute inset-0 animate-ping rounded-full bg-red-500/10" aria-hidden="true" />
+                        <Mic size={18} className="relative" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-[var(--text-main)]">
+                          {voiceRecorderState.status === 'stopping' ? 'Finishing voice message…' : 'Recording voice message'}
+                        </p>
+                        <p className="text-xs tabular-nums text-gray-500">{formatVoiceMessageDuration(voiceRecorderState.elapsed)} / 5:00</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => finishVoiceRecording(true)}
+                        disabled={voiceRecorderState.status === 'stopping'}
+                        className="grid h-10 w-10 place-items-center rounded-full text-gray-400 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                        aria-label="Cancel voice recording"
+                      >
+                        <X size={18} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => finishVoiceRecording(false)}
+                        disabled={voiceRecorderState.status === 'stopping'}
+                        className="grid h-10 w-10 place-items-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/20 disabled:opacity-50"
+                        aria-label="Stop and attach voice recording"
+                      >
+                        {voiceRecorderState.status === 'stopping' ? <Loader2 size={17} className="animate-spin" /> : <Square size={15} fill="currentColor" />}
+                      </button>
+                    </div>
+                  )}
                   <form
                     onSubmit={(e) => {
                         if (props.editingMessageId) {
@@ -819,6 +975,15 @@ useEffect(() => {
                           <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.fileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <ImagePlus size={18} className="text-indigo-400" /> Upload Media
                           </button>
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraPhotoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                            <Camera size={18} className="text-sky-400" /> Take a Photo
+                          </button>
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraVideoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                            <Video size={18} className="text-violet-400" /> Record a Video
+                          </button>
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); startVoiceRecording(); }} disabled={voiceRecorderState.status !== 'idle'} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
+                            <Mic size={18} className="text-rose-400" /> Record Voice
+                          </button>
                           <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.genericFileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <Paperclip size={18} className="text-green-400" /> Upload File
                           </button>
@@ -833,6 +998,8 @@ useEffect(() => {
                       </button>
                     </div>
                     <input type="file" accept="image/*,video/*,.gif" multiple ref={props.fileInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
+                    <input type="file" accept="image/*" capture="environment" ref={cameraPhotoInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
+                    <input type="file" accept="video/*" capture="environment" ref={cameraVideoInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <input type="file" accept="*/*" multiple ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex items-center bg-[var(--chat-bg-element)] rounded-[22px] relative min-w-0 border border-transparent min-h-[44px]">

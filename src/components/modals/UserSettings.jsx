@@ -85,6 +85,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   const [messageSoundsEnabled, setMessageSoundsEnabled] = useState(() => getLocalBoolean('messageSoundsEnabled', getLocalBoolean('soundEnabled', true)))
   const [callSoundsEnabled, setCallSoundsEnabled] = useState(() => getLocalBoolean('callSoundsEnabled', true))
   const [ringtoneSoundsEnabled, setRingtoneSoundsEnabled] = useState(() => getLocalBoolean('ringtoneSoundsEnabled', true))
+  const [tactileFeedbackEnabled, setTactileFeedbackEnabled] = useState(() => getLocalBoolean('tactileFeedbackEnabled', true))
   const [desktopNotifs, setDesktopNotifs] = useState(() => localStorage.getItem('notificationsEnabled') === 'true')
   const [voiceAutoGain, setVoiceAutoGain] = useState(() => localStorage.getItem('voiceAutoGain') !== 'false')
   const [voiceEchoCancel, setVoiceEchoCancel] = useState(() => localStorage.getItem('voiceEchoCancel') !== 'false')
@@ -197,6 +198,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     localStorage.setItem('ringtoneSoundsEnabled', String(ringtoneSoundsEnabled))
     if (!ringtoneSoundsEnabled) audioSys.stopRing()
   }, [ringtoneSoundsEnabled])
+  useEffect(() => { localStorage.setItem('tactileFeedbackEnabled', String(tactileFeedbackEnabled)) }, [tactileFeedbackEnabled])
   useEffect(() => { localStorage.setItem('voiceAutoGain', String(voiceAutoGain)) }, [voiceAutoGain])
   useEffect(() => { localStorage.setItem('voiceEchoCancel', String(voiceEchoCancel)) }, [voiceEchoCancel])
   useEffect(() => { localStorage.setItem('videoPreviewEnabled', String(videoPreviewEnabled)) }, [videoPreviewEnabled])
@@ -266,11 +268,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           return toast.error("Permission denied.")
         }
         const vapidPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
-        if (vapidPublicKey) {
-          await registerWebPushDevice({ profileId: session.user.id, vapidPublicKey })
-        } else {
-          reportPushError('web_setup', new Error('VITE_WEB_PUSH_PUBLIC_KEY is not configured'))
-        }
+        await registerWebPushDevice({ profileId: session.user.id, vapidPublicKey })
         setDesktopNotifs(true);
         localStorage.setItem('notificationsEnabled', 'true');
         toast.success("Desktop notifications enabled!");
@@ -377,7 +375,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const keysToKeep = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith('e2ee_') || key === PUSH_INSTALLATION_ID_KEY || key === 'appTheme' || key === 'surfaceTint' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'notificationsEnabled')) {
+        if (key && (key.startsWith('e2ee_') || key === PUSH_INSTALLATION_ID_KEY || key === 'appTheme' || key === 'surfaceTint' || key === 'soundEnabled' || key === 'messageSoundsEnabled' || key === 'callSoundsEnabled' || key === 'ringtoneSoundsEnabled' || key === 'tactileFeedbackEnabled' || key === 'notificationsEnabled')) {
           keysToKeep[key] = localStorage.getItem(key);
         }
       }
@@ -436,7 +434,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     ]
 
   return (
-    <div data-ui-overlay-owner="UserSettings:settings-modal" className="settings-monochrome premium-backdrop fixed inset-0 flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div data-ui-overlay-owner="UserSettings:settings-modal" className="settings-monochrome settings-soft-dividers premium-backdrop fixed inset-0 flex items-start md:items-center justify-center z-[100] md:p-4 overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       
       {showLogoutConfirm && (
         <div data-ui-overlay-owner="UserSettings:logout-confirm" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -942,9 +940,10 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                 <div className="pb-10">
                   <h2 className="hidden md:block text-2xl font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Notifications</h2>
                   <div className="space-y-2">
-                    <ToggleSwitch label="Enable Device Notifications" description="Receive push notifications when you are pinged or receive a DM." checked={desktopNotifs} onChange={requestDesktopNotifs} />
+                    <ToggleSwitch label="Enable Device Notifications" description="Receive push notifications for DMs and activity in servers you have not muted." checked={desktopNotifs} onChange={requestDesktopNotifs} />
                     <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-8 mb-2">Communication Sounds</h4>
                     <ToggleSwitch label="Message sounds" description="Play subtle sent and received sounds while the app is open." checked={messageSoundsEnabled} onChange={setMessageSoundsEnabled} />
+                    <ToggleSwitch label="Tactile feedback" description="Add short haptics alongside the subtle messaging sounds." checked={tactileFeedbackEnabled} onChange={setTactileFeedbackEnabled} />
                     <ToggleSwitch label="Call sounds" description="Play short tones when calls connect, end, or fail." checked={callSoundsEnabled} onChange={setCallSoundsEnabled} />
                     <ToggleSwitch label="Ringtones" description="Play incoming and outgoing call rings while calls are waiting." checked={ringtoneSoundsEnabled} onChange={setRingtoneSoundsEnabled} />
                   </div>

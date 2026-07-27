@@ -18,7 +18,11 @@ export function safeMediaUrl(value, { allowDataImages = true, allowBlob = true }
     return trimmed
   }
 
-  if (/^data:video\/(?:mp4|webm|ogg|quicktime);base64,[a-z0-9+/=\s]+$/i.test(trimmed)) {
+  if (/^data:video\/(?:3gpp|mp4|webm|ogg|quicktime);base64,[a-z0-9+/=\s]+$/i.test(trimmed)) {
+    return trimmed
+  }
+
+  if (/^data:audio\/(?:aac|mp4|mpeg|ogg|wav|webm|x-m4a);base64,[a-z0-9+/=\s]+$/i.test(trimmed)) {
     return trimmed
   }
 

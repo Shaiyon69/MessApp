@@ -4,6 +4,7 @@
  * remain owned by the upstream media session and require lifecycle cleanup.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
 import {
   Activity,
   AudioLines,
@@ -35,6 +36,7 @@ import { audioSys } from '../../lib/SoundEngine'
 import { supabase } from '../../supabaseClient'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
+import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../../lib/screenCapture'
 
 const VIEW_MODES = {
   PINNED: 'pinned',
@@ -129,7 +131,8 @@ function StreamVideo({ stream, muted = false, volume = 1, className = '' }) {
       autoPlay
       playsInline
       muted={muted}
-      className={`voice-stage-video h-full w-full bg-black object-contain ${className}`}
+      className={`voice-stage-video block h-full max-h-full min-h-0 w-full max-w-full min-w-0 bg-black object-contain ${className}`}
+      style={{ objectFit: 'contain' }}
     />
   )
 }
@@ -188,7 +191,7 @@ function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, camera
   const hasLiveStream = mediaTracksAreLive(streamItem.stream)
 
   return (
-    <div className={`voice-stage-card group relative flex h-full min-h-0 overflow-hidden rounded-2xl border bg-black shadow-xl ${participant?.speaking ? 'is-speaking border-green-300/80' : 'border-[var(--border-subtle)]'}`}>
+    <div className={`voice-stage-card group relative flex h-full max-h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden rounded-2xl border bg-black shadow-xl ${participant?.speaking ? 'is-speaking border-green-300/80' : 'border-[var(--border-subtle)]'}`}>
       {hasLiveStream ? (
         <StreamVideo stream={streamItem.stream} muted={streamItem.local} volume={volume} />
       ) : (
@@ -1125,16 +1128,16 @@ export default function SfuScreenShare({
   }, [client, localParticipant])
 
   const startShare = async () => {
-    if (!client || !navigator.mediaDevices?.getDisplayMedia) return
+    if (!client) return
     let stream = null
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+      stream = await getScreenCaptureStream(navigator.mediaDevices)
       localScreenRef.current = stream
       setLocalScreenStream(stream)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stopShare(stream), { once: true })
       await publishStream(stream, 'screen')
       audioSys.playScreenShareStarted()
-    } catch (_err) {
+    } catch (error) {
       // Closing the browser picker is a local media cancellation, not a voice
       // connection failure. A publish failure must also leave the joined voice
       // session intact and clean up any partially acquired tracks.
@@ -1145,6 +1148,7 @@ export default function SfuScreenShare({
           setLocalScreenStream(null)
         }
       }
+      toast.error(getScreenCaptureErrorMessage(error))
     }
   }
 
@@ -1339,7 +1343,7 @@ export default function SfuScreenShare({
           </span>
         </button>
         {pinnedStream && (
-          <div className="mb-2 aspect-video overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-black md:mb-3 md:rounded-xl">
+          <div className="mb-2 h-[7.5rem] max-h-[24dvh] w-full overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-black md:mb-3 md:h-auto md:aspect-video md:max-h-none md:rounded-xl">
             <StreamTile
               streamItem={pinnedStream}
               participant={pinnedStream.participant}
@@ -1387,7 +1391,7 @@ export default function SfuScreenShare({
 
   if (variant === 'full') {
     return (
-      <section className={`voice-stage-shell relative grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-[var(--bg-base)] ${className}`} data-status={status}>
+      <section className={`voice-stage-shell relative grid h-full max-h-full min-h-0 w-full max-w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-[var(--bg-base)] ${className}`} data-status={status}>
         {remoteAudioPlayers}
         <div className="voice-stage-ambient voice-stage-ambient-one" aria-hidden="true" />
         <div className="voice-stage-ambient voice-stage-ambient-two" aria-hidden="true" />
@@ -1430,7 +1434,7 @@ export default function SfuScreenShare({
           </div>
         </header>
 
-        <div ref={stageRef} className="relative z-[1] min-h-0 overflow-hidden p-2 sm:p-3 md:p-5" tabIndex={0} aria-label="Voice stage">
+        <div ref={stageRef} className="relative z-[1] h-full max-h-full min-h-0 w-full max-w-full overflow-hidden p-2 sm:p-3 md:p-5" tabIndex={0} aria-label="Voice stage">
           {viewMode === VIEW_MODES.GRID || !pinnedStream ? (
             <section className="voice-stage-surface relative h-full min-h-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] p-2 shadow-2xl sm:p-3">
               <div
@@ -1473,7 +1477,7 @@ export default function SfuScreenShare({
             </section>
           ) : (
             <section className={`voice-stage-focus-layout grid h-full min-h-0 gap-2.5 overflow-hidden ${secondaryStreams.length > 0 ? 'grid-rows-[minmax(0,1fr)_6.5rem] md:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)] md:grid-rows-1' : 'grid-cols-1 grid-rows-1'}`}>
-              <div className="voice-stage-grid-item relative min-h-0 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-black shadow-2xl">
+              <div className="voice-stage-grid-item relative h-full max-h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-black shadow-2xl">
                 <StreamTile
                   streamItem={pinnedStream}
                   participant={pinnedStream.participant}
