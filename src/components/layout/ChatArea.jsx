@@ -8,10 +8,12 @@ import toast from 'react-hot-toast'
 import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, CircleDot, SlidersHorizontal, Camera, Square } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
+import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
 import AddFriendView from '../modals/AddFriendView'
 import GifPickerPopout from '../modals/GifPickerPopout'
 import ChatEmojiPicker from '../chat/ChatEmojiPicker'
 import SfuScreenShare from '../screen-share/SfuScreenShare'
+import MediaEditorModal from '../media/MediaEditorModal'
 import { debug } from '../../lib/debug'
 import { openDmEntry } from '../../lib/chatActions'
 import { primeVideoPreview } from '../../lib/videoPreview'
@@ -21,6 +23,7 @@ import {
   getVoiceMessageMimeType,
   normalizeVoiceMessageMimeType
 } from '../../lib/voiceMessages'
+import { getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
 
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
@@ -39,6 +42,8 @@ export default function ChatArea(props) {
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
   const [voiceControlsOpen, setVoiceControlsOpen] = useState(false);
   const [voiceRecorderState, setVoiceRecorderState] = useState({ status: 'idle', elapsed: 0 });
+  const [voiceLevels, setVoiceLevels] = useState(() => Array.from({ length: 28 }, () => 0.08));
+  const [mediaEditorTarget, setMediaEditorTarget] = useState(null);
   
   const emojiPickerRef = useRef(null);
   const gifPickerRef = useRef(null);
@@ -50,6 +55,9 @@ export default function ChatArea(props) {
   const voiceRecorderChunksRef = useRef([]);
   const voiceRecorderTimerRef = useRef(null);
   const voiceRecorderCancelledRef = useRef(false);
+  const voiceAnalyserRef = useRef(null);
+  const voiceAudioContextRef = useRef(null);
+  const voiceLevelFrameRef = useRef(null);
   const edgeGestureRef = useRef(null);
   const previousChatKeyRef = useRef('');
   const initialPositionRef = useRef({ chatKey: '', positioned: false });
@@ -96,8 +104,14 @@ export default function ChatArea(props) {
       voiceRecorderTimerRef.current = null
     }
     voiceRecorderStreamRef.current?.getTracks().forEach(track => track.stop())
+    if (voiceLevelFrameRef.current) cancelAnimationFrame(voiceLevelFrameRef.current)
+    voiceLevelFrameRef.current = null
+    voiceAnalyserRef.current = null
+    voiceAudioContextRef.current?.close?.().catch(() => {})
+    voiceAudioContextRef.current = null
     voiceRecorderStreamRef.current = null
     voiceRecorderRef.current = null
+    setVoiceLevels(Array.from({ length: 28 }, () => 0.08))
   }, [])
 
   const finishVoiceRecording = useCallback((cancelled = false) => {
@@ -118,13 +132,10 @@ export default function ChatArea(props) {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        },
-        video: false
+      const stream = await getVoiceMediaStream({
+        mediaDevices: navigator.mediaDevices,
+        video: false,
+        noiseReduction: true
       })
       const preferredMimeType = getVoiceMessageMimeType(MediaRecorder)
       const recorder = preferredMimeType
@@ -136,6 +147,34 @@ export default function ChatArea(props) {
       voiceRecorderRef.current = recorder
       voiceRecorderChunksRef.current = []
       voiceRecorderCancelledRef.current = false
+
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext
+      if (AudioContextClass) {
+        const audioContext = new AudioContextClass()
+        const analyser = audioContext.createAnalyser()
+        analyser.fftSize = 256
+        analyser.smoothingTimeConstant = 0.72
+        audioContext.createMediaStreamSource(stream).connect(analyser)
+        const samples = new Uint8Array(analyser.fftSize)
+        let lastLevelUpdate = 0
+        const sampleVoiceLevel = timestamp => {
+          analyser.getByteTimeDomainData(samples)
+          if (timestamp - lastLevelUpdate > 70) {
+            let squareTotal = 0
+            for (const sample of samples) {
+              const normalized = (sample - 128) / 128
+              squareTotal += normalized * normalized
+            }
+            const level = Math.min(1, Math.max(0.08, Math.sqrt(squareTotal / samples.length) * 4.5))
+            setVoiceLevels(previous => [...previous.slice(1), level])
+            lastLevelUpdate = timestamp
+          }
+          voiceLevelFrameRef.current = requestAnimationFrame(sampleVoiceLevel)
+        }
+        voiceAudioContextRef.current = audioContext
+        voiceAnalyserRef.current = analyser
+        voiceLevelFrameRef.current = requestAnimationFrame(sampleVoiceLevel)
+      }
 
       recorder.ondataavailable = event => {
         if (event.data?.size) voiceRecorderChunksRef.current.push(event.data)
@@ -341,6 +380,28 @@ useEffect(() => {
     setPendingPreviewUrls(urls)
     return () => urls.filter(url => url.startsWith('blob:')).forEach(url => URL.revokeObjectURL(url))
   }, [props.pendingFiles]);
+
+  const openPendingMediaEditor = (item, index) => {
+    if (!item?.file || !['image', 'video'].includes(item.type) || item.gifUrl) return
+    setMediaEditorTarget({ file: item.file, index, type: item.type })
+  }
+
+  const savePendingMediaEdit = async editedFile => {
+    const target = mediaEditorTarget
+    if (!target) return
+    props.setPendingFiles(previous => previous.map((item, index) => index === target.index
+      ? {
+          ...item,
+          file: editedFile,
+          type: target.type,
+          name: editedFile.name,
+          size: editedFile.size,
+          fingerprint: `${editedFile.name}:${editedFile.size}:${editedFile.lastModified}`
+        }
+      : item))
+    setMediaEditorTarget(null)
+    toast.success(target.type === 'video' ? 'Video crop ready to send' : 'Image edit ready to send')
+  }
 
   const handleEmojiSelect = (emojiData) => {
     const input = props.messageInputRef.current;
@@ -769,11 +830,11 @@ useEffect(() => {
                   <button
                     type="button"
                     onClick={props.scrollToLatestMessages}
-                    className="premium-menu pointer-events-auto absolute left-1/2 bottom-3 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-bold text-[var(--text-main)] shadow-xl transition-all hover:border-[var(--theme-50)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] cursor-pointer"
+                    className="premium-menu pointer-events-auto absolute bottom-3 left-1/2 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full text-[var(--theme-base)] shadow-xl transition-all hover:border-[var(--theme-50)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] cursor-pointer"
+                    aria-label="Jump to latest messages"
+                    title="Latest messages"
                   >
-                    <ChevronDown size={18} className="text-[var(--theme-base)]" aria-hidden="true" />
-                    <span className="hidden sm:inline">Latest messages</span>
-                    <span className="sm:hidden">Latest</span>
+                    <ChevronDown size={20} aria-hidden="true" />
                   </button>
                 </div>
               )}
@@ -813,14 +874,15 @@ useEffect(() => {
                       </div>
                       <div className="flex max-w-full gap-2 overflow-x-auto pb-1 custom-scrollbar">
                         {props.pendingFiles.map((item, index) => (
-                          <div key={item.id || `${item.name}-${item.size}-${index}`} className="group relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]">
+                          <div key={item.id || `${item.name}-${item.size}-${index}`} className={`group relative shrink-0 overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-base)] ${item.type === 'audio' ? 'h-14 w-64 rounded-full' : 'h-24 w-24 rounded-xl'}`}>
                             {item.type === 'audio' ? (
-                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center">
-                                <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--theme-20)] text-[var(--theme-base)]">
-                                  <Mic size={20} aria-hidden="true" />
-                                </span>
-                                <span className="w-full truncate text-[9px] font-bold text-gray-300">Voice message</span>
-                              </div>
+                              pendingPreviewUrls[index] && (
+                                <VoiceMessagePlayer
+                                  src={pendingPreviewUrls[index]}
+                                  label="Voice message ready"
+                                  className="h-full w-full bg-transparent pr-8"
+                                />
+                              )
                             ) : pendingPreviewUrls[index] && item.type === 'video' ? (
                               <video
                                 src={pendingPreviewUrls[index]}
@@ -838,6 +900,17 @@ useEffect(() => {
                               <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2"><FileText size={28} className="text-[var(--theme-base)]" /><span className="w-full truncate text-center text-[9px] text-gray-400">{item.name}</span></div>
                             )}
                             <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label={`Remove ${item.name}`}><X size={12}/></button>
+                            {(item.type === 'image' || item.type === 'video') && item.file && !item.gifUrl && (
+                              <button
+                                type="button"
+                                onClick={() => openPendingMediaEditor(item, index)}
+                                className="absolute bottom-5 right-1 rounded-full bg-black/75 p-1.5 text-white shadow-lg hover:bg-[var(--theme-base)]"
+                                aria-label={`Edit ${item.name}`}
+                                title="Crop or edit"
+                              >
+                                <SlidersHorizontal size={12} />
+                              </button>
+                            )}
                             {(item.type === 'image' || item.gifUrl) && (
                               <button
                                 type="button"
@@ -854,7 +927,7 @@ useEffect(() => {
                               <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white drop-shadow">Spoiler</span>
                             )}
                             {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
-                            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.type === 'audio' ? 'VOICE • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>
+                            {item.type !== 'audio' && <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>}
                           </div>
                         ))}
                       </div>
@@ -920,35 +993,27 @@ useEffect(() => {
                     </div>
                   )}
                   {voiceRecorderState.status !== 'idle' && (
-                    <div className="premium-section mx-2 mb-2 flex items-center gap-3 rounded-2xl px-3 py-2.5 md:mx-4" role="status" aria-live="polite">
-                      <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-500/15 text-red-400">
-                        <span className="absolute inset-0 animate-ping rounded-full bg-red-500/10" aria-hidden="true" />
-                        <Mic size={18} className="relative" aria-hidden="true" />
+                    <div className="mx-2 mb-2 flex h-14 items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-2 shadow-lg md:mx-4" role="status" aria-live="polite">
+                      <button type="button" onClick={() => finishVoiceRecording(true)} disabled={voiceRecorderState.status === 'stopping'} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-gray-400 transition-colors hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" aria-label="Discard voice recording">
+                        <Trash2 size={17} />
+                      </button>
+                      <span className="relative h-2 w-2 shrink-0 rounded-full bg-rose-500">
+                        {voiceRecorderState.status === 'recording' && <span className="absolute inset-0 animate-ping rounded-full bg-rose-500" aria-hidden="true" />}
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-[var(--text-main)]">
-                          {voiceRecorderState.status === 'stopping' ? 'Finishing voice message…' : 'Recording voice message'}
-                        </p>
-                        <p className="text-xs tabular-nums text-gray-500">{formatVoiceMessageDuration(voiceRecorderState.elapsed)} / 5:00</p>
+                      <div className="flex h-8 min-w-0 flex-1 items-center gap-[2px] overflow-hidden" aria-label="Live microphone level">
+                        {voiceLevels.slice(-20).map((level, index) => (
+                          <span
+                            key={index}
+                            className="min-w-[2px] flex-1 rounded-full bg-[var(--theme-base)] transition-[height] duration-75"
+                            style={{ height: `${Math.max(18, level * 100)}%`, opacity: 0.35 + level * 0.65 }}
+                          />
+                        ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => finishVoiceRecording(true)}
-                        disabled={voiceRecorderState.status === 'stopping'}
-                        className="grid h-10 w-10 place-items-center rounded-full text-gray-400 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-                        aria-label="Cancel voice recording"
-                      >
-                        <X size={18} aria-hidden="true" />
+                      <span className="w-10 shrink-0 text-right text-[11px] font-bold tabular-nums text-gray-400">{formatVoiceMessageDuration(voiceRecorderState.elapsed)}</span>
+                      <button type="button" onClick={() => finishVoiceRecording(false)} disabled={voiceRecorderState.status === 'stopping'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--theme-base)] text-white shadow-sm transition-transform active:scale-95 disabled:opacity-50" aria-label="Stop and preview voice recording">
+                        {voiceRecorderState.status === 'stopping' ? <Loader2 size={17} className="animate-spin" /> : <Square size={12} fill="currentColor" />}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => finishVoiceRecording(false)}
-                        disabled={voiceRecorderState.status === 'stopping'}
-                        className="grid h-10 w-10 place-items-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/20 disabled:opacity-50"
-                        aria-label="Stop and attach voice recording"
-                      >
-                        {voiceRecorderState.status === 'stopping' ? <Loader2 size={17} className="animate-spin" /> : <Square size={15} fill="currentColor" />}
-                      </button>
+                      <span className="sr-only">{voiceRecorderState.status === 'stopping' ? 'Preparing voice message' : 'Recording voice message'}</span>
                     </div>
                   )}
                   <form
@@ -1100,6 +1165,14 @@ useEffect(() => {
           )}
         </div>
       </div>
+      )}
+      {mediaEditorTarget && (
+        <MediaEditorModal
+          file={mediaEditorTarget.file}
+          title={mediaEditorTarget.type === 'video' ? 'Crop video' : 'Edit image'}
+          onCancel={() => setMediaEditorTarget(null)}
+          onSave={savePendingMediaEdit}
+        />
       )}
     </main>
   )

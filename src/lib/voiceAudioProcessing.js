@@ -1,3 +1,5 @@
+import { ensureMicrophonePermission } from './mediaDevices.js'
+
 const CORE_PROCESSING_KEYS = ['echoCancellation', 'noiseSuppression', 'autoGainControl']
 
 export function getSupportedAudioConstraints(mediaDevices = globalThis.navigator?.mediaDevices) {
@@ -40,6 +42,18 @@ function markStreamAsSpeech(stream) {
   return stream
 }
 
+function validateMicrophoneStream(stream) {
+  const track = stream?.getAudioTracks?.().find(candidate => candidate.readyState !== 'ended')
+  if (!track) {
+    stream?.getTracks?.().forEach(candidate => candidate.stop())
+    const error = new Error('No live microphone was returned')
+    error.name = 'NotFoundError'
+    throw error
+  }
+  track.enabled = true
+  return markStreamAsSpeech(stream)
+}
+
 export async function getVoiceMediaStream({
   mediaDevices = globalThis.navigator?.mediaDevices,
   video = false,
@@ -48,6 +62,7 @@ export async function getVoiceMediaStream({
   autoGainControl
 } = {}) {
   if (!mediaDevices?.getUserMedia) throw new Error('Microphone capture is unavailable')
+  await ensureMicrophonePermission()
 
   const supported = getSupportedAudioConstraints(mediaDevices)
   const settingsStorage = typeof window !== 'undefined' ? window.localStorage : null
@@ -60,7 +75,7 @@ export async function getVoiceMediaStream({
   const enhancedAudio = buildVoiceAudioConstraints(noiseReduction, supported, preferences)
 
   try {
-    return markStreamAsSpeech(await mediaDevices.getUserMedia({ video, audio: enhancedAudio }))
+    return validateMicrophoneStream(await mediaDevices.getUserMedia({ video, audio: enhancedAudio }))
   } catch (error) {
     if (!isConstraintShapeError(error)) throw error
   }
@@ -72,10 +87,10 @@ export async function getVoiceMediaStream({
   }
 
   try {
-    return markStreamAsSpeech(await mediaDevices.getUserMedia({ video, audio: coreAudio }))
+    return validateMicrophoneStream(await mediaDevices.getUserMedia({ video, audio: coreAudio }))
   } catch (error) {
     if (!isConstraintShapeError(error)) throw error
-    return markStreamAsSpeech(await mediaDevices.getUserMedia({ video, audio: true }))
+    return validateMicrophoneStream(await mediaDevices.getUserMedia({ video, audio: true }))
   }
 }
 
