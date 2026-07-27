@@ -26,6 +26,7 @@ import {
   ScreenShare,
   SlidersHorizontal,
   Square,
+  SwitchCamera,
   Users,
   Volume2,
   VolumeX,
@@ -37,6 +38,7 @@ import { supabase } from '../../supabaseClient'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
 import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../../lib/screenCapture'
+import { acquireAlternateCamera } from '../../lib/mediaDevices'
 
 const VIEW_MODES = {
   PINNED: 'pinned',
@@ -684,6 +686,7 @@ export default function SfuScreenShare({
   const [stageControlsOpen, setStageControlsOpen] = useState(false)
   const [voiceVolumeSettings, setVoiceVolumeSettings] = useState(readVoiceVolumeSettings)
   const [noiseReductionEnabled, setNoiseReductionEnabled] = useState(true)
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
   const localScreenRef = useRef(null)
   const localCameraRef = useRef(null)
   const localAudioRef = useRef(null)
@@ -693,6 +696,7 @@ export default function SfuScreenShare({
   const voicePresenceChannelRef = useRef(null)
   const localParticipantRef = useRef(null)
   const lastReportedStateRef = useRef('')
+  const cameraFacingModeRef = useRef('user')
   const [stageRef, stageSize] = useElementSize()
   const {
     playerRef: miniPlayerRef,
@@ -1166,10 +1170,16 @@ export default function SfuScreenShare({
     if (!client || !navigator.mediaDevices?.getUserMedia) return
     let stream = null
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: cameraFacingModeRef.current } },
+        audio: false
+      })
       localCameraRef.current = stream
       setLocalCameraStream(stream)
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => stopCamera(stream), { once: true })
+      cameraFacingModeRef.current = stream.getVideoTracks()[0]?.getSettings?.().facingMode || cameraFacingModeRef.current
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (localCameraRef.current === stream) void stopCamera(stream)
+      }, { once: true })
       await publishStream(stream, 'camera')
     } catch (_err) {
       if (stream) {
@@ -1184,10 +1194,47 @@ export default function SfuScreenShare({
 
   const stopCamera = async (targetStream = localCameraRef.current) => {
     const stream = targetStream
-    localCameraRef.current = null
-    setLocalCameraStream(null)
+    if (!stream) return
+    if (localCameraRef.current === stream) {
+      localCameraRef.current = null
+      setLocalCameraStream(null)
+    }
     stream?.getTracks().forEach(track => track.stop())
     await unpublishStream(stream, 'camera')
+  }
+
+  const switchCamera = async () => {
+    const currentStream = localCameraRef.current
+    const currentTrack = currentStream?.getVideoTracks?.()[0]
+    if (!currentStream || !currentTrack || isSwitchingCamera) return
+
+    setIsSwitchingCamera(true)
+    let replacementStream = null
+    try {
+      const replacement = await acquireAlternateCamera({
+        mediaDevices: navigator.mediaDevices,
+        currentTrack,
+        preferredFacingMode: cameraFacingModeRef.current
+      })
+      replacementStream = replacement.stream
+      await publishStream(replacement.stream, 'camera')
+
+      localCameraRef.current = replacement.stream
+      setLocalCameraStream(replacement.stream)
+      cameraFacingModeRef.current = replacement.facingMode
+      replacement.track.addEventListener('ended', () => {
+        if (localCameraRef.current === replacement.stream) void stopCamera(replacement.stream)
+      }, { once: true })
+
+      await unpublishStream(currentStream, 'camera').catch(() => {})
+      currentStream.getTracks().forEach(track => track.stop())
+      toast.success(replacement.facingMode === 'environment' ? 'Rear camera selected' : 'Front camera selected')
+    } catch (_error) {
+      replacementStream?.getTracks?.().forEach(track => track.stop())
+      toast.error('Could not switch cameras.')
+    } finally {
+      setIsSwitchingCamera(false)
+    }
   }
 
   const pinStream = useCallback((streamId) => {
@@ -1288,9 +1335,14 @@ export default function SfuScreenShare({
         <Activity size={compact ? 16 : 18} />
       </button>
       {localCameraStream ? (
-        <button type="button" onClick={() => stopCamera()} className="voice-control-button is-active rounded-full border border-[var(--theme-50)] bg-[var(--theme-20)] p-2.5 text-[var(--theme-base)] sm:p-3" aria-label="Turn camera off" title="Turn camera off">
-          <CameraOff size={compact ? 16 : 18} />
-        </button>
+        <>
+          <button type="button" onClick={() => stopCamera()} className="voice-control-button is-active rounded-full border border-[var(--theme-50)] bg-[var(--theme-20)] p-2.5 text-[var(--theme-base)] sm:p-3" aria-label="Turn camera off" title="Turn camera off">
+            <CameraOff size={compact ? 16 : 18} />
+          </button>
+          <button type="button" onClick={switchCamera} disabled={isSwitchingCamera} className="voice-control-button rounded-full border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2.5 text-gray-300 disabled:cursor-wait disabled:opacity-50 sm:p-3" aria-label="Switch camera" title="Switch camera">
+            <SwitchCamera size={compact ? 16 : 18} />
+          </button>
+        </>
       ) : (
         <button type="button" onClick={startCamera} disabled={status !== 'connected'} className="voice-control-button rounded-full border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2.5 text-gray-300 disabled:opacity-50 sm:p-3" aria-label="Turn camera on" title="Turn camera on">
           <Camera size={compact ? 16 : 18} />
@@ -1571,6 +1623,11 @@ export default function SfuScreenShare({
             <button type="button" onClick={localCameraStream ? () => stopCamera() : startCamera} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localCameraStream ? 'is-active' : ''}`} aria-label={localCameraStream ? 'Turn camera off' : 'Turn camera on'} title={localCameraStream ? 'Camera off' : 'Camera on'}>
               {localCameraStream ? <CameraOff size={18} aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
             </button>
+            {localCameraStream && (
+              <button type="button" onClick={switchCamera} disabled={isSwitchingCamera} className="voice-stage-mobile-action disabled:cursor-wait disabled:opacity-50" aria-label="Switch camera" title="Switch camera">
+                <SwitchCamera size={18} aria-hidden="true" />
+              </button>
+            )}
             {onLeave && (
               <button type="button" onClick={onLeave} className="voice-stage-mobile-action is-danger" aria-label="Leave voice" title="Leave voice">
                 <PhoneOff size={18} aria-hidden="true" />

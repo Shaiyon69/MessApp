@@ -6,7 +6,7 @@
 
 *A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, and Linux environments.*
 
-[![Version](https://img.shields.io/badge/version-v0.1.3--beta-blue.svg)](https://github.com/messapp/messapp)
+[![Version](https://img.shields.io/badge/version-v0.1.6--beta-blue.svg)](https://github.com/messapp/messapp)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/messapp/messapp/blob/main/LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -132,7 +132,7 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 ## 🗺️ Roadmap
 
-**Current Version:** `v0.1.3-beta`
+**Current Version:** `v0.1.6-beta`
 
 ### Phase 1: Foundation (Completed)
 - [x] Cross-platform build architecture (Web, Android APK, Linux .deb/.AppImage)

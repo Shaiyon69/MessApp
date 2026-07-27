@@ -1,0 +1,7 @@
+{
+  "default": "messapp-icon.svg",
+  "bg_color": "#000000",
+  "android_fg": "messapp-mark-white.svg",
+  "android_fg_scale": 80,
+  "android_monochrome": "messapp-mark-white.svg"
+}
