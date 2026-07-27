@@ -24,7 +24,7 @@
         "default-src": "'self' customprotocol: asset:",
         "base-uri": "'self'",
         "object-src": "'none'",
-        "connect-src": "ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co https://api.microlink.io https://api.giphy.com",
+        "connect-src": "ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co https://api.microlink.io https://api.giphy.com https://*.giphy.com",
         "font-src": "'self' data: https://fonts.gstatic.com",
         "img-src": "'self' asset: http://asset.localhost data: blob: https:",
         "media-src": "'self' asset: http://asset.localhost data: blob: https:",
