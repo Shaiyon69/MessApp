@@ -1638,10 +1638,22 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }
 
-  const handleSendGif = (gifUrl) => {
+  const handleSendGif = async (gifUrl) => {
     setShowGifPicker(false)
     const safeGifUrl = safeHttpUrl(gifUrl)
     if (!safeGifUrl) return toast.error('That GIF URL is invalid.')
+    try {
+      const response = await fetch(safeGifUrl)
+      if (!response.ok) throw new Error('GIF download failed')
+      const blob = await response.blob()
+      const type = normalizeFileType(blob.type || 'image/gif')
+      if (!type.startsWith('image/')) throw new Error('The selected URL is not an image')
+      const file = new File([blob], `gif-${Date.now()}.gif`, { type, lastModified: Date.now() })
+      if (queuePendingAttachments([file])) return true
+    } catch (_error) {
+      // Some GIF hosts disallow cross-origin downloads. The validated remote URL
+      // remains sendable, but DMs use encrypted uploads whenever fetching works.
+    }
     setPendingFiles(previous => {
       if (previous.length >= MAX_PENDING_ATTACHMENTS) {
         toast.error(`You can send up to ${MAX_PENDING_ATTACHMENTS} attachments at once.`)
@@ -1655,6 +1667,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         size: 0
       }]
     })
+    return true
   }
 
   const retryFailedMessage = async (message) => {
