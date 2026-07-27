@@ -4,7 +4,7 @@
  * server, invite, category, and channel mutation.
  */
 import React, { useEffect, useRef, useState } from 'react'
-import { Camera, Gamepad2, GraduationCap, Hash, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Sparkles, Volume2, VolumeX, X, Users, ChevronLeft } from 'lucide-react'
+import { Camera, Gamepad2, GraduationCap, Hash, Search, Copy, Settings, MoreVertical, Trash2, Plus, LogIn, MicOff, MonitorUp, Sparkles, Volume2, VolumeX, X, Users, ChevronLeft, ChevronDown, Home, UserRound } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import toast from 'react-hot-toast'
 import { safeMediaUrl } from '../../lib/security'
@@ -22,6 +22,7 @@ export default function LeftSidebar(props) {
   const [sidebarSection, setSidebarSection] = useState(() => props.view === 'server' ? 'servers' : 'people')
   const [serverPanelView, setServerPanelView] = useState('list')
   const [isEditingStatus, setIsEditingStatus] = useState(false)
+  const [statusDrawerOpen, setStatusDrawerOpen] = useState(false)
   const [statusDraft, setStatusDraft] = useState(props.myBio || '')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false)
@@ -52,6 +53,7 @@ export default function LeftSidebar(props) {
   ]
   const currentStatus = props.userStatus || 'online'
   const currentStatusLabel = statusOptions.find(option => option.id === currentStatus)?.label || 'Online'
+  const isHomeLanding = props.view === 'home' && !props.activeDm && !props.activeServer
   const canManageServer = Boolean(props.canManageActiveServer)
   const getVoiceParticipantsForChannel = (channelId) => {
     if (props.activeVoiceSession?.channelId !== channelId) return []
@@ -60,6 +62,11 @@ export default function LeftSidebar(props) {
   const openProfileSettings = () => {
     props.setShowProfilePopout(false)
     props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: false })
+    props.setMobileMenuOpen(false)
+  }
+  const openApplicationSettings = () => {
+    props.setShowProfilePopout(false)
+    props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: true })
     props.setMobileMenuOpen(false)
   }
   const closeCreateModal = () => {
@@ -260,7 +267,10 @@ export default function LeftSidebar(props) {
   }
 
   useEffect(() => {
-    if (!props.showProfilePopout) return undefined
+    if (!props.showProfilePopout) {
+      setStatusDrawerOpen(false)
+      return undefined
+    }
 
     const handlePointerDown = (event) => {
       if (props.popoutRef.current?.contains(event.target)) return
@@ -337,22 +347,17 @@ export default function LeftSidebar(props) {
         />
       )}
 
-      <div className={`fixed inset-y-0 left-0 z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed left-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 flex transition-transform duration-300 md:relative md:inset-y-auto md:translate-x-0 ${props.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <aside
           className="app-left-panel ios-glass-sidebar flex h-full w-screen max-w-none shrink-0 flex-col md:m-3 md:mr-0 md:h-[calc(100%-1.5rem)] md:w-72 md:rounded-[2rem] lg:w-80"
           style={props.scopedChatStyle}
           aria-label="MessApp navigation"
         >
-          <header className="messapp-nav-header shrink-0 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] md:pt-4">
+          <header className="messapp-nav-header shrink-0 px-4 pb-3 pt-4">
             <div className="flex min-h-12 items-center gap-3">
-              <button
-                type="button"
-                onClick={props.handleHomeClick}
-                className="flex min-h-11 min-w-0 flex-1 items-center rounded-2xl px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
-                aria-label="Go to MessApp home"
-              >
-                <span className="block truncate font-display text-[1.35rem] font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">messapp</span>
-              </button>
+              <span className="block min-w-0 flex-1 truncate font-display text-[1.35rem] font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">
+                messapp
+              </span>
               <button
                 type="button"
                 onClick={() => props.setMobileMenuOpen(false)}
@@ -641,7 +646,7 @@ export default function LeftSidebar(props) {
           </div>
 
           {props.showProfilePopout && (
-            <div ref={props.popoutRef} className="premium-menu absolute bottom-[9rem] left-3 right-3 rounded-2xl overflow-hidden z-50 animate-profile-drawer flex flex-col origin-bottom">
+            <div ref={props.popoutRef} className="premium-menu absolute bottom-[8.5rem] left-3 right-3 rounded-2xl overflow-hidden z-50 animate-profile-drawer flex flex-col origin-bottom">
               <div className="w-full h-24 bg-cover bg-center transition-all duration-300 shrink-0 relative" style={getBannerStyle()}>
               </div>
               <div className="px-4 pb-4">
@@ -697,24 +702,56 @@ export default function LeftSidebar(props) {
                       <h3 className="font-bold text-[var(--text-main)] text-xl leading-tight truncate">{props.myUsername}</h3>
                       {props.myPronouns && <span className="text-[10px] text-gray-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 shrink-0">{props.myPronouns}</span>}
                     </div>
-                    <button onClick={() => { navigator.clipboard.writeText(props.myTag); toast.success('User ID copied!'); }} className="mt-1 inline-flex max-w-full items-center gap-2 rounded-lg text-sm text-gray-400 font-mono hover:text-[var(--theme-base)] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
-                      <span className="truncate">{props.myTag}</span><Copy size={14} className="shrink-0" />
+                    <p className="mt-1 truncate text-sm text-gray-400 font-mono">{props.myTag}</p>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <button type="button" onClick={openProfileSettings} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl bg-[var(--bg-base)] text-[11px] font-bold text-gray-400 transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]">
+                      <UserRound size={18} aria-hidden="true" />
+                      Profile
+                    </button>
+                    <button type="button" onClick={() => { navigator.clipboard.writeText(props.myTag); toast.success('User ID copied!') }} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl bg-[var(--bg-base)] text-[11px] font-bold text-gray-400 transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]">
+                      <Copy size={18} aria-hidden="true" />
+                      Copy ID
+                    </button>
+                    <button type="button" onClick={openApplicationSettings} className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl bg-[var(--bg-base)] text-[11px] font-bold text-gray-400 transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]">
+                      <Settings size={18} aria-hidden="true" />
+                      Settings
                     </button>
                   </div>
-                  <div className="mt-4 pt-3 border-t border-[var(--border-subtle)] grid grid-cols-3 gap-2">
-                    {statusOptions.map(option => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => props.setUserStatus?.(option.id)}
-                        className={`min-h-12 rounded-xl border px-2 py-2 text-[11px] font-bold leading-tight transition-all cursor-pointer ${currentStatus === option.id ? 'border-[var(--theme-base)] bg-[var(--theme-20)] text-[var(--text-main)]' : 'border-[var(--border-subtle)] bg-[var(--bg-base)] text-gray-400 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)]'}`}
-                      >
-                        <span className="mx-auto mb-1 flex h-5 w-5 items-center justify-center text-transparent">
-                          {renderStatusGlyph(option)}
-                        </span>
-                        {option.label}
-                      </button>
-                    ))}
+                  <div className="mt-3 overflow-hidden rounded-xl bg-[var(--bg-base)]">
+                    <button
+                      type="button"
+                      onClick={() => setStatusDrawerOpen(open => !open)}
+                      className="flex min-h-12 w-full items-center justify-between gap-3 px-3 text-sm font-bold text-[var(--text-main)]"
+                      aria-expanded={statusDrawerOpen}
+                    >
+                      <span>Status</span>
+                      <span className="flex items-center gap-2 text-xs text-gray-400">
+                        <span className="flex h-5 w-5 items-center justify-center">{renderStatusGlyph(statusOptions.find(option => option.id === currentStatus) || statusOptions[0])}</span>
+                        {currentStatusLabel}
+                        <ChevronDown size={15} className={`transition-transform ${statusDrawerOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                      </span>
+                    </button>
+                    {statusDrawerOpen && (
+                      <div className="grid grid-cols-3 gap-2 border-t border-[var(--border-subtle)] p-2 animate-fade-in" role="group" aria-label="Set presence status">
+                        {statusOptions.map(option => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => {
+                              props.setUserStatus?.(option.id)
+                              setStatusDrawerOpen(false)
+                            }}
+                            className={`grid h-11 place-items-center rounded-xl transition-colors ${currentStatus === option.id ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-base)]' : 'bg-[var(--bg-element)] hover:bg-[var(--bg-surface)]'}`}
+                            aria-label={option.label}
+                            title={option.label}
+                            aria-pressed={currentStatus === option.id}
+                          >
+                            {renderStatusGlyph(option)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -722,6 +759,16 @@ export default function LeftSidebar(props) {
           )}
 
           <nav className="mx-auto mb-2 flex shrink-0 items-center justify-center gap-1 rounded-2xl bg-[var(--surface-section)] p-1.5" aria-label="Browse MessApp">
+            <button
+              type="button"
+              onClick={props.handleHomeClick}
+              className={`grid h-11 w-11 place-items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isHomeLanding ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]'}`}
+              aria-label="Home"
+              title="Home"
+              aria-pressed={isHomeLanding}
+            >
+              <Home size={20} aria-hidden="true" />
+            </button>
             <button
               type="button"
               onClick={() => setSidebarSection('people')}
@@ -753,18 +800,18 @@ export default function LeftSidebar(props) {
             </button>
           </nav>
 
-          <div className="ios-sidebar-footer mx-3 mb-3 shrink-0 rounded-[1.5rem] p-2 relative z-50">
+          <div className="ios-sidebar-footer mx-3 mb-[calc(1rem+env(safe-area-inset-bottom))] shrink-0 rounded-[1.35rem] p-1.5 relative z-50">
             <div className="flex items-center justify-between">
-            <button data-profile-popout-trigger onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className={`flex items-center gap-3 min-w-0 p-2 rounded-xl transition-all text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2 ${props.showProfilePopout ? 'bg-[var(--bg-surface)] rounded-2xl' : 'hover:bg-[var(--bg-surface)]'}`}>
-              <StatusAvatar url={props.myAvatar} username={props.myUsername} status={currentStatus} className="w-11 h-11" />
+            <button data-profile-popout-trigger onClick={() => props.setShowProfilePopout(!props.showProfilePopout)} className={`flex items-center gap-2.5 min-w-0 p-1.5 rounded-xl transition-all text-left group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] flex-1 pr-2 ${props.showProfilePopout ? 'bg-[var(--bg-surface)]' : 'hover:bg-[var(--bg-surface)]'}`}>
+              <StatusAvatar url={props.myAvatar} username={props.myUsername} status={currentStatus} className="w-9 h-9" />
               <div className="flex flex-col truncate">
-                <span className="text-[15px] font-bold text-[var(--text-main)] truncate group-hover:text-[var(--color-primary)] transition-colors">{props.myUsername}</span>
-                <span className="text-[11px] text-gray-500 truncate">{currentStatusLabel}</span>
+                <span className="text-[13px] font-bold text-[var(--text-main)] truncate group-hover:text-[var(--color-primary)] transition-colors">{props.myUsername}</span>
+                <span className="text-[10px] text-gray-500 truncate">{currentStatusLabel}</span>
               </div>
             </button>
             
-            <button onClick={() => { props.setSettingsModalConfig({ isOpen: true, tab: 'account', showMenu: true }); props.setMobileMenuOpen(false); }} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Application Settings" title="App Settings">
-              <Settings size={18} aria-hidden="true" />
+            <button onClick={openApplicationSettings} className="p-2 text-gray-400 hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface)] transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] cursor-pointer" aria-label="Application Settings" title="App Settings">
+              <Settings size={17} aria-hidden="true" />
             </button>
             </div>
           </div>

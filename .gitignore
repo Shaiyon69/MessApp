@@ -31,6 +31,7 @@ keystore.properties
 key.properties
 google-services.json
 GoogleService-Info.plist
+*.p8
 *firebase*service*account*.json
 *service-account*.json
 credentials*.json

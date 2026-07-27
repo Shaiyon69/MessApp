@@ -8,6 +8,7 @@ import { importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAes
 import { audioSys } from '../lib/SoundEngine'
 import { safeHttpUrl } from '../lib/security'
 import { normalizeReactionEmoji } from '../lib/reactions'
+import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { reconcileAuthoritativeMessages, removeMessageById } from '../lib/messageReconciliation'
 import { isHydratedAttachment, normalizeCachedAttachment, serializeAttachmentForCache } from '../lib/attachmentCache'
 
@@ -167,6 +168,7 @@ const mergeMessageLists = (previous = [], incoming = [], field, targetId) => {
 const getAttachmentKind = (file) => {
   if (file?.type?.startsWith('image/')) return 'image'
   if (file?.type?.startsWith('video/')) return 'video'
+  if (file?.type?.startsWith('audio/')) return 'audio'
   return 'file'
 }
 const isReadableDecryptedContent = (value) => value !== null && value !== undefined && !String(value).includes('[Encrypted Message - Unreadable]')
@@ -175,13 +177,14 @@ const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
 const MAX_PENDING_ATTACHMENTS = 10
 const getPendingFileFingerprint = (file) => [file?.name, file?.size, file?.type, file?.lastModified].join(':')
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
-const ALLOWED_VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'])
+const ALLOWED_VIDEO_TYPES = new Set(['video/3gpp', 'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'])
+const ALLOWED_AUDIO_TYPES = new Set(['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/x-m4a'])
 const BLOCKED_FILE_TYPES = new Set(['image/svg+xml', 'text/html', 'application/xhtml+xml', 'application/javascript', 'text/javascript'])
 const BLOCKED_FILE_EXTENSIONS = /\.(?:svg|html?|xhtml|js|mjs)$/i
 const isNativeAndroidKeyboardImageCandidate = () =>
   Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
 
-const normalizeFileType = (value) => (value || 'application/octet-stream').toLowerCase()
+const normalizeFileType = (value) => (value || 'application/octet-stream').split(';', 1)[0].trim().toLowerCase()
 const getChatAttachmentObjectPath = (value) => {
   if (!value || /^(?:data:|blob:)/i.test(value)) return ''
   if (!/^https?:\/\//i.test(value)) return value
@@ -243,6 +246,12 @@ const validateAttachmentFile = (file, expectedKind = 'file') => {
   if (expectedKind === 'image' || kind === 'image') {
     if (!ALLOWED_IMAGE_TYPES.has(type)) throw new Error('Only JPG, PNG, GIF, WebP, and AVIF images can be sent.')
     if (file.size > MAX_IMAGE_SIZE_BYTES) throw new Error('Images must be 10 MB or smaller.')
+    return
+  }
+
+  if (expectedKind === 'audio' || kind === 'audio') {
+    if (!ALLOWED_AUDIO_TYPES.has(type)) throw new Error('Only AAC, M4A, MP3, OGG, WAV, and WebM audio can be sent.')
+    if (file.size > MAX_FILE_SIZE_BYTES) throw new Error('Voice messages must be 25 MB or smaller.')
     return
   }
 
@@ -593,15 +602,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
               legacy: decryptionKeys.slice(1)
             }, encryptedPayload)
             const originalType = normalizeFileType(attachment.file_type.replace('encrypted:', '') || encryptedPayload.type || 'application/octet-stream')
-            const safeType = ALLOWED_IMAGE_TYPES.has(originalType) || ALLOWED_VIDEO_TYPES.has(originalType)
+            const safeType = ALLOWED_IMAGE_TYPES.has(originalType) || ALLOWED_VIDEO_TYPES.has(originalType) || ALLOWED_AUDIO_TYPES.has(originalType)
               ? originalType
               : 'application/octet-stream'
-            const isVideo = ALLOWED_VIDEO_TYPES.has(safeType)
+            const shouldUseObjectUrl = ALLOWED_VIDEO_TYPES.has(safeType) || ALLOWED_AUDIO_TYPES.has(safeType)
             return {
               ...attachment,
               storage_file_url: attachment.file_url,
               storage_file_type: attachment.file_type,
-              file_url: isVideo
+              file_url: shouldUseObjectUrl
                 ? URL.createObjectURL(new Blob([decryptedBuffer], { type: safeType }))
                 : bufferToDataUrl(decryptedBuffer, safeType),
               file_type: safeType,
@@ -1068,6 +1077,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, (payload) => {
       if (payload.eventType === 'INSERT') {
+        if (payload.new?.profile_id !== session.user.id && isCurrentScope()) {
+          audioSys.playMessageReceived()
+          triggerInteractionFeedback('message-received')
+        }
         (async () => {
           const [
             { data: fullMsg },
@@ -1084,27 +1097,24 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             if (!isCurrentScope()) return
 
             const isAtBottom = isNearBottom()
+            const renderedMessage = decryptedMsg
 
             let didAppendMessage = false
             let replacedLocalEcho = false
             setMessages(prev => {
-              if (prev.some(msg => msg.id === decryptedMsg.id)) return prev; 
+              if (prev.some(msg => msg.id === renderedMessage.id)) return prev;
               const safePrev = prev.filter(m => m[field] === targetId);
-              if (decryptedMsg[field] !== targetId) return safePrev;
-              const matchingLocal = decryptedMsg.profile_id === session.user.id ? findMatchingLocalMessage(safePrev, decryptedMsg) : null
+              if (renderedMessage[field] !== targetId) return safePrev;
+              const matchingLocal = renderedMessage.profile_id === session.user.id ? findMatchingLocalMessage(safePrev, renderedMessage) : null
               const updated = matchingLocal
-                ? safePrev.map(msg => msg.id === matchingLocal.id ? { ...decryptedMsg, __delivery_status: 'sent' } : msg)
-                : [...safePrev, decryptedMsg]
+                ? safePrev.map(msg => msg.id === matchingLocal.id ? { ...renderedMessage, __delivery_status: 'sent' } : msg)
+                : [...safePrev, renderedMessage]
               didAppendMessage = !matchingLocal
               replacedLocalEcho = Boolean(matchingLocal)
               updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
               safeCacheSave(session.user.id, targetId, updated);
               return updated;
             })
-            
-            if (decryptedMsg.profile_id !== session.user.id) {
-              audioSys.playMessageReceived();
-            }
             
             if (replacedLocalEcho) {
               ownSendScrollRef.current = { targetId: null, active: false }
@@ -1297,7 +1307,20 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         if (targetId) safeCacheSave(session.user.id, targetId, updated)
         return updated
       })
-    } catch (_err) { toast.error('Failed to update reaction') }
+      if (hasReacted) {
+        audioSys.playReactionRemoved()
+        triggerInteractionFeedback('reaction-removed')
+      } else {
+        audioSys.playReactionAdded()
+        triggerInteractionFeedback('reaction-added')
+      }
+      return true
+    } catch (_err) {
+      audioSys.playActionError()
+      triggerInteractionFeedback('error')
+      toast.error('Failed to update reaction')
+      return false
+    }
   }
 
   const handleTyping = async () => {
@@ -1426,7 +1449,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const localAttachments = attachmentsToSend.map((item, index) => {
         const file = item.file
         const kind = item.type || getAttachmentKind(file)
-        const localUrl = item.gifUrl || (kind === 'image' || kind === 'video' ? URL.createObjectURL(file) : '')
+        const localUrl = item.gifUrl || (kind === 'image' || kind === 'video' || kind === 'audio' ? URL.createObjectURL(file) : '')
         if (localUrl.startsWith('blob:')) localAttachmentUrls.push(localUrl)
         return {
           id: `${localId}-attachment-${index}`,
@@ -1462,6 +1485,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
       ownSendScrollRef.current = { targetId, active: true }
       instantScrollToBottom('own-attachment-optimistic')
+      triggerInteractionFeedback('message-sending')
 
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
       const contentToSave = await buildEncryptedPayload(caption || '', targetId, sharedKeys, messages);
@@ -1504,6 +1528,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
       ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
+      triggerInteractionFeedback('message-sent')
 
       setReplyingTo(null);
       toast.success('Sent!', { id: toastId });
@@ -1511,6 +1536,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     } catch (err) {
       logMessageSendError('attachment-send', err, { targetId, attachmentCount: attachmentsToSend.length, captionLength: caption?.length || 0 })
       toast.error('Upload failed', { id: toastId });
+      audioSys.playActionError()
+      triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
       if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler })
       return false
@@ -1576,6 +1603,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
     ownSendScrollRef.current = { targetId, active: true }
     instantScrollToBottom('own-text-optimistic')
+    triggerInteractionFeedback('message-sending')
 
     try {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
@@ -1595,11 +1623,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
       ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
+      triggerInteractionFeedback('message-sent')
 
       setReplyingTo(null)
     } catch (err) {
       logMessageSendError('text-send', err, { targetId, textLength: text.length, reply_to_message_id: replyToMessageId })
       toast.error('Failed to send message.')
+      audioSys.playActionError()
+      triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
       failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
       setComposerSpoiler(sendAsSpoiler)
@@ -1676,6 +1707,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
     ownSendScrollRef.current = { targetId, active: true }
     instantScrollToBottom('own-retry-optimistic')
+    triggerInteractionFeedback('message-sending')
 
     try {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages)
@@ -1693,9 +1725,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
       ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
+      triggerInteractionFeedback('message-sent')
     } catch (err) {
       logMessageSendError('retry-send', err, { targetId, textLength: text.length, reply_to_message_id: replyToMessageId })
       toast.error('Failed to resend message.')
+      audioSys.playActionError()
+      triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
       failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
     }
@@ -1797,12 +1832,20 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           safeCacheSave(session.user.id, targetId, updated)
           return updated
         })
+        audioSys.playMessageDeleted()
+        triggerInteractionFeedback('message-deleted')
         toast.success(mode === 'moderate' ? 'Message removed by moderator' : 'Message completely deleted')
       } else {
         setLocalDeletedMessages(prev => [...prev, message.id])
+        audioSys.playMessageDeleted()
+        triggerInteractionFeedback('message-deleted')
         toast.success("Message hidden for you")
       }
-    } catch (_err) { toast.error("Failed to delete message") } 
+    } catch (_err) {
+      audioSys.playActionError()
+      triggerInteractionFeedback('error')
+      toast.error("Failed to delete message")
+    }
     finally { setInlineDeleteMessageId(null); setInlineDeleteStep('options') }
   }, [activeChannel?.id, activeDm?.dm_room_id, session.user.id, view])
 
@@ -1857,7 +1900,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     typingUsers,
     isUploading, selectedImage, setSelectedImage,
     showGifPicker, setShowGifPicker,
-    pendingFiles, setPendingFiles, removePendingFile, togglePendingFileSpoiler, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
+    pendingFiles, setPendingFiles, removePendingFile, togglePendingFileSpoiler, queuePendingAttachmentFromFile, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
     composerSpoiler, setComposerSpoiler,
     keyboardImageFallbackMessage,
     showLatestMessagesButton, scrollToLatestMessages,
