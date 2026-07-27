@@ -1,5 +1,6 @@
 const CACHE_NAME = 'messapp-v2';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
+const PUSH_DATA_KEYS = ['type', 'message_id', 'dm_room_id', 'server_id', 'channel_id', 'sender_id'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)));
@@ -15,6 +16,46 @@ self.addEventListener('activate', (e) => {
     })
   );
   self.clients.claim();
+});
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data?.json?.() || {};
+  } catch (_error) {
+    return;
+  }
+  const notification = payload.notification || {};
+  const data = payload.data || {};
+  if (!notification.title || !['dm_message', 'channel_message'].includes(data.type)) return;
+  event.waitUntil(self.registration.showNotification(notification.title, {
+    body: notification.body || 'New message',
+    icon: '/messapp-icon.svg',
+    badge: '/messapp-icon.svg',
+    tag: data.dm_room_id ? `dm-${data.dm_room_id}` : `channel-${data.channel_id}`,
+    renotify: true,
+    data
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existingClient = clients[0];
+    if (existingClient) {
+      await existingClient.focus();
+      existingClient.postMessage({ type: 'MESSAPP_PUSH_OPEN', data });
+      return;
+    }
+    const url = new URL('/', self.location.origin);
+    url.searchParams.set('push_type', data.type || '');
+    for (const key of PUSH_DATA_KEYS) {
+      if (key !== 'type' && data[key]) url.searchParams.set(key, String(data[key]));
+    }
+    await self.clients.openWindow(url.href);
+  })());
 });
 
 self.addEventListener('fetch', (e) => {

@@ -197,6 +197,27 @@ export class SoundEngine {
     this.playTone([{ frequency: 1400, duration: 0.06 }], 0.018);
   }
 
+  playReactionRemoved() {
+    if (!this.isMessageSoundEnabled()) return;
+    this.playTone([{ frequency: 980, duration: 0.055 }], 0.014);
+  }
+
+  playMessageDeleted() {
+    if (!this.isMessageSoundEnabled()) return;
+    this.playTone([
+      { frequency: 420, duration: 0.055 },
+      { frequency: 260, at: 0.055, duration: 0.09 }
+    ], 0.018);
+  }
+
+  playActionError() {
+    if (!this.isMessageSoundEnabled()) return;
+    this.playTone([
+      { frequency: 230, duration: 0.045 },
+      { frequency: 190, at: 0.05, duration: 0.065 }
+    ], 0.012);
+  }
+
   startRing(isOutgoing) {
     this.stopRing();
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;

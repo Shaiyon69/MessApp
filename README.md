@@ -105,7 +105,11 @@ Follow these steps to set up the development environment on your local machine.
    VITE_SUPABASE_URL=your_supabase_project_url
    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
    ```
-   *(Note: Never commit local `.env` files to version control.)*
+    *(Note: Never commit local `.env` files to version control.)*
+
+   Push delivery has additional Firebase/APNs and Supabase Edge Function setup.
+   Follow [PUSH_NOTIFICATIONS.md](./PUSH_NOTIFICATIONS.md) without committing
+   provider credentials or device tokens.
 
 4. **Start the Development Server:**
    ```bash

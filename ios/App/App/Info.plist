@@ -22,6 +22,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>MessApp uses the camera when you take a photo or record a video to send in a conversation.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MessApp uses the microphone for calls and voice messages you choose to record.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MessApp accesses photos and videos only when you choose media to send in a conversation.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

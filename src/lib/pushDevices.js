@@ -5,6 +5,7 @@
 import { Capacitor } from '@capacitor/core'
 import { supabase } from '../supabaseClient.js'
 import { debug } from './debug.js'
+import { publishPushNavigation } from './pushNavigation.js'
 
 export const PUSH_INSTALLATION_ID_KEY = 'messapp_push_installation_id'
 const PLATFORM_LABELS = new Set(['android', 'ios', 'web'])
@@ -41,39 +42,19 @@ export const upsertPushDevice = async ({
 }) => {
   if (!profileId || !pushToken || !PLATFORM_LABELS.has(platform)) throw new Error('Invalid push-device registration')
 
-  const { data: existing, error: readError } = await client
-    .from('push_devices')
-    .select('id, push_token, enabled')
-    .eq('profile_id', profileId)
-    .eq('installation_id', installationId)
-    .maybeSingle()
-  if (readError) throw readError
-
-  // Disable an older row owned by this user before activating a refreshed token.
-  const { error: duplicateError } = await client
-    .from('push_devices')
-    .update({ enabled: false })
-    .eq('profile_id', profileId)
-    .eq('push_token', pushToken)
-    .neq('installation_id', installationId)
-  if (duplicateError) throw duplicateError
-
-  const { error } = await client.from('push_devices').upsert({
-    profile_id: profileId,
-    installation_id: installationId,
-    platform,
-    push_token: pushToken,
-    enabled: true,
-    last_seen_at: new Date().toISOString()
-  }, { onConflict: 'profile_id,installation_id' })
+  const { data, error } = await client.rpc('register_push_device', {
+    target_installation_id: installationId,
+    target_platform: platform,
+    target_push_token: pushToken
+  })
   if (error) throw error
 
-  const refreshed = Boolean(existing && existing.push_token !== pushToken)
+  const refreshed = Boolean(data?.refreshed)
   debug.info(refreshed ? 'PUSH_TOKEN_REFRESH' : 'PUSH_REGISTER', {
     platform,
     installationKnown: true,
     tokenPresent: true,
-    reenabled: Boolean(existing && !existing.enabled)
+    reenabled: Boolean(data?.reenabled)
   })
   return { refreshed, platform, installationId }
 }
@@ -95,24 +76,42 @@ export const disableCurrentPushDevice = async ({
   return { disabled: true }
 }
 
-const decodeVapidKey = value => {
-  const padding = '='.repeat((4 - (value.length % 4)) % 4)
-  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
-  return Uint8Array.from(globalThis.atob(base64), character => character.charCodeAt(0))
+const getWebFirebaseConfig = () => {
+  const config = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
+  }
+  const missing = ['apiKey', 'projectId', 'messagingSenderId', 'appId'].filter(key => !config[key])
+  if (missing.length > 0) throw new Error(`Web push is missing Firebase configuration: ${missing.join(', ')}`)
+  return config
 }
 
 export const registerWebPushDevice = async ({ profileId, client = supabase, vapidPublicKey }) => {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Web push is not supported')
   if (!vapidPublicKey) throw new Error('Web push public key is not configured')
+  const [
+    { getApp, getApps, initializeApp },
+    { getMessaging, getToken, isSupported: isWebMessagingSupported }
+  ] = await Promise.all([
+    import('firebase/app'),
+    import('firebase/messaging')
+  ])
+  if (!await isWebMessagingSupported()) throw new Error('Firebase messaging is not supported in this browser')
   const registration = await navigator.serviceWorker.register('/sw.js')
-  const existing = await registration.pushManager.getSubscription()
-  const subscription = existing || await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: decodeVapidKey(vapidPublicKey)
+  await navigator.serviceWorker.ready
+  const app = getApps().length > 0 ? getApp() : initializeApp(getWebFirebaseConfig())
+  const pushToken = await getToken(getMessaging(app), {
+    vapidKey: vapidPublicKey,
+    serviceWorkerRegistration: registration
   })
+  if (!pushToken) throw new Error('Firebase did not issue a web push token')
   return upsertPushDevice({
     profileId,
-    pushToken: JSON.stringify(subscription.toJSON()),
+    pushToken,
     platform: 'web',
     client
   })
@@ -147,16 +146,55 @@ export const configureNativePushRegistration = async ({ profileId, requestPermis
   }
 
   await stopNativePushRegistration()
-  const registrationHandle = await PushNotifications.addListener('registration', token => {
-    upsertPushDevice({ profileId, pushToken: token.value, client })
-      .catch(error => reportPushError('native_token_upsert', error))
+  if (getPushPlatform() === 'android') {
+    await PushNotifications.createChannel({
+      id: 'messages',
+      name: 'Messages',
+      description: 'Direct messages and server activity',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    })
+  }
+  let resolveRegistration
+  let rejectRegistration
+  const registrationComplete = new Promise((resolve, reject) => {
+    resolveRegistration = resolve
+    rejectRegistration = reject
+  })
+  const registrationHandle = await PushNotifications.addListener('registration', async token => {
+    try {
+      const result = await upsertPushDevice({ profileId, pushToken: token.value, client })
+      resolveRegistration(result)
+    } catch (error) {
+      reportPushError('native_token_upsert', error)
+      rejectRegistration(error)
+    }
   })
   const errorHandle = await PushNotifications.addListener('registrationError', error => {
     reportPushError('native_registration', error)
+    rejectRegistration(new Error(error?.error || 'Native push registration failed'))
   })
-  nativeRegistrationOwner = { profileId, handles: [registrationHandle, errorHandle] }
+  const actionHandle = await PushNotifications.addListener('pushNotificationActionPerformed', action => {
+    publishPushNavigation(action?.notification?.data)
+  })
+  nativeRegistrationOwner = { profileId, handles: [registrationHandle, errorHandle, actionHandle] }
   await PushNotifications.register()
-  return { supported: true, permission: 'granted' }
+  let timeoutId
+  try {
+    const registration = await Promise.race([
+      registrationComplete,
+      new Promise((_resolve, reject) => {
+        timeoutId = globalThis.setTimeout(() => reject(new Error('Native push registration timed out')), 15_000)
+      })
+    ])
+    return { supported: true, permission: 'granted', registration }
+  } catch (error) {
+    await stopNativePushRegistration()
+    throw error
+  } finally {
+    if (timeoutId) globalThis.clearTimeout(timeoutId)
+  }
 }
 
 export const reportPushError = (operation, error) => {
