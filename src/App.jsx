@@ -16,6 +16,7 @@ import UpdatePassword from './components/UpdatePassword'
 import { applySurfaceTint, applyThemeMode, normalizeThemeMode } from './lib/theme'
 import { debug } from './lib/debug'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
+import { publishPushNavigation } from './lib/pushNavigation'
 
 let keyboardResizeConfigured = false
 
@@ -96,6 +97,15 @@ export default function App() {
     const handlePopState = () => setPath(window.location.pathname)
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined
+    const handleServiceWorkerMessage = event => {
+      if (event.data?.type === 'MESSAPP_PUSH_OPEN') publishPushNavigation(event.data.data)
+    }
+    navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
   }, [])
 
   useEffect(() => {

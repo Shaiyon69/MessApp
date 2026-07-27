@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Mic } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
@@ -22,7 +22,13 @@ const QUICK_REACTION_COUNT = QUICK_REACTION_EMOJIS.length
 const loadedMessageImageKeys = new Set()
 const MAX_LOADED_MESSAGE_IMAGE_KEYS = 1000
 const TOUCH_PORTAL_Z_INDEX = 2147483000
-const TOUCH_ACTION_STYLE = { pointerEvents: 'auto', touchAction: 'manipulation' }
+const TOUCH_ACTION_STYLE = {
+  pointerEvents: 'auto',
+  touchAction: 'manipulation',
+  userSelect: 'none',
+  WebkitUserSelect: 'none',
+  WebkitTapHighlightColor: 'transparent'
+}
 const ACTION_TOOLBAR_OWNER = Object.freeze({
   CLOSED: 'closed',
   DESKTOP_HOVER: 'desktop-hover',
@@ -114,6 +120,7 @@ const safeDownloadUrl = (value) => {
 const getAttachmentMediaType = (attachment) => String(attachment?.file_type || '').replace(/^encrypted:/i, '').toLowerCase()
 const isImageAttachment = (attachment) => getAttachmentMediaType(attachment).startsWith('image/')
 const isVideoAttachment = (attachment) => getAttachmentMediaType(attachment).startsWith('video/')
+const isAudioAttachment = (attachment) => getAttachmentMediaType(attachment).startsWith('audio/')
 
 const formatAttachmentSize = (value) => {
   if (typeof value === 'string' && value.trim()) return value
@@ -371,7 +378,7 @@ const MessageVideo = ({
 
 const resolveAttachmentUrl = (attachment) => {
   const value = attachment?.file_url || ''
-  return isImageAttachment(attachment)
+  return isImageAttachment(attachment) || isVideoAttachment(attachment) || isAudioAttachment(attachment)
     ? safeMediaUrl(value) || ''
     : safeDownloadUrl(value)
 }
@@ -719,7 +726,7 @@ export const MemoizedMessage = React.memo(({
   const calculateActionMenuPositionFromAnchor = useCallback((anchor, menuSize = {}) => {
     const isMobileViewport = window.innerWidth < 768
     return getTouchMessageActionPosition(anchor, {
-      width: menuSize.width || (hasImageAttachments ? 44 : isMobileViewport ? (isMe ? 244 : 200) : 210),
+      width: menuSize.width || (isMobileViewport ? (isMe ? 244 : 200) : hasImageAttachments ? 44 : 210),
       height: menuSize.height || (isMobileViewport ? 52 : 44)
     })
   }, [hasImageAttachments, isMe])
@@ -961,7 +968,11 @@ export const MemoizedMessage = React.memo(({
       action: reason, eventType: event.type, pointerType: event.pointerType, messageId: m.id
     })
     try {
-      await toggleReaction(m.id, normalizeReactionEmoji(emoji))
+      const normalizedEmoji = normalizeReactionEmoji(emoji)
+      const hasReacted = (m.message_reactions || []).some(reaction => (
+        reaction.profile_id === currentUserId && normalizeReactionEmoji(reaction.emoji) === normalizedEmoji
+      ))
+      await toggleReaction(m.id, normalizedEmoji, hasReacted)
     } finally {
       // Portal cleanup must run even when Supabase rejects the mutation; an
       // orphaned fixed layer would otherwise intercept the whole chat surface.
@@ -1406,6 +1417,7 @@ export const MemoizedMessage = React.memo(({
                         const attachmentSize = formatAttachmentSize(attachment.file_size || message.file_size)
                         const attachmentIsImage = isImageAttachment(attachment)
                         const attachmentIsVideo = isVideoAttachment(attachment)
+                        const attachmentIsAudio = isAudioAttachment(attachment)
                         const attachmentIsMedia = attachmentIsImage || attachmentIsVideo
                         const imageIndex = attachmentIsImage ? imageGallery.findIndex(item => item.id === attachment.id) : -1
                         if (imageIndex >= 4) return null
@@ -1540,6 +1552,26 @@ export const MemoizedMessage = React.memo(({
                                 })
                               }}
                             />
+                          ) : attachmentIsAudio ? (
+                            <div
+                              className="file-message-card flex min-w-[min(76vw,280px)] max-w-[min(86vw,390px)] items-center gap-3 rounded-2xl border px-3 py-3 text-[var(--chat-text,var(--text-main))]"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-[var(--theme-50)] bg-[var(--theme-20)] text-[var(--theme-base)]">
+                                <Mic size={20} aria-hidden="true" />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <span className="mb-1.5 block truncate text-xs font-bold">{attachment.file_name || 'Voice message'}</span>
+                                <audio
+                                  src={attachmentUrl}
+                                  controls
+                                  preload="metadata"
+                                  className="h-9 w-full min-w-0 max-w-[300px]"
+                                  aria-label={attachment.file_name || 'Voice message'}
+                                />
+                                {attachmentSize && <span className="mt-1 block text-[10px] font-semibold text-gray-500">{attachmentSize}</span>}
+                              </div>
+                            </div>
                           ) : (
                             <a
                               href={attachmentUrl}
@@ -1713,11 +1745,11 @@ export const MemoizedMessage = React.memo(({
                 data-reaction-toolbar
                 data-toolbar-owner={actionToolbarOwner}
                 data-message-id={m.id}
-                className={`message-action-toolbar transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
+                className={`message-action-toolbar select-none transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
                   ${isActionMenuOpen && reactionInputMode === 'touch' ? 'fixed' : `absolute top-1/2 -translate-y-1/2 ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}`}
                   ${inlineDeleteMessageId === m.id
                     ? 'flex-row h-auto w-auto min-w-max px-1.5 py-1 gap-1'
-                    : hasImageAttachments
+                    : hasImageAttachments && reactionInputMode !== 'touch'
                       ? 'flex-col h-auto w-11 py-1 gap-1'
                       : 'flex-row h-auto w-auto min-w-max px-1 py-1 gap-1'
                   }
