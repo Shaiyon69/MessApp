@@ -524,8 +524,8 @@ export default function LeftSidebar(props) {
                     </div>
                   ))}
                   {(props.serverCategories || []).map(category => (
-                    <section key={category.id} className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/45 p-1.5">
-                      <div className="relative flex min-h-9 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-2 pb-1.5">
+                    <section key={category.id} className="server-channel-group rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/45 p-1.5">
+                      <div className="server-channel-group-header relative flex min-h-9 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-2 pb-1.5">
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="min-w-0 truncate text-[10px] font-black uppercase tracking-[0.12em] text-gray-400">{category.name}</span>
                           <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[var(--bg-element)] px-1.5 font-mono text-[9px] font-bold text-gray-500" aria-label={`${(category.channels || []).length} channels`}>
@@ -577,7 +577,7 @@ export default function LeftSidebar(props) {
                                 </div>
                               )}
                               {voiceParticipants.length > 0 && (
-                                <div className="ml-5 space-y-1 border-l border-green-500/15 px-2 pb-2 pl-3 pt-1">
+                                <div className="voice-participant-list ml-5 space-y-1 border-l border-green-500/15 px-2 pb-2 pl-3 pt-1">
                                   {voiceParticipants.map(participant => {
                                     const hasStream = participant.cameraActive || participant.screenShareActive
                                     return (
@@ -758,7 +758,7 @@ export default function LeftSidebar(props) {
             </div>
           )}
 
-          <nav className="mx-auto mb-2 flex shrink-0 items-center justify-center gap-1 rounded-2xl bg-[var(--surface-section)] p-1.5" aria-label="Browse MessApp">
+          <nav className="sidebar-bottom-nav mx-auto mb-2 flex shrink-0 items-center justify-center gap-1 rounded-2xl bg-[var(--surface-section)] p-1.5" aria-label="Browse MessApp">
             <button
               type="button"
               onClick={props.handleHomeClick}
