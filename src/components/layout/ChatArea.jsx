@@ -557,11 +557,11 @@ useEffect(() => {
               </button>
             </div>
             <div className="grid grid-cols-4 gap-2">
-              <button type="button" onClick={() => props.setVoiceMuted?.(value => !value)} className={`voice-drawer-action ${props.voiceMuted ? 'is-danger' : ''}`} aria-label={props.voiceMuted ? 'Unmute' : 'Mute'}>
+              <button type="button" onClick={() => props.setVoiceMuted?.(value => !value)} className={`voice-drawer-action ${props.voiceMuted ? 'is-danger' : 'is-live'}`} aria-label={props.voiceMuted ? 'Unmute' : 'Mute'}>
                 {props.voiceMuted ? <MicOff size={20} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}
                 <span>{props.voiceMuted ? 'Unmute' : 'Mute'}</span>
               </button>
-              <button type="button" onClick={toggleVoiceDeafened} className={`voice-drawer-action ${props.voiceDeafened ? 'is-danger' : ''}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
+              <button type="button" onClick={toggleVoiceDeafened} className={`voice-drawer-action ${props.voiceDeafened ? 'is-danger' : 'is-live'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
                 {props.voiceDeafened ? <VolumeX size={20} aria-hidden="true" /> : <Volume2 size={20} aria-hidden="true" />}
                 <span>{props.voiceDeafened ? 'Listen' : 'Deafen'}</span>
               </button>
