@@ -1162,6 +1162,7 @@ export default function SfuScreenShare({
     localScreenRef.current = null
     setLocalScreenStream(null)
     stream?.getTracks().forEach(track => track.stop())
+    await stream?._messappStopNativeCapture?.()
     await unpublishStream(stream, 'screen')
     if (wasSharing) audioSys.playScreenShareStopped()
   }
@@ -1322,12 +1323,12 @@ export default function SfuScreenShare({
   const renderControls = (compact = false) => (
     <div className={`flex items-center gap-1.5 sm:gap-2 ${compact ? 'voice-mini-controls flex-wrap justify-between' : 'justify-center'}`}>
       {onToggleMute && (
-        <button type="button" onClick={onToggleMute} className={`voice-control-button rounded-full border p-2.5 sm:p-3 ${muted ? 'is-danger border-red-500/30 bg-red-500/15 text-red-300' : 'border-[var(--border-subtle)] bg-[var(--bg-element)] text-gray-300'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
+        <button type="button" onClick={onToggleMute} className={`voice-control-button rounded-full border p-2.5 sm:p-3 ${muted ? 'is-danger border-red-500/30 bg-red-500/15 text-red-300' : 'is-live border-green-400/30 bg-green-500/15 text-green-300'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOff size={compact ? 16 : 18} /> : <Mic size={compact ? 16 : 18} />}
         </button>
       )}
       {onToggleDeafen && (
-        <button type="button" onClick={onToggleDeafen} className={`voice-control-button rounded-full border p-2.5 sm:p-3 ${deafened ? 'is-danger border-red-500/30 bg-red-500/15 text-red-300' : 'border-[var(--border-subtle)] bg-[var(--bg-element)] text-gray-300'}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
+        <button type="button" onClick={onToggleDeafen} className={`voice-control-button rounded-full border p-2.5 sm:p-3 ${deafened ? 'is-danger border-red-500/30 bg-red-500/15 text-red-300' : 'is-live border-green-400/30 bg-green-500/15 text-green-300'}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
           {deafened ? <VolumeX size={compact ? 16 : 18} /> : <Volume2 size={compact ? 16 : 18} />}
         </button>
       )}
@@ -1344,12 +1345,12 @@ export default function SfuScreenShare({
           </button>
         </>
       ) : (
-        <button type="button" onClick={startCamera} disabled={status !== 'connected'} className="voice-control-button rounded-full border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2.5 text-gray-300 disabled:opacity-50 sm:p-3" aria-label="Turn camera on" title="Turn camera on">
+        <button type="button" onClick={startCamera} disabled={status !== 'connected'} className="voice-control-button is-danger rounded-full border border-red-500/30 bg-red-500/15 p-2.5 text-red-300 disabled:opacity-50 sm:p-3" aria-label="Turn camera on" title="Turn camera on">
           <Camera size={compact ? 16 : 18} />
         </button>
       )}
       {localScreenStream ? (
-        <button type="button" onClick={() => stopShare()} className="voice-control-button is-active rounded-full border border-green-400/30 bg-green-500/15 p-2.5 text-green-300 sm:p-3" aria-label="Stop sharing screen" title="Stop sharing screen">
+        <button type="button" onClick={() => stopShare()} className="voice-control-button is-sharing rounded-full border border-green-400/30 bg-green-500/15 p-2.5 text-green-300 sm:p-3" aria-label="Stop sharing screen" title="Stop sharing screen">
           <MonitorX size={compact ? 16 : 18} />
         </button>
       ) : (
@@ -1608,19 +1609,19 @@ export default function SfuScreenShare({
         <footer className="voice-stage-footer relative z-10 shrink-0 px-2 py-2.5 pb-[calc(0.65rem+env(safe-area-inset-bottom))] sm:py-3">
           <div className="voice-stage-mobile-dock mx-auto grid max-w-md grid-cols-6 gap-1 rounded-2xl p-1.5 md:hidden">
             {onToggleMute && (
-              <button type="button" onClick={onToggleMute} className={`voice-stage-mobile-action ${muted ? 'is-danger' : ''}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
+              <button type="button" onClick={onToggleMute} className={`voice-stage-mobile-action ${muted ? 'is-danger' : 'is-live'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
                 {muted ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
               </button>
             )}
             {onToggleDeafen && (
-              <button type="button" onClick={onToggleDeafen} className={`voice-stage-mobile-action ${deafened ? 'is-danger' : ''}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
+              <button type="button" onClick={onToggleDeafen} className={`voice-stage-mobile-action ${deafened ? 'is-danger' : 'is-live'}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} title={deafened ? 'Undeafen' : 'Deafen'}>
                 {deafened ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
               </button>
             )}
-            <button type="button" onClick={localScreenStream ? () => stopShare() : startShare} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localScreenStream ? 'is-active' : ''}`} aria-label={localScreenStream ? 'Stop sharing screen' : 'Share screen'} title={localScreenStream ? 'Stop sharing' : 'Share screen'}>
+            <button type="button" onClick={localScreenStream ? () => stopShare() : startShare} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localScreenStream ? 'is-sharing' : ''}`} aria-label={localScreenStream ? 'Stop sharing screen' : 'Share screen'} title={localScreenStream ? 'Stop sharing' : 'Share screen'}>
               {localScreenStream ? <MonitorX size={18} aria-hidden="true" /> : <MonitorUp size={18} aria-hidden="true" />}
             </button>
-            <button type="button" onClick={localCameraStream ? () => stopCamera() : startCamera} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localCameraStream ? 'is-active' : ''}`} aria-label={localCameraStream ? 'Turn camera off' : 'Turn camera on'} title={localCameraStream ? 'Camera off' : 'Camera on'}>
+            <button type="button" onClick={localCameraStream ? () => stopCamera() : startCamera} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localCameraStream ? 'is-active' : 'is-danger'}`} aria-label={localCameraStream ? 'Turn camera off' : 'Turn camera on'} title={localCameraStream ? 'Camera off' : 'Camera on'}>
               {localCameraStream ? <CameraOff size={18} aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
             </button>
             {localCameraStream && (

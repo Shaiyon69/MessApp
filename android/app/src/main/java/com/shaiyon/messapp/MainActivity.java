@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CallAudioPlugin.class);
         registerPlugin(KeyboardImagePlugin.class);
         registerPlugin(NativeMiniPlayerDragPlugin.class);
+        registerPlugin(ScreenCapturePlugin.class);
         super.onCreate(savedInstanceState);
     }
 
