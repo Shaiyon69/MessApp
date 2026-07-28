@@ -126,7 +126,7 @@ export default function CallOverlay({
         <div className="direct-call-mini-controls flex flex-wrap items-center justify-center gap-1 rounded-xl border border-white/[0.06] p-1 md:gap-1.5 md:rounded-2xl md:p-1.5">
           {!isTerminal && (
             <>
-              <button type="button" onClick={toggleMic} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${micEnabled ? 'text-white' : 'is-danger text-red-300'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
+              <button type="button" onClick={toggleMic} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${micEnabled ? 'is-live text-white' : 'is-danger text-red-300'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
                 {micEnabled ? <Mic size={15} /> : <MicOff size={15} />}
               </button>
 
@@ -222,25 +222,25 @@ export default function CallOverlay({
       </div>
 
       {!isTerminal && <div className="flex gap-2 md:gap-4 p-2 md:p-3 bg-black/40 border border-white/10 rounded-full backdrop-blur-3xl shadow-2xl mt-auto z-50 max-w-full">
-        <button onClick={toggleMic} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${micEnabled ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`}>
+        <button onClick={toggleMic} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${micEnabled ? 'is-live' : 'is-danger'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
           {micEnabled ? <Mic size={24} /> : <MicOff size={24} />}
         </button>
         
-        <button onClick={toggleVideo} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${videoEnabled ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`}>
+        <button onClick={toggleVideo} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${videoEnabled ? 'is-active' : 'is-danger'}`} aria-label={videoEnabled ? 'Turn video off' : 'Turn video on'} title={videoEnabled ? 'Turn video off' : 'Turn video on'}>
           {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
         </button>
 
         {videoEnabled && (
-          <button onClick={switchCamera} disabled={isSwitchingCamera} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20 disabled:cursor-wait disabled:opacity-50 md:h-14 md:w-14" aria-label="Switch camera" title="Switch camera">
+          <button onClick={switchCamera} disabled={isSwitchingCamera} className="premium-call-control flex h-12 w-12 items-center justify-center rounded-full transition-all disabled:cursor-wait disabled:opacity-50 md:h-14 md:w-14" aria-label="Switch camera" title="Switch camera">
             <SwitchCamera size={24} />
           </button>
         )}
 
-        <button onClick={toggleNoiseCancellation} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'bg-red-500/20 text-red-500 border border-red-500/30'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
+        <button onClick={toggleNoiseCancellation} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'is-active' : 'is-danger'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
           <Activity size={24} />
         </button>
 
-        <button onClick={toggleSpeaker} className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${speakerEnabled ? 'border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'bg-white/10 hover:bg-white/20 text-white'}`} title="Speaker">
+        <button onClick={toggleSpeaker} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${speakerEnabled ? 'is-active' : ''}`} aria-pressed={speakerEnabled} aria-label={speakerEnabled ? 'Turn speaker off' : 'Turn speaker on'} title={speakerEnabled ? 'Turn speaker off' : 'Turn speaker on'}>
           <Volume2 size={24} />
         </button>
         
