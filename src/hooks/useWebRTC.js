@@ -4,15 +4,15 @@
  * must stop when a call ends or the active DM changes.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
 import { supabase } from '../supabaseClient';
 import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../lib/voiceAudioProcessing';
-import { acquireAlternateCamera } from '../lib/mediaDevices';
+import { acquireAlternateCamera, CallAudio } from '../lib/mediaDevices';
+import { getIceServers } from '../lib/iceServers';
 
-const CallAudio = registerPlugin('CallAudio');
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
 const RINGING_STATES = new Set(['incoming', 'outgoing', 'ringing']);
 const ACTIVE_MEDIA_STATES = new Set(['connecting', 'connected']);
@@ -59,6 +59,8 @@ export function useWebRTC(session, activeDm) {
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [cameraFacingMode, setCameraFacingMode] = useState('user');
+  const [screenShareActive, setScreenShareActive] = useState(false);
+  const [remoteScreenSharing, setRemoteScreenSharing] = useState(false);
 
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -66,6 +68,12 @@ export function useWebRTC(session, activeDm) {
   const remoteAudioRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const remoteScreenStreamRef = useRef(null);
+  const localScreenVideoRef = useRef(null);
+  const remoteScreenVideoRef = useRef(null);
+  const pendingScreenTrackIdRef = useRef(null);
+  const pendingIceCandidatesRef = useRef([]);
   const callChannelRef = useRef(null);
   const activeCallTargetRef = useRef(null);
   const incomingVideoRef = useRef(false);
@@ -140,6 +148,8 @@ export function useWebRTC(session, activeDm) {
     const remoteAudio = remoteAudioRef.current;
     const remoteVideo = remoteVideoRef.current;
     const localVideo = localVideoRef.current;
+    const remoteScreenVideo = remoteScreenVideoRef.current;
+    const localScreenVideo = localScreenVideoRef.current;
 
     if (remoteAudio && remoteStreamRef.current) {
       if (remoteAudio.srcObject !== remoteStreamRef.current) {
@@ -164,6 +174,14 @@ export function useWebRTC(session, activeDm) {
       localVideo.srcObject = localStreamRef.current;
       localVideo.play().catch(() => {});
     }
+    if (remoteScreenVideo && remoteScreenStreamRef.current && remoteScreenVideo.srcObject !== remoteScreenStreamRef.current) {
+      remoteScreenVideo.srcObject = remoteScreenStreamRef.current;
+      remoteScreenVideo.play().catch(() => {});
+    }
+    if (localScreenVideo && screenStreamRef.current && localScreenVideo.srcObject !== screenStreamRef.current) {
+      localScreenVideo.srcObject = screenStreamRef.current;
+      localScreenVideo.play().catch(() => {});
+    }
   };
 
   useEffect(() => {
@@ -185,15 +203,53 @@ export function useWebRTC(session, activeDm) {
     };
   }, []);
 
-  const createPeerConnection = () => {
+  // ICE candidates routinely arrive before the matching remote description is
+  // applied (the answerer gathers as soon as it answers, while the caller is
+  // still awaiting setRemoteDescription). addIceCandidate throws in that state,
+  // so candidates are queued and flushed once a remote description exists —
+  // dropping them silently is what left calls stuck in "connecting".
+  const flushPendingIceCandidates = async () => {
+    const pc = pcRef.current;
+    if (!pc?.remoteDescription || !pendingIceCandidatesRef.current.length) return;
+    const queued = pendingIceCandidatesRef.current;
+    pendingIceCandidatesRef.current = [];
+    for (const candidate of queued) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_err) {}
+    }
+  };
+
+  const acceptRemoteIceCandidate = async (candidate) => {
+    if (!candidate) return;
+    const pc = pcRef.current;
+    if (!pc || !pc.remoteDescription) {
+      pendingIceCandidatesRef.current.push(candidate);
+      return;
+    }
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_err) {}
+  };
+
+  const createPeerConnection = async () => {
     const lifecycleId = callLifecycleIdRef.current;
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const iceServers = await getIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
     pc.onicecandidate = (e) => {
       if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
       if (e.candidate) sendSignal(activeCallTargetRef.current, 'ice-candidate', { candidate: e.candidate });
     };
     pc.ontrack = (e) => {
       if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
+      if (e.track.kind === 'video' && pendingScreenTrackIdRef.current && e.track.id === pendingScreenTrackIdRef.current) {
+        pendingScreenTrackIdRef.current = null;
+        remoteScreenStreamRef.current = e.streams?.[0] || new MediaStream([e.track]);
+        setRemoteScreenSharing(true);
+        e.track.onended = () => {
+          if (lifecycleId !== callLifecycleIdRef.current) return;
+          remoteScreenStreamRef.current = null;
+          setRemoteScreenSharing(false);
+        };
+        bindMediaElements();
+        return;
+      }
       const stream = e.streams?.[0] || remoteStreamRef.current || new MediaStream();
       if (!remoteStreamRef.current) remoteStreamRef.current = stream;
       if (!remoteStreamRef.current.getTracks().find(t => t.id === e.track.id)) {
@@ -256,16 +312,22 @@ export function useWebRTC(session, activeDm) {
         setVideoEnabled(Boolean(payload.isVideo));
         
         if (!pcRef.current) {
-          pcRef.current = createPeerConnection();
+          pcRef.current = await createPeerConnection();
+          if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) {
+            closePeerConnection();
+            return;
+          }
         }
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.offer));
         if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
+        await flushPendingIceCandidates();
       }
 
       if (payload.type === 'answer') {
         if (endingCallRef.current) return;
         if (pcRef.current && pcRef.current.signalingState !== 'stable') {
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+          await flushPendingIceCandidates();
           clearOutgoingTimeout();
           setCallDirection('connecting');
         }
@@ -273,9 +335,7 @@ export function useWebRTC(session, activeDm) {
 
       if (payload.type === 'ice-candidate') {
         if (endingCallRef.current) return;
-        if (pcRef.current && pcRef.current.remoteDescription) {
-          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch (_err) {}
-        }
+        await acceptRemoteIceCandidate(payload.candidate);
       }
 
       if (payload.type === 'end') {
@@ -329,7 +389,26 @@ export function useWebRTC(session, activeDm) {
         if (endingCallRef.current || !callActiveRef.current) return;
         if (pcRef.current && pcRef.current.signalingState !== 'stable') {
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+          await flushPendingIceCandidates();
         }
+      }
+
+      if (payload.type === 'screen-share-offer' && !endingCallRef.current && callActiveRef.current) {
+        handleScreenShareOffer(payload.offer, payload.trackId);
+      }
+
+      if (payload.type === 'screen-share-answer') {
+        if (endingCallRef.current || !callActiveRef.current) return;
+        if (pcRef.current && pcRef.current.signalingState !== 'stable') {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+          await flushPendingIceCandidates();
+        }
+      }
+
+      if (payload.type === 'screen-share-ended') {
+        remoteScreenStreamRef.current = null;
+        setRemoteScreenSharing(false);
+        detachMediaElement(remoteScreenVideoRef);
       }
     });
 
@@ -349,6 +428,13 @@ export function useWebRTC(session, activeDm) {
         remoteStreamRef.current.getTracks().forEach(track => track.stop());
         remoteStreamRef.current = null;
       }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
+        screenStreamRef.current = null;
+      }
+      remoteScreenStreamRef.current = null;
+      pendingScreenTrackIdRef.current = null;
+      pendingIceCandidatesRef.current = [];
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
@@ -486,7 +572,13 @@ export function useWebRTC(session, activeDm) {
       }
       bindMediaElements();
 
-      pcRef.current = createPeerConnection();
+      pcRef.current = await createPeerConnection();
+      if (!isCurrentCallLifecycle(lifecycleId)) {
+        closePeerConnection();
+        stopStream(localStreamRef);
+        restoreNativeCallAudio();
+        return;
+      }
       stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
       const offer = await pcRef.current.createOffer();
@@ -600,6 +692,8 @@ export function useWebRTC(session, activeDm) {
     setSpeakerEnabled(false);
     setIsSwitchingCamera(false);
     setCameraFacingMode('user');
+    setScreenShareActive(false);
+    setRemoteScreenSharing(false);
 
     if (alreadyEnding) {
       logCallEndDebug('cleanup skipped after hard UI close', { finalState });
@@ -615,10 +709,16 @@ export function useWebRTC(session, activeDm) {
     closePeerConnection();
     stopStream(localStreamRef);
     stopStream(remoteStreamRef);
+    stopStream(screenStreamRef);
+    remoteScreenStreamRef.current = null;
+    pendingScreenTrackIdRef.current = null;
+    pendingIceCandidatesRef.current = [];
 
     detachMediaElement(localVideoRef);
     detachMediaElement(remoteVideoRef);
     detachMediaElement(remoteAudioRef);
+    detachMediaElement(localScreenVideoRef);
+    detachMediaElement(remoteScreenVideoRef);
 
     restoreNativeCallAudio();
 
@@ -739,6 +839,7 @@ export function useWebRTC(session, activeDm) {
     const lifecycleId = callLifecycleIdRef.current;
     await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
     if (!isCurrentCallLifecycle(lifecycleId)) return;
+    await flushPendingIceCandidates();
     const answer = await pcRef.current.createAnswer();
     if (!isCurrentCallLifecycle(lifecycleId)) return;
     await pcRef.current.setLocalDescription(answer);
@@ -783,6 +884,88 @@ export function useWebRTC(session, activeDm) {
   const declineVideoRequest = () => {
     setPendingVideoRequest(false);
     sendSignal(activeCallTargetRef.current, 'video-request-declined', { caller: { username: myUsername } });
+  };
+
+  const handleScreenShareOffer = async (offer, trackId) => {
+    if (!pcRef.current) return;
+    const lifecycleId = callLifecycleIdRef.current;
+    pendingScreenTrackIdRef.current = trackId || null;
+    try {
+      await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+      if (!isCurrentCallLifecycle(lifecycleId)) return;
+      await flushPendingIceCandidates();
+      const answer = await pcRef.current.createAnswer();
+      if (!isCurrentCallLifecycle(lifecycleId)) return;
+      await pcRef.current.setLocalDescription(answer);
+      if (!isCurrentCallLifecycle(lifecycleId)) return;
+      sendSignal(activeCallTargetRef.current, 'screen-share-answer', { answer });
+    } catch (e) {
+      console.error(serializeCallError(e));
+    }
+  };
+
+  const startScreenShare = async () => {
+    if (screenShareActive || !pcRef.current) return;
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      toast.error('Screen sharing is not supported on this device.');
+      return;
+    }
+    const lifecycleId = callLifecycleIdRef.current;
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      if (!isCurrentCallLifecycle(lifecycleId) || !pcRef.current) {
+        screenStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      const screenTrack = screenStream.getVideoTracks()[0];
+      screenStreamRef.current = screenStream;
+      screenTrack.onended = () => { void stopScreenShare(); };
+
+      pcRef.current.addTrack(screenTrack, screenStream);
+      const offer = await pcRef.current.createOffer();
+      if (!isCurrentCallLifecycle(lifecycleId)) return;
+      await pcRef.current.setLocalDescription(offer);
+      if (!isCurrentCallLifecycle(lifecycleId)) return;
+
+      sendSignal(activeCallTargetRef.current, 'screen-share-offer', { offer, trackId: screenTrack.id });
+      setScreenShareActive(true);
+      bindMediaElements();
+    } catch (err) {
+      if (err?.name !== 'NotAllowedError') {
+        debug.error('WEBRTC_ERROR', { operation: 'start-screen-share', error: serializeCallError(err) });
+        toast.error('Could not start screen sharing.');
+      }
+    }
+  };
+
+  const stopScreenShare = async () => {
+    const screenStream = screenStreamRef.current;
+    if (!screenStream) return;
+    const screenTrackId = screenStream.getVideoTracks()[0]?.id;
+    const sender = pcRef.current?.getSenders().find(s => s.track?.id === screenTrackId);
+
+    screenStreamRef.current = null;
+    screenStream.getTracks().forEach(track => {
+      track.onended = null;
+      try { track.stop(); } catch (_err) {}
+    });
+    detachMediaElement(localScreenVideoRef);
+    setScreenShareActive(false);
+    sendSignal(activeCallTargetRef.current, 'screen-share-ended', {});
+
+    if (sender && pcRef.current) {
+      try {
+        pcRef.current.removeTrack(sender);
+        const offer = await pcRef.current.createOffer();
+        await pcRef.current.setLocalDescription(offer);
+        sendSignal(activeCallTargetRef.current, 'screen-share-offer', { offer, trackId: null });
+      } catch (_err) {}
+    }
+  };
+
+  const toggleScreenShare = () => {
+    if (screenShareActive) void stopScreenShare();
+    else void startScreenShare();
   };
 
   const toggleNoiseCancellation = async () => {
@@ -836,8 +1019,9 @@ export function useWebRTC(session, activeDm) {
   return {
     callActive, callMinimized, setCallMinimized, callDirection, remoteCaller,
     ncEnabled, micEnabled, videoEnabled, remoteVideoEnabled, pendingVideoRequest, speakerEnabled, isSwitchingCamera, cameraFacingMode,
-    localVideoRef, remoteVideoRef, remoteAudioRef,
+    screenShareActive, remoteScreenSharing,
+    localVideoRef, remoteVideoRef, remoteAudioRef, localScreenVideoRef, remoteScreenVideoRef,
     startCall, acceptCall, endCallNetwork, toggleMic, toggleVideo, switchCamera, toggleNoiseCancellation, toggleSpeaker,
-    acceptVideoRequest, declineVideoRequest
+    acceptVideoRequest, declineVideoRequest, toggleScreenShare
   };
 }
