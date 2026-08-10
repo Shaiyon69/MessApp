@@ -88,6 +88,11 @@ export default function ChatArea(props) {
   const isInitialPositionReady = positionedChatKey === activeChatKey
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
   const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
+  // Occupancy comes from server-wide presence so an unjoined channel still
+  // shows who is already waiting inside it.
+  const voiceChannelParticipants = isVoiceChannel
+    ? (props.getVoiceParticipantsForChannel?.(props.activeChannel?.id) || [])
+    : []
   const messageListStyle = props.isCallMinimized
     ? { paddingBottom: 'calc(9.5rem + env(safe-area-inset-bottom, 0px))' }
     : undefined
@@ -593,9 +598,32 @@ useEffect(() => {
                       <div className="min-w-0">
                         <p className="text-xs font-black uppercase tracking-widest text-gray-500">Voice channel</p>
                         <h3 className="truncate text-2xl font-black text-[var(--text-main)]">{props.activeChannel.name}</h3>
-                        <p className={`mt-1 text-sm font-bold ${isActiveVoiceSession ? 'text-green-300' : 'text-gray-400'}`}>
-                          {isActiveVoiceSession ? `Connected - ${props.voiceSessionState?.status || 'connecting'}` : 'Not connected'}
+                        <p className={`mt-1 text-sm font-bold ${isActiveVoiceSession ? 'text-green-300' : voiceChannelParticipants.length > 0 ? 'text-[var(--theme-base)]' : 'text-gray-400'}`}>
+                          {isActiveVoiceSession
+                            ? `Connected - ${props.voiceSessionState?.status || 'connecting'}`
+                            : voiceChannelParticipants.length > 0
+                              ? `${voiceChannelParticipants.length} waiting inside`
+                              : 'Nobody here yet'}
                         </p>
+                        {!isActiveVoiceSession && voiceChannelParticipants.length > 0 && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="flex -space-x-2">
+                              {voiceChannelParticipants.slice(0, 5).map(participant => (
+                                <StatusAvatar
+                                  key={participant.id}
+                                  url={participant.avatarUrl}
+                                  username={participant.displayName}
+                                  showStatus={false}
+                                  className="h-7 w-7 rounded-full ring-2 ring-[var(--bg-surface)]"
+                                />
+                              ))}
+                            </div>
+                            <span className="truncate text-xs font-bold text-gray-400">
+                              {voiceChannelParticipants.slice(0, 2).map(participant => participant.displayName).join(', ')}
+                              {voiceChannelParticipants.length > 2 ? ` +${voiceChannelParticipants.length - 2} more` : ''}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -603,11 +631,11 @@ useEffect(() => {
                       {!isActiveVoiceSession ? (
                         <button
                           type="button"
-                          onClick={() => props.selectChannel?.(props.activeChannel)}
+                          onClick={() => (props.joinVoiceChannel || props.selectChannel)?.(props.activeChannel)}
                           className="inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 text-sm font-black text-[var(--chat-control-text)]"
                         >
                           <Phone size={18} aria-hidden="true" />
-                          Join voice
+                          {voiceChannelParticipants.length > 0 ? 'Join them' : 'Join voice'}
                         </button>
                       ) : (
                         <>
@@ -639,7 +667,7 @@ useEffect(() => {
                   <div className="mt-6 grid gap-3 md:grid-cols-3">
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
                       <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Participants</p>
-                      <p className="mt-2 text-2xl font-black text-[var(--text-main)]">{isActiveVoiceSession ? 1 + (props.voiceSessionState?.remoteCount || 0) : 0}</p>
+                      <p className="mt-2 text-2xl font-black text-[var(--text-main)]">{isActiveVoiceSession ? 1 + (props.voiceSessionState?.remoteCount || 0) : voiceChannelParticipants.length}</p>
                     </div>
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
                       <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Screen share</p>
@@ -648,9 +676,9 @@ useEffect(() => {
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
                       <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">You</p>
                       <div className="mt-3 flex items-center gap-3">
-                        <StatusAvatar url={props.session.user.user_metadata?.avatar_url} username={props.session.user.user_metadata?.username || props.session.user.email} status="online" className="h-9 w-9" />
+                        <StatusAvatar url={props.myAvatar || props.session.user.user_metadata?.avatar_url} username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email} status="online" className="h-9 w-9" />
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-[var(--text-main)]">{props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0]}</p>
+                          <p className="truncate text-sm font-bold text-[var(--text-main)]">{props.myUsername || props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0]}</p>
                           <p className="text-xs text-gray-500">{props.voiceMuted ? 'Muted' : 'Mic ready'} / {props.voiceDeafened ? 'Deafened' : 'Listening'}</p>
                         </div>
                       </div>

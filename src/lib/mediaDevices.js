@@ -1,6 +1,9 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
-const CallAudio = registerPlugin('CallAudio')
+// Registered once here and shared with useWebRTC.js. registerPlugin warns and
+// returns the existing proxy when a name is registered twice, so a second
+// module-scope registration still works but logs a misleading console error.
+export const CallAudio = registerPlugin('CallAudio')
 const GRANTED_PERMISSION_STATES = new Set(['granted', 'limited'])
 
 const createPermissionError = (message) => {
