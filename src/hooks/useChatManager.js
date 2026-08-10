@@ -11,6 +11,7 @@ import { normalizeReactionEmoji } from '../lib/reactions'
 import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { reconcileAuthoritativeMessages, removeMessageById } from '../lib/messageReconciliation'
 import { isHydratedAttachment, normalizeCachedAttachment, serializeAttachmentForCache } from '../lib/attachmentCache'
+import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
 
 const KeyboardImage =
   window.__messappKeyboardImagePlugin ||
@@ -314,7 +315,9 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const seenReceiptWriteRef = useRef('')
   const ownSendScrollRef = useRef({ targetId: null, active: false })
   const activeConversationScopeRef = useRef('')
-  
+  const realtimeGenerationRef = useRef(0)
+  const realtimeRetryTimerRef = useRef(null)
+
   const sharedKeysCacheRef = useRef({})
 
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0]
@@ -1046,6 +1049,33 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeysForTarget, decryptMessageList, instantScrollToBottom])
 
+  // Backfills messages missed while the Realtime channel was down (reconnect,
+  // tab/app foregrounded after being backgrounded). Merges without forcing a
+  // scroll jump, since the user may be reading scrollback when this fires.
+  const catchUpMissedMessages = useCallback(async () => {
+    const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+    if (!targetId) return
+    const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const expectedScope = getConversationScopeKey(session.user.id, view, targetId)
+    const isCurrentScope = () => activeConversationScopeRef.current === expectedScope
+
+    const { data } = await supabase.from('messages').select(MESSAGE_SELECT).eq(field, targetId).order('created_at', { ascending: false }).limit(INITIAL_MESSAGE_LIMIT)
+    if (!isCurrentScope() || !data) return
+
+    const chronoData = data.reverse()
+    const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', chronoData)
+    const decryptedData = await decryptMessageList(chronoData, sharedKeys)
+    if (!isCurrentScope()) return
+
+    const wasNearBottom = isNearBottom()
+    setMessages(prev => {
+      const updated = mergeMessageLists(prev, decryptedData, field, targetId)
+      safeCacheSave(session.user.id, targetId, updated)
+      return updated
+    })
+    if (wasNearBottom) smoothScrollToBottom('realtime-catch-up')
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, session.user.id, getSharedKeysForTarget, decryptMessageList, isNearBottom, smoothScrollToBottom])
+
   useEffect(() => {
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
     if (!targetId) { setMessages([]); setTypingUsers([]); setMessagesLoading(false); setInitialMessagesLoaded(false); return; }
@@ -1065,7 +1095,82 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     fetchCurrentMessages() 
     fetchPeerReadAt(targetId)
 
-    const roomChannel = supabase.channel(`room:${targetId}`)
+    const roomChannel = supabase.channel(`room:${targetId}`, { config: { broadcast: { self: false } } })
+    const handledMessageIds = new Set()
+
+    // Fetches/decrypts/merges one message by id. Callable from both the
+    // postgres_changes INSERT handler (authoritative, can lag) and the
+    // broadcast fast-path below (near-instant, mirrors how typing already
+    // delivers reliably) — postgres_changes realtime delivery on this table
+    // has been observed to lag or silently drop, so broadcast carries the
+    // primary "message just arrived" signal and postgres_changes is a
+    // backstop. handledMessageIds prevents double sound/fetch when both fire.
+    const hydrateAndAppendMessage = async (messageId, { senderId } = {}) => {
+      if (!isCurrentScope() || !messageId || handledMessageIds.has(messageId)) return
+      handledMessageIds.add(messageId)
+      if (senderId !== undefined && senderId !== session.user.id) {
+        audioSys.playMessageReceived()
+        triggerInteractionFeedback('message-received')
+      }
+      const [
+        { data: fullMsg, error: fullMsgError },
+        { data: attachments, error: attachmentsError }
+      ] = await Promise.all([
+        supabase.from('messages').select(MESSAGE_SELECT_BASE).eq('id', messageId).single(),
+        supabase.from('message_attachments').select('*').eq('message_id', messageId)
+      ])
+      if (!isCurrentScope()) return
+      if (!fullMsg) {
+        console.error('[REALTIME_MESSAGE_FETCH_FAILED]', { messageId, targetId, code: fullMsgError?.code, message: fullMsgError?.message })
+        handledMessageIds.delete(messageId)
+        return
+      }
+      if (attachmentsError) {
+        console.error('[REALTIME_ATTACHMENTS_FETCH_FAILED]', { messageId, targetId, code: attachmentsError?.code, message: attachmentsError?.message })
+      }
+
+      const messageWithAttachments = { ...fullMsg, message_attachments: attachments || [] }
+      const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [messageWithAttachments]);
+      const [decryptedMsg] = await decryptMessageList([messageWithAttachments], sharedKeys);
+      if (!isCurrentScope()) return
+
+      const isAtBottom = isNearBottom()
+      const renderedMessage = decryptedMsg
+
+      let didAppendMessage = false
+      let replacedLocalEcho = false
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === renderedMessage.id)) return prev;
+        const safePrev = prev.filter(m => m[field] === targetId);
+        if (renderedMessage[field] !== targetId) return safePrev;
+        const matchingLocal = renderedMessage.profile_id === session.user.id ? findMatchingLocalMessage(safePrev, renderedMessage) : null
+        const updated = matchingLocal
+          ? safePrev.map(msg => msg.id === matchingLocal.id ? { ...renderedMessage, __delivery_status: 'sent' } : msg)
+          : [...safePrev, renderedMessage]
+        didAppendMessage = !matchingLocal
+        replacedLocalEcho = Boolean(matchingLocal)
+        updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        safeCacheSave(session.user.id, targetId, updated);
+        return updated;
+      })
+
+      if (replacedLocalEcho) {
+        ownSendScrollRef.current = { targetId: null, active: false }
+        if (isDebugEnabled('messappDebugScroll')) {
+          console.debug('[SCROLL_DEBUG]', { handler: 'realtime-insert', reason: 'replaced-local-echo', messageId: decryptedMsg.id, targetId })
+        }
+      } else if (didAppendMessage && (isAtBottom || decryptedMsg.profile_id === session.user.id)) {
+        const reason = decryptedMsg.profile_id === session.user.id ? 'own-realtime-insert' : 'incoming-at-bottom'
+        if (decryptedMsg.profile_id === session.user.id && ownSendScrollRef.current.active) {
+          instantScrollToBottom(reason)
+          ownSendScrollRef.current = { targetId: null, active: false }
+        } else {
+          smoothScrollToBottom(reason)
+        }
+      } else if (didAppendMessage) {
+        setShowLatestMessagesButton(true);
+      }
+    }
     
     roomChannel.on('presence', { event: 'sync' }, () => {
       if (!isCurrentScope()) return
@@ -1075,67 +1180,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       setTypingUsers(uniqueTypers)
     })
 
+    roomChannel.on('broadcast', { event: 'new-message' }, ({ payload }) => {
+      hydrateAndAppendMessage(payload?.messageId, { senderId: payload?.senderId })
+    })
+
     roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, (payload) => {
       if (payload.eventType === 'INSERT') {
-        if (payload.new?.profile_id !== session.user.id && isCurrentScope()) {
-          audioSys.playMessageReceived()
-          triggerInteractionFeedback('message-received')
-        }
-        (async () => {
-          const [
-            { data: fullMsg },
-            { data: attachments }
-          ] = await Promise.all([
-            supabase.from('messages').select(MESSAGE_SELECT_BASE).eq('id', payload.new.id).single(),
-            supabase.from('message_attachments').select('*').eq('message_id', payload.new.id)
-          ])
-          if (!isCurrentScope()) return
-          if (fullMsg) {
-            const messageWithAttachments = { ...fullMsg, message_attachments: attachments || [] }
-            const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [messageWithAttachments]);
-            const [decryptedMsg] = await decryptMessageList([messageWithAttachments], sharedKeys);
-            if (!isCurrentScope()) return
-
-            const isAtBottom = isNearBottom()
-            const renderedMessage = decryptedMsg
-
-            let didAppendMessage = false
-            let replacedLocalEcho = false
-            setMessages(prev => {
-              if (prev.some(msg => msg.id === renderedMessage.id)) return prev;
-              const safePrev = prev.filter(m => m[field] === targetId);
-              if (renderedMessage[field] !== targetId) return safePrev;
-              const matchingLocal = renderedMessage.profile_id === session.user.id ? findMatchingLocalMessage(safePrev, renderedMessage) : null
-              const updated = matchingLocal
-                ? safePrev.map(msg => msg.id === matchingLocal.id ? { ...renderedMessage, __delivery_status: 'sent' } : msg)
-                : [...safePrev, renderedMessage]
-              didAppendMessage = !matchingLocal
-              replacedLocalEcho = Boolean(matchingLocal)
-              updated.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-              safeCacheSave(session.user.id, targetId, updated);
-              return updated;
-            })
-            
-            if (replacedLocalEcho) {
-              ownSendScrollRef.current = { targetId: null, active: false }
-              if (isDebugEnabled('messappDebugScroll')) {
-                console.debug('[SCROLL_DEBUG]', { handler: 'realtime-insert', reason: 'replaced-local-echo', messageId: decryptedMsg.id, targetId })
-              }
-            } else if (didAppendMessage && (isAtBottom || decryptedMsg.profile_id === session.user.id)) {
-              const reason = decryptedMsg.profile_id === session.user.id ? 'own-realtime-insert' : 'incoming-at-bottom'
-              if (decryptedMsg.profile_id === session.user.id && ownSendScrollRef.current.active) {
-                instantScrollToBottom(reason)
-                ownSendScrollRef.current = { targetId: null, active: false }
-              } else {
-                smoothScrollToBottom(reason)
-              }
-            } else if (didAppendMessage) {
-              setShowLatestMessagesButton(true);
-            }
-          }
-        })();
+        hydrateAndAppendMessage(payload.new?.id, { senderId: payload.new?.profile_id })
       }
-      
+
       if (payload.eventType === 'UPDATE') {
         (async () => {
           const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', payload.new.id).single()
@@ -1245,10 +1298,43 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
     )
 
-    roomChannel.subscribe()
+    let cleanedUp = false
+    let retryAttempt = 0
+    const generation = ++realtimeGenerationRef.current
+
+    const clearRealtimeRetryTimer = () => {
+      if (realtimeRetryTimerRef.current) {
+        clearTimeout(realtimeRetryTimerRef.current)
+        realtimeRetryTimerRef.current = null
+      }
+    }
+
+    const handleChannelStatus = (status) => {
+      if (cleanedUp || generation !== realtimeGenerationRef.current) return
+      if (status === 'SUBSCRIBED') {
+        clearRealtimeRetryTimer()
+        if (retryAttempt > 0) catchUpMissedMessages()
+        retryAttempt = 0
+        return
+      }
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        if (!shouldScheduleRealtimeRetry({ generation, currentGeneration: realtimeGenerationRef.current, hasTimer: Boolean(realtimeRetryTimerRef.current) })) return
+        retryAttempt += 1
+        const delay = getRealtimeRetryDelay(retryAttempt)
+        realtimeRetryTimerRef.current = setTimeout(() => {
+          realtimeRetryTimerRef.current = null
+          if (cleanedUp || generation !== realtimeGenerationRef.current) return
+          roomChannel.subscribe(handleChannelStatus)
+        }, delay)
+      }
+    }
+
+    roomChannel.subscribe(handleChannelStatus)
     typingChannelRef.current = roomChannel
 
     return () => {
+      cleanedUp = true
+      clearRealtimeRetryTimer()
       supabase.removeChannel(roomChannel)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
@@ -1268,12 +1354,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     markIncomingSeen(targetId, targetMessages)
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') markIncomingSeen(targetId, targetMessages)
+      if (!shouldVisibilityCatchUp(document.visibilityState)) return
+      markIncomingSeen(targetId, targetMessages)
+      catchUpMissedMessages()
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [activeChannel?.id, activeDm?.dm_room_id, markIncomingSeen, messages, view])
+  }, [activeChannel?.id, activeDm?.dm_room_id, catchUpMissedMessages, markIncomingSeen, messages, view])
 
   const toggleReaction = async (messageId, emoji, hasReacted) => {
     const reactionEmoji = normalizeReactionEmoji(emoji)
@@ -1416,6 +1504,19 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
   }, [])
 
+  // Fast-path delivery signal: broadcast is plain pub/sub over the same
+  // realtime socket typing indicators already use reliably, so peers append
+  // this message immediately instead of waiting on postgres_changes, whose
+  // delivery on this table has been observed to lag or silently drop.
+  const broadcastNewMessage = useCallback((messageId) => {
+    if (!messageId) return
+    typingChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'new-message',
+      payload: { messageId, senderId: session.user.id }
+    }).catch(() => {})
+  }, [session.user.id])
+
   const failLocalMessage = useCallback((targetId, localId, retryPayload) => {
     setMessages(prev => {
       const updated = prev.map(msg => msg.id === localId ? {
@@ -1526,6 +1627,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       const [decryptedMsg] = await decryptMessageList([newMsg], sharedKeys);
       replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
+      broadcastNewMessage(decryptedMsg.id)
       ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
       triggerInteractionFeedback('message-sent')
@@ -1621,6 +1723,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
       const [decryptedMsg] = await decryptMessageList([newMsg], sharedKeys);
       replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
+      broadcastNewMessage(decryptedMsg.id)
       ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
       triggerInteractionFeedback('message-sent')
@@ -1736,6 +1839,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
       const [decryptedMsg] = await decryptMessageList([newMsg], sharedKeys)
       replaceLocalMessage(targetId, localId, { ...decryptedMsg, __delivery_status: 'sent' })
+      broadcastNewMessage(decryptedMsg.id)
       ownSendScrollRef.current = { targetId: null, active: false }
       audioSys.playMessageSent()
       triggerInteractionFeedback('message-sent')
