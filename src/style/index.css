@@ -2144,6 +2144,53 @@ iframe {
   backdrop-filter: blur(22px) saturate(135%);
 }
 
+/* Auto-hiding call chrome (voice stage header/dock, 1:1 call controls).
+   visibility — not just pointer-events — is what stops hidden controls being
+   clickable, since [data-ui-overlay-owner] button re-enables pointer events on
+   descendants of a pointer-events: none parent. */
+.call-chrome {
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0s linear 0s;
+}
+
+.call-chrome[data-chrome-hidden="true"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0s linear 220ms;
+}
+
+.call-chrome-top[data-chrome-hidden="true"] {
+  transform: translateY(-0.6rem);
+}
+
+.call-chrome-bottom[data-chrome-hidden="true"] {
+  transform: translateY(0.6rem);
+}
+
+/* Immersive chrome floats over the media instead of taking a layout row, so
+   the stage keeps the full height whether the chrome is shown or hidden. */
+.voice-stage-header[data-immersive="true"],
+.voice-stage-footer[data-immersive="true"] {
+  /* The stage behind the scrim is always black, so light-theme text tokens
+     would disappear into it. */
+  --text-main: #fafafa;
+  --text-muted: #d4d4d4;
+}
+
+.voice-stage-header[data-immersive="true"] {
+  border-bottom-color: transparent;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.voice-stage-footer[data-immersive="true"] {
+  border-top-color: transparent;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
 .voice-view-switcher {
   background: rgba(0, 0, 0, 0.22);
 }
@@ -2726,6 +2773,17 @@ iframe {
   border-bottom-color: rgba(255, 255, 255, 0.045);
 }
 
+/* Overrides the opaque black surface above so immersive chrome stays a scrim. */
+[data-theme="dark"] .voice-stage-header[data-immersive="true"] {
+  border-bottom-color: transparent;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0)) !important;
+}
+
+[data-theme="dark"] .voice-stage-footer[data-immersive="true"] {
+  border-top-color: transparent;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0)) !important;
+}
+
 [data-theme="dark"] .voice-stage-surface,
 [data-theme="dark"] .voice-stage-card,
 [data-theme="dark"] .voice-stage-fallback,
@@ -2807,15 +2865,19 @@ iframe {
   border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
+/* A solid accent fill breaks on near-white accents (the Mono theme's #f5f5f5),
+   which painted white icons onto a white highlight. Tinting the accent into
+   the black surface and colouring the icon with the accent itself keeps the
+   glyph readable for every palette. */
 [data-theme="dark"] .direct-call-mini-control.is-active,
 [data-theme="dark"] .premium-call-control.is-active,
 [data-theme="dark"] .voice-stage-mobile-action.is-active,
 [data-theme="dark"] .voice-stage-drawer-action.is-active,
 [data-theme="dark"] .voice-view-button.is-active,
 [data-theme="dark"] .voice-control-button.is-active {
-  background: var(--theme-base, var(--accent)) !important;
-  color: #fff !important;
-  border-color: color-mix(in srgb, var(--theme-base, var(--accent)) 68%, #fff) !important;
+  background: color-mix(in srgb, var(--theme-base, var(--accent)) 22%, #000) !important;
+  color: var(--theme-base, var(--accent)) !important;
+  border-color: color-mix(in srgb, var(--theme-base, var(--accent)) 55%, #000) !important;
 }
 
 [data-theme="dark"] .direct-call-mini-control.is-live,
