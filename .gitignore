@@ -44,8 +44,9 @@ secrets*.json
 *.sqlite
 *.sqlite3
 
-# Supabase local state and generated linked-schema snapshots
-# Migrations and tests are authored source and must remain trackable.
+# Supabase is local-only: migrations, Edge Functions, config, and schema
+# snapshots are deployed manually, never through this repository.
+/supabase/
 /supabase/.branches/
 /supabase/.temp/
 /supabase/reference/
@@ -83,5 +84,13 @@ Thumbs.db
 **/xcuserdata/
 /android/local.properties
 
-# Local agent notes; project documentation belongs in SYSTEM_DOCUMENTATION.md.
+# Local agent notes and generated analysis; project documentation belongs in
+# SYSTEM_DOCUMENTATION.md.
 /memory.md
+/AGENTS.md
+/CLAUDE.md
+/.codex/
+/graphify-out/
+
+# Self-hosted relay configuration is provisioned outside this repository.
+/infra/
