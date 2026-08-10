@@ -55,7 +55,10 @@ export default function LeftSidebar(props) {
   const currentStatusLabel = statusOptions.find(option => option.id === currentStatus)?.label || 'Online'
   const isHomeLanding = props.view === 'home' && !props.activeDm && !props.activeServer
   const canManageServer = Boolean(props.canManageActiveServer)
+  // Server-wide voice presence resolves occupancy for every channel; the local
+  // fallback only knows about the channel this client joined.
   const getVoiceParticipantsForChannel = (channelId) => {
+    if (props.getVoiceParticipantsForChannel) return props.getVoiceParticipantsForChannel(channelId)
     if (props.activeVoiceSession?.channelId !== channelId) return []
     return props.voiceSessionState?.participants || []
   }

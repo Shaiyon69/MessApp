@@ -3,9 +3,10 @@
  * receive streams from useWebRTC; this component never creates or stops tracks.
  */
 import React from 'react'
-import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff, Volume2, GripHorizontal, SwitchCamera } from 'lucide-react'
+import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, PhoneOff, Volume2, GripHorizontal, SwitchCamera, ScreenShare, ScreenShareOff } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
+import useAutoHideCallChrome from '../../hooks/useAutoHideCallChrome'
 
 const CALL_STATUS_LABELS = {
   outgoing: 'Starting call...',
@@ -24,9 +25,10 @@ const CALL_STATUS_LABELS = {
 export default function CallOverlay({
   callActive, callMinimized, setCallMinimized, callDirection, remoteCaller,
   ncEnabled, micEnabled, videoEnabled, remoteVideoEnabled, pendingVideoRequest, speakerEnabled, isSwitchingCamera, cameraFacingMode,
-  localVideoRef, remoteVideoRef, remoteAudioRef,
+  screenShareActive, remoteScreenSharing,
+  localVideoRef, remoteVideoRef, remoteAudioRef, localScreenVideoRef, remoteScreenVideoRef,
   acceptCall, endCallNetwork, toggleMic, toggleVideo, switchCamera, toggleNoiseCancellation, toggleSpeaker,
-  acceptVideoRequest, declineVideoRequest, composerTrayOpen = false
+  acceptVideoRequest, declineVideoRequest, toggleScreenShare, composerTrayOpen = false
 }) {
   const {
     playerRef,
@@ -34,14 +36,24 @@ export default function CallOverlay({
     dragHandleProps
   } = useFloatingMiniPlayer('messapp:mini-player:direct-call')
 
-  if (!callActive) return null;
-
   const isIncoming = callDirection === 'incoming'
   const isConnected = callDirection === 'connected'
   const isWaiting = ['incoming', 'outgoing', 'ringing', 'connecting'].includes(callDirection)
   const isTerminal = ['rejected', 'missed', 'timed_out', 'cancelled', 'ended', 'failed'].includes(callDirection)
-  const isVideoLive = remoteVideoEnabled && isConnected
-  const hasMiniVideo = isVideoLive || (videoEnabled && !isIncoming)
+  const isScreenShareLive = remoteScreenSharing && isConnected
+  const isVideoLive = remoteVideoEnabled && isConnected && !isScreenShareLive
+
+  // Only a full-screen call showing live media is worth clearing chrome from.
+  const { chromeVisible, stageActivityProps, chromeHoldProps } = useAutoHideCallChrome({
+    hasVisualMedia: callActive && !callMinimized && (isVideoLive || isScreenShareLive),
+    overlayOpen: Boolean(pendingVideoRequest)
+  })
+
+  if (!callActive) return null;
+
+  const isImmersive = isVideoLive || isScreenShareLive
+  const chromeHidden = isImmersive && !chromeVisible
+  const hasMiniVideo = isVideoLive || isScreenShareLive || (videoEnabled && !isIncoming)
   const isMiniVideoCall = hasMiniVideo || videoEnabled || remoteVideoEnabled
   const statusLabel = CALL_STATUS_LABELS[callDirection] || 'Call'
   const localVideoStyle = cameraFacingMode === 'environment' ? undefined : { transform: 'scaleX(-1)' }
@@ -79,17 +91,17 @@ export default function CallOverlay({
         {hasMiniVideo ? (
           <div className="direct-call-mini-media relative mb-1.5 aspect-video overflow-hidden rounded-xl border border-white/10 bg-black md:mb-2 md:rounded-2xl">
             <video
-              ref={isVideoLive ? remoteVideoRef : localVideoRef}
+              ref={isScreenShareLive ? remoteScreenVideoRef : isVideoLive ? remoteVideoRef : localVideoRef}
               autoPlay
               playsInline
               muted={!isVideoLive}
-              className="h-full w-full object-cover"
-              style={!isVideoLive ? localVideoStyle : undefined}
+              className={`h-full w-full ${isScreenShareLive ? 'object-contain' : 'object-cover'}`}
+              style={!isVideoLive && !isScreenShareLive ? localVideoStyle : undefined}
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2.5 pb-2 pt-8 md:px-3.5 md:pb-3 md:pt-12">
               <p className="truncate text-sm font-black tracking-tight text-white md:text-base">{remoteCaller?.username || 'Call'}</p>
               <p className={`text-[9px] font-bold uppercase tracking-widest md:text-[10px] ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
-                {statusLabel}{!isVideoLive ? ' · Your camera' : ''}
+                {isScreenShareLive ? 'Sharing their screen' : statusLabel}{!isVideoLive && !isScreenShareLive ? ' · Your camera' : ''}
               </p>
             </div>
             {isVideoLive && videoEnabled && (
@@ -134,11 +146,15 @@ export default function CallOverlay({
                 {videoEnabled ? <Video size={15} /> : <VideoOff size={15} />}
               </button>
 
-              {videoEnabled && (
+              {videoEnabled && !screenShareActive && (
                 <button type="button" onClick={switchCamera} disabled={isSwitchingCamera} className="direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full text-white disabled:cursor-wait disabled:opacity-50 md:h-10 md:w-10" aria-label="Switch camera" title="Switch camera">
                   <SwitchCamera size={15} />
                 </button>
               )}
+
+              <button type="button" onClick={toggleScreenShare} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${screenShareActive ? 'is-active text-white' : 'text-gray-400'}`} aria-label={screenShareActive ? 'Stop sharing screen' : 'Share screen'} title={screenShareActive ? 'Stop sharing screen' : 'Share screen'}>
+                {screenShareActive ? <ScreenShareOff size={15} /> : <ScreenShare size={15} />}
+              </button>
 
               <button type="button" onClick={toggleSpeaker} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${speakerEnabled ? 'is-active text-white' : 'text-gray-400'}`} aria-label="Toggle speaker" title="Speaker">
                 <Volume2 size={15} />
@@ -162,22 +178,41 @@ export default function CallOverlay({
   }
 
   return (
-    <div data-ui-overlay-owner="CallOverlay:fullscreen-call" className={`fixed inset-0 z-[100] ${isVideoLive ? 'bg-black' : 'bg-[var(--bg-base)]/90 backdrop-blur-2xl'} flex flex-col items-center justify-center p-4 animate-fade-in pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]`}>
+    <div
+      data-ui-overlay-owner="CallOverlay:fullscreen-call"
+      {...stageActivityProps}
+      className={`fixed inset-0 z-[100] ${isVideoLive ? 'bg-black' : 'bg-[var(--bg-base)]/90 backdrop-blur-2xl'} flex flex-col items-center justify-center p-4 animate-fade-in pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]`}
+    >
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-      
-      <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] flex gap-4 z-50">
+
+      <div
+        {...chromeHoldProps}
+        data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+        className="call-chrome call-chrome-top absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] flex gap-4 z-50"
+      >
         <button onClick={() => setCallMinimized(true)} className="text-gray-400 hover:text-white bg-black/20 p-3 rounded-full border border-white/10 transition-colors cursor-pointer shadow-lg hover:bg-white/10 backdrop-blur-md"><Minimize2 size={20}/></button>
       </div>
 
-      <div className="relative w-full max-w-5xl flex flex-col items-center justify-center gap-4 mb-8 flex-1">
+      <div className={`relative w-full flex flex-col items-center justify-center gap-4 flex-1 ${isImmersive ? 'max-w-none' : 'max-w-5xl mb-8'}`}>
         
-        <div className={`relative flex items-center justify-center rounded-3xl overflow-hidden transition-all duration-500 ${isVideoLive ? 'w-full h-full' : 'w-52 h-52 md:w-64 md:h-64'}`}>
-           <video 
-             ref={remoteVideoRef} 
-             autoPlay playsInline 
+        <div className={`relative flex items-center justify-center rounded-3xl overflow-hidden transition-all duration-500 ${(isVideoLive || isScreenShareLive) ? 'w-full h-full' : 'w-52 h-52 md:w-64 md:h-64'} ${isScreenShareLive ? 'bg-black' : ''}`}>
+           <video
+             ref={remoteScreenVideoRef}
+             autoPlay playsInline
+             className={`w-full h-full object-contain ${isScreenShareLive ? 'block' : 'hidden'}`}
+           />
+           <video
+             ref={remoteVideoRef}
+             autoPlay playsInline
              className={`w-full h-full object-cover ${isVideoLive ? 'block' : 'hidden'}`}
            />
-           {!isVideoLive && (
+           {isScreenShareLive && (
+             <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-md">
+               <ScreenShare size={13} />
+               {remoteCaller?.username || 'They'} is sharing their screen
+             </div>
+           )}
+           {!isVideoLive && !isScreenShareLive && (
              <>
                {isWaiting && <div className="absolute inset-4 rounded-full border-4 border-[var(--theme-base)] animate-ping opacity-25"></div>}
                {isWaiting && <div className="absolute inset-0 rounded-full border border-[var(--theme-base)]/30 animate-pulse"></div>}
@@ -186,16 +221,23 @@ export default function CallOverlay({
            )}
         </div>
 
-        <div className={`overflow-hidden shadow-2xl border border-white/10 bg-[#1c1e22] transition-all duration-500 ${videoEnabled ? 'block' : 'hidden'} ${isVideoLive ? 'absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 rounded-2xl z-40' : 'w-40 h-40 rounded-3xl'}`}>
-           <video 
-             ref={localVideoRef} 
-             autoPlay playsInline muted 
+        <div className={`overflow-hidden shadow-2xl border border-white/10 bg-[#1c1e22] transition-all duration-500 ${videoEnabled ? 'block' : 'hidden'} ${(isVideoLive || isScreenShareLive) ? 'absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 rounded-2xl z-40' : 'w-40 h-40 rounded-3xl'}`}>
+           <video
+             ref={localVideoRef}
+             autoPlay playsInline muted
              className="w-full h-full object-cover"
              style={localVideoStyle}
            />
         </div>
 
-        {!isVideoLive && (
+        {screenShareActive && (
+          <div className={`overflow-hidden shadow-2xl border border-[var(--theme-base)]/60 bg-black transition-all duration-500 ${(isVideoLive || isScreenShareLive) ? 'absolute bottom-24 left-4 md:left-8 w-28 h-20 md:w-48 md:h-32 rounded-2xl z-40' : 'w-40 h-24 rounded-2xl'}`}>
+            <video ref={localScreenVideoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-white">You're sharing</div>
+          </div>
+        )}
+
+        {!isVideoLive && !isScreenShareLive && (
           <div className="absolute bottom-[8%] flex flex-col items-center px-4 text-center">
             <h2 className="mb-1 text-2xl font-bold tracking-tight text-white md:text-3xl">{remoteCaller?.username}</h2>
             <p className="text-sm font-bold text-gray-300">
@@ -221,7 +263,12 @@ export default function CallOverlay({
         )}
       </div>
 
-      {!isTerminal && <div className="flex gap-2 md:gap-4 p-2 md:p-3 bg-black/40 border border-white/10 rounded-full backdrop-blur-3xl shadow-2xl mt-auto z-50 max-w-full">
+      {/* With live media the dock floats over the video so the stage keeps the
+          full height whether or not the controls are showing. */}
+      {!isTerminal && <div
+        {...chromeHoldProps}
+        data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+        className={`call-chrome call-chrome-bottom flex gap-2 md:gap-4 p-2 md:p-3 bg-black/40 border border-white/10 rounded-full backdrop-blur-3xl shadow-2xl z-50 max-w-full ${isImmersive ? 'absolute inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] mx-auto w-fit' : 'mt-auto'}`}>
         <button onClick={toggleMic} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${micEnabled ? 'is-live' : 'is-danger'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
           {micEnabled ? <Mic size={24} /> : <MicOff size={24} />}
         </button>
@@ -230,11 +277,15 @@ export default function CallOverlay({
           {videoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
         </button>
 
-        {videoEnabled && (
+        {videoEnabled && !screenShareActive && (
           <button onClick={switchCamera} disabled={isSwitchingCamera} className="premium-call-control flex h-12 w-12 items-center justify-center rounded-full transition-all disabled:cursor-wait disabled:opacity-50 md:h-14 md:w-14" aria-label="Switch camera" title="Switch camera">
             <SwitchCamera size={24} />
           </button>
         )}
+
+        <button onClick={toggleScreenShare} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${screenShareActive ? 'is-active' : ''}`} aria-pressed={screenShareActive} aria-label={screenShareActive ? 'Stop sharing screen' : 'Share screen'} title={screenShareActive ? 'Stop sharing screen' : 'Share screen'}>
+          {screenShareActive ? <ScreenShareOff size={24} /> : <ScreenShare size={24} />}
+        </button>
 
         <button onClick={toggleNoiseCancellation} className={`premium-call-control w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${ncEnabled ? 'is-active' : 'is-danger'}`} aria-label={ncEnabled ? 'Turn noise reduction off' : 'Turn noise reduction on'} title="Enhanced noise reduction">
           <Activity size={24} />

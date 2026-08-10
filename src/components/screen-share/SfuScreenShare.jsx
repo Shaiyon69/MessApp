@@ -36,6 +36,7 @@ import StatusAvatar from '../ui/StatusAvatar'
 import { audioSys } from '../../lib/SoundEngine'
 import { supabase } from '../../supabaseClient'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
+import useAutoHideCallChrome from '../../hooks/useAutoHideCallChrome'
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
 import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../../lib/screenCapture'
 import { acquireAlternateCamera } from '../../lib/mediaDevices'
@@ -1244,6 +1245,17 @@ export default function SfuScreenShare({
     setViewMode(VIEW_MODES.PINNED)
   }, [])
 
+  // Picking a thumbnail while in slides mode moves the slide rather than
+  // dropping back to focus view.
+  const selectStream = useCallback((streamId) => {
+    if (viewMode !== VIEW_MODES.CAROUSEL) {
+      pinStream(streamId)
+      return
+    }
+    setCarouselStreamId(streamId)
+    setPinnedStreamId(streamId)
+  }, [pinStream, viewMode])
+
   const stopWatching = useCallback((streamId) => {
     setHiddenStreamIds(current => {
       const next = new Set(current)
@@ -1273,6 +1285,15 @@ export default function SfuScreenShare({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [cycleCarousel, stageRef, variant, viewMode])
+
+  // The stage only goes immersive once there is shared media to fill it; an
+  // avatar-only channel keeps its header and dock in the layout.
+  const immersiveStage = variant === 'full' && displayStreams.length > 0
+  const { chromeVisible, stageActivityProps, chromeHoldProps } = useAutoHideCallChrome({
+    hasVisualMedia: immersiveStage,
+    overlayOpen: stageControlsOpen || micTestOpen || volumeMixerOpen
+  })
+  const chromeHidden = immersiveStage && !chromeVisible
 
   const pinnedStream = streamsById.get(viewMode === VIEW_MODES.CAROUSEL ? carouselStreamId : pinnedStreamId) || displayStreams[0] || null
   const secondaryStreams = displayStreams.filter(item => item.id !== pinnedStream?.id)
@@ -1444,12 +1465,21 @@ export default function SfuScreenShare({
 
   if (variant === 'full') {
     return (
-      <section className={`voice-stage-shell relative grid h-full max-h-full min-h-0 w-full max-w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-[var(--bg-base)] ${className}`} data-status={status}>
+      <section
+        {...stageActivityProps}
+        className={`voice-stage-shell relative grid h-full max-h-full min-h-0 w-full max-w-full flex-1 overflow-hidden bg-[var(--bg-base)] ${immersiveStage ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)_auto]'} ${className}`}
+        data-status={status}
+      >
         {remoteAudioPlayers}
         <div className="voice-stage-ambient voice-stage-ambient-one" aria-hidden="true" />
         <div className="voice-stage-ambient voice-stage-ambient-two" aria-hidden="true" />
 
-        <header className="voice-stage-header relative z-10 min-h-16 shrink-0 border-b border-[var(--border-subtle)] px-3 py-3 md:px-5 md:py-3.5">
+        <header
+          {...(immersiveStage ? chromeHoldProps : {})}
+          data-immersive={immersiveStage ? 'true' : 'false'}
+          data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+          className={`voice-stage-header call-chrome call-chrome-top z-10 min-h-16 shrink-0 border-b border-[var(--border-subtle)] px-3 py-3 md:px-5 md:py-3.5 ${immersiveStage ? 'absolute inset-x-0 top-0' : 'relative'}`}
+        >
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className={`voice-channel-live-icon relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${status === 'connected' ? 'is-connected text-green-300' : 'text-amber-300'}`}>
@@ -1487,7 +1517,15 @@ export default function SfuScreenShare({
           </div>
         </header>
 
-        <div ref={stageRef} className="relative z-[1] h-full max-h-full min-h-0 w-full max-w-full overflow-hidden p-2 sm:p-3 md:p-5" tabIndex={0} aria-label="Voice stage">
+        {/* The mobile dock spans the full width, so immersive stages keep a
+            bottom gutter for it; the desktop dock is a centred pill that can
+            safely float over the media. */}
+        <div
+          ref={stageRef}
+          className={`relative z-[1] h-full max-h-full min-h-0 w-full max-w-full overflow-hidden p-2 sm:p-3 md:p-5 ${immersiveStage ? 'pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-5' : ''}`}
+          tabIndex={0}
+          aria-label="Voice stage"
+        >
           {viewMode === VIEW_MODES.GRID || !pinnedStream ? (
             <section className="voice-stage-surface relative h-full min-h-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] p-2 shadow-2xl sm:p-3">
               <div
@@ -1541,18 +1579,12 @@ export default function SfuScreenShare({
                   onPin={pinStream}
                   onStopWatching={stopWatching}
                 />
+                {/* Slides are changed from the thumbnail strip or the arrow
+                    keys; overlay arrows sat on top of the stream itself. */}
                 {viewMode === VIEW_MODES.CAROUSEL && displayStreams.length > 1 && (
-                  <>
-                    <button type="button" onClick={() => cycleCarousel(-1)} className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white hover:bg-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Previous stream" title="Previous stream">
-                      <ChevronLeft size={22} />
-                    </button>
-                    <button type="button" onClick={() => cycleCarousel(1)} className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white hover:bg-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Next stream" title="Next stream">
-                      <ChevronRight size={22} />
-                    </button>
-                    <span className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1 text-[11px] font-black text-white">
-                      {Math.max(displayStreams.findIndex(item => item.id === pinnedStream.id) + 1, 1)} / {displayStreams.length}
-                    </span>
-                  </>
+                  <span className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1 text-[11px] font-black text-white">
+                    {Math.max(displayStreams.findIndex(item => item.id === pinnedStream.id) + 1, 1)} / {displayStreams.length}
+                  </span>
                 )}
               </div>
 
@@ -1562,10 +1594,10 @@ export default function SfuScreenShare({
                     <button
                       type="button"
                       key={item.id}
-                      onClick={() => pinStream(item.id)}
+                      onClick={() => selectStream(item.id)}
                       className="voice-stage-grid-item min-h-0 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-element)] p-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
                       style={{ '--voice-tile-index': index + 1 }}
-                      aria-label={`Pin ${item.participant.displayName} ${item.type}`}
+                      aria-label={`${viewMode === VIEW_MODES.CAROUSEL ? 'Show' : 'Pin'} ${item.participant.displayName} ${item.type}`}
                     >
                       <StreamTile
                         streamItem={item}
@@ -1606,7 +1638,12 @@ export default function SfuScreenShare({
           />
         )}
 
-        <footer className="voice-stage-footer relative z-10 shrink-0 px-2 py-2.5 pb-[calc(0.65rem+env(safe-area-inset-bottom))] sm:py-3">
+        <footer
+          {...(immersiveStage ? chromeHoldProps : {})}
+          data-immersive={immersiveStage ? 'true' : 'false'}
+          data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+          className={`voice-stage-footer call-chrome call-chrome-bottom z-10 shrink-0 px-2 py-2.5 pb-[calc(0.65rem+env(safe-area-inset-bottom))] sm:py-3 ${immersiveStage ? 'absolute inset-x-0 bottom-0' : 'relative'}`}
+        >
           <div className="voice-stage-mobile-dock mx-auto grid max-w-md grid-cols-6 gap-1 rounded-2xl p-1.5 md:hidden">
             {onToggleMute && (
               <button type="button" onClick={onToggleMute} className={`voice-stage-mobile-action ${muted ? 'is-danger' : 'is-live'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
