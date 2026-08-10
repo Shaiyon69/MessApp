@@ -1,4 +1,6 @@
-import { supabase } from '../supabaseClient'
+// Explicit extension (unlike the rest of the codebase) so `node --test` can
+// resolve this module for the colocated test; Vite resolves it identically.
+import { supabase } from '../supabaseClient.js'
 
 const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
 
@@ -43,6 +45,10 @@ export function createVoiceChannelClient({
   let channel = null
   let connected = false
   let connectPromise = null
+  let resolvedIceServers = DEFAULT_ICE_SERVERS
+  // Bumped by connect() and disconnect() so a connect that is still awaiting
+  // ICE credentials can tell it has been cancelled and clean up after itself.
+  let connectGeneration = 0
 
   const sendSignal = async (event, payload, target) => {
     if (!channel || !connected) return
@@ -92,7 +98,7 @@ export function createVoiceChannelClient({
     if (existing) return existing
     if (typeof PeerConnection !== 'function') throw new Error('WebRTC is unavailable on this device.')
 
-    const pc = new PeerConnection({ iceServers })
+    const pc = new PeerConnection({ iceServers: resolvedIceServers })
     const state = {
       pc,
       remoteId,
@@ -214,34 +220,66 @@ export function createVoiceChannelClient({
   return {
     connect() {
       if (connectPromise) return connectPromise
-      channel = supabaseClient.channel(`voice-media:${roomId}`, {
-        config: { presence: { key: connectionId }, broadcast: { self: false } }
-      })
-      channel.on('broadcast', { event: 'media-signal' }, ({ payload }) => {
-        void handleSignal(payload).catch(() => {})
-      })
-      channel.on('presence', { event: 'sync' }, syncPresence)
-      connectPromise = new Promise((resolve, reject) => {
-        channel.subscribe(async status => {
-          if (status === 'SUBSCRIBED') {
-            connected = true
-            try {
-              await channel.track({
-                connection_id: connectionId,
-                profile_id: participant.id,
-                displayName: participant.displayName,
-                avatarUrl: participant.avatarUrl
-              })
-              syncPresence()
-              resolve()
-            } catch (error) {
-              reject(error)
-            }
-          } else if (['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
-            reject(new Error('Could not connect voice media signaling.'))
-          }
+      const generation = ++connectGeneration
+      const isCurrent = () => generation === connectGeneration
+
+      connectPromise = (async () => {
+        // ICE servers come from an async credential fetch, so disconnect() can
+        // land before this resolves. Everything created past this point has to
+        // be torn down here: disconnect() already ran and saw `channel` still
+        // null, so it had nothing to remove. Skipping that left a subscribed
+        // channel behind, and the next join failed on the duplicate topic.
+        const resolved = await Promise.resolve(iceServers).catch(() => DEFAULT_ICE_SERVERS)
+        if (!isCurrent()) throw new Error('Voice media connection was cancelled.')
+        resolvedIceServers = resolved
+
+        const nextChannel = supabaseClient.channel(`voice-media:${roomId}`, {
+          config: { presence: { key: connectionId }, broadcast: { self: false } }
         })
-      })
+        nextChannel.on('broadcast', { event: 'media-signal' }, ({ payload }) => {
+          void handleSignal(payload).catch(() => {})
+        })
+        nextChannel.on('presence', { event: 'sync' }, syncPresence)
+        channel = nextChannel
+
+        try {
+          await new Promise((resolve, reject) => {
+            nextChannel.subscribe(async status => {
+              if (!isCurrent()) {
+                reject(new Error('Voice media connection was cancelled.'))
+                return
+              }
+              if (status === 'SUBSCRIBED') {
+                connected = true
+                try {
+                  await nextChannel.track({
+                    connection_id: connectionId,
+                    profile_id: participant.id,
+                    displayName: participant.displayName,
+                    avatarUrl: participant.avatarUrl
+                  })
+                  syncPresence()
+                  resolve()
+                } catch (error) {
+                  reject(error)
+                }
+              } else if (['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+                reject(new Error('Could not connect voice media signaling.'))
+              }
+            })
+          })
+        } catch (error) {
+          // A failed subscribe leaves a joined channel on the socket too, which
+          // would collide with the retry. Only this connect's own channel is
+          // removed — if disconnect() got there first, `channel` is already null.
+          if (channel === nextChannel) {
+            channel = null
+            connected = false
+            void supabaseClient.removeChannel(nextChannel)
+          }
+          throw error
+        }
+      })()
       return connectPromise
     },
 
@@ -280,6 +318,7 @@ export function createVoiceChannelClient({
     },
 
     disconnect() {
+      connectGeneration++
       connected = false
       peers.forEach((_state, remoteId) => closePeer(remoteId))
       remoteStreams.clear()

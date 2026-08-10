@@ -15,6 +15,7 @@ import { audioSys } from '../lib/SoundEngine'
 import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
+import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
 
 import CallOverlay from './chat/CallOverlay'
 import LeftSidebar from './layout/LeftSidebar'
@@ -64,6 +65,7 @@ import {
   validateCustomWallpaperFile
 } from '../lib/chatWallpapers'
 import { createVoiceChannelClient } from '../lib/voiceChannelClient'
+import { getIceServers } from '../lib/iceServers'
 import StatusAvatar from './ui/StatusAvatar'
 import { CornerDownLeft } from 'lucide-react'
 
@@ -300,6 +302,18 @@ export default function Dashboard({ session }) {
 
   const chatManagerProps = useChatManager(session, activeChannel, activeDm, view, dms, handleCurrentUserRead)
   const webRTCProps = useWebRTC(session, activeDm)
+  // Occupancy for every voice channel in the server, so members can see who is
+  // already in a channel before deciding to join it.
+  const { getVoiceParticipantsForChannel } = useServerVoicePresence({
+    serverId: activeServer?.id,
+    profileId: session.user.id,
+    displayName: myUsername,
+    avatarUrl: myAvatar,
+    activeVoiceSession,
+    voiceSessionState,
+    voiceMuted,
+    voiceDeafened
+  })
   const [imageZoom, setImageZoom] = useState(1)
   const [imagePan, setImagePan] = useState({ x: 0, y: 0 })
   const imageZoomRef = useRef(1)
@@ -312,7 +326,8 @@ export default function Dashboard({ session }) {
       id: session.user.id,
       displayName: myUsername,
       avatarUrl: myAvatar
-    }
+    },
+    iceServers: getIceServers()
   }), [myAvatar, myUsername, session.user.id])
   const hasConfirmAction = Boolean(confirmAction)
   const hasSelectedImage = Boolean(chatManagerProps.selectedImage)
@@ -672,6 +687,24 @@ export default function Dashboard({ session }) {
     }
   }, [dmListCacheKey, session.user.id])
 
+  // Joining is its own action rather than a side effect of navigation, so the
+  // "Join voice" button in an already-open channel has something real to call.
+  const joinVoiceChannel = useCallback((channel) => {
+    if (channel?.type !== 'voice' || !activeServer?.id) return
+    if (activeVoiceSession?.channelId === channel.id) return
+    setActiveVoiceSession({
+      serverId: activeServer.id,
+      serverName: activeServer.name,
+      channelId: channel.id,
+      channelName: channel.name,
+      roomId: `channel:${channel.id}`
+    })
+    setVoiceMuted(false)
+    setVoiceDeafened(false)
+    setVoiceFocusRequest(null)
+    audioSys.playVoiceJoined()
+  }, [activeServer?.id, activeServer?.name, activeVoiceSession?.channelId])
+
   const selectChannel = useCallback((channel) => {
     if (!channel) {
       setActiveChannel(null)
@@ -681,17 +714,8 @@ export default function Dashboard({ session }) {
     setActiveDm(null)
     setActiveChannel(channel)
     setMobileMenuOpen(false)
-    if (channel?.type === 'voice' && activeServer?.id && activeVoiceSession?.channelId !== channel.id) {
-      setActiveVoiceSession({
-        serverId: activeServer.id,
-        serverName: activeServer.name,
-        channelId: channel.id,
-        channelName: channel.name,
-        roomId: `channel:${channel.id}`
-      })
-      audioSys.playVoiceJoined()
-    }
-  }, [activeServer?.id, activeServer?.name, activeVoiceSession?.channelId])
+    joinVoiceChannel(channel)
+  }, [joinVoiceChannel])
 
   const openActiveVoiceChannel = useCallback(() => {
     if (!activeVoiceSession) return
@@ -1848,6 +1872,13 @@ export default function Dashboard({ session }) {
     '--chat-bg-element': 'var(--bg-element)',
     '--chat-border': 'var(--border-subtle)',
     '--chat-text': 'var(--text-main)',
+    // Voice channels render outside an active chat, so without these the
+    // --chat-control-* variables are undefined: control buttons lose their
+    // accent background and fall back to inherited white text, which reads as
+    // white icons on a white highlight.
+    '--chat-control-bg': 'var(--app-accent)',
+    '--chat-control-border': 'var(--app-accent)',
+    '--chat-control-text': '#ffffff',
   }
 
   return (
@@ -1942,16 +1973,19 @@ export default function Dashboard({ session }) {
         handleHomeClick={handleHomeClick}
         activeVoiceSession={activeVoiceSession}
         voiceSessionState={voiceSessionState}
+        getVoiceParticipantsForChannel={getVoiceParticipantsForChannel}
         onVoiceParticipantSelect={focusVoiceParticipant}
       />
 
-      <ChatArea 
+      <ChatArea
         session={session}
         view={view}
         activeDm={activeDm}
         activeChannel={activeChannel}
         activeServerRole={activeServerRole}
         activeVoiceSession={activeVoiceSession}
+        getVoiceParticipantsForChannel={getVoiceParticipantsForChannel}
+        joinVoiceChannel={joinVoiceChannel}
         screenShareClientFactory={screenShareClientFactory}
         voiceSessionState={voiceSessionState}
         voiceMuted={voiceMuted}
