@@ -3190,3 +3190,37 @@ iframe {
     opacity: 0;
   }
 }
+
+/* emoji-picker-react paints its own grey palette, which reads as a light-grey
+   slab against the OLED black app. Repaint it with the theme tokens instead so
+   both pickers (message composer, reaction sheet) match the surface they sit
+   on. `:root` is only here to outrank the library's own `.epr-dark-theme`. */
+:root .EmojiPickerReact {
+  --epr-bg-color: var(--bg-base);
+  --epr-text-color: var(--text-main);
+  --epr-picker-border-color: transparent;
+  --epr-category-label-bg-color: var(--bg-base);
+  --epr-category-label-text-color: var(--text-muted);
+  --epr-category-icon-active-color: var(--accent);
+  --epr-hover-bg-color: var(--bg-element-hover);
+  --epr-focus-bg-color: var(--bg-element-hover);
+  --epr-highlight-color: var(--accent);
+  --epr-search-input-bg-color: var(--bg-element);
+  --epr-search-input-bg-color-active: var(--bg-element-hover);
+  --epr-search-input-text-color: var(--text-main);
+  --epr-search-input-placeholder-color: var(--text-muted);
+  --epr-search-border-color: var(--border-subtle);
+  --epr-search-border-color-active: var(--accent);
+  --epr-emoji-variation-picker-bg-color: var(--bg-element);
+  --epr-emoji-variation-indicator-color: var(--border-hover);
+  --epr-skin-tone-picker-menu-color: var(--bg-element);
+  --epr-reactions-bg-color: var(--bg-element);
+  --epr-preview-border-color: var(--border-subtle);
+  --epr-preview-text-color: var(--text-muted);
+  background: var(--bg-base);
+}
+
+/* The reaction sheet frames the picker, so it has to sit on the same black. */
+.messapp-reaction-popover {
+  background: var(--bg-base);
+}
