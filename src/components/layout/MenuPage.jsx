@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { Bell, Copy, FileText, Lock, LogOut, Mic, Palette, Shield, User, UserRound } from 'lucide-react'
 import toast from 'react-hot-toast'
 import StatusAvatar from '../ui/StatusAvatar'
+import ConfirmDialog from '../ui/ConfirmDialog'
 import { safeMediaUrl } from '../../lib/security'
 import { signOutAndReset } from '../../lib/signOut'
 
@@ -76,6 +77,7 @@ function SectionHeader({ label }) {
 export default function MenuPage(props) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   const currentStatus = props.userStatus || 'online'
   const currentOption = STATUS_OPTIONS.find(option => option.id === currentStatus) || STATUS_OPTIONS[0]
@@ -193,7 +195,7 @@ export default function MenuPage(props) {
         <SectionHeader label="Session" />
         <button
           type="button"
-          onClick={handleSignOut}
+          onClick={() => setConfirmSignOut(true)}
           disabled={isSigningOut}
           className="flex min-h-12 w-full items-center gap-3 rounded-xl px-2 text-left type-body font-bold text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-60"
         >
@@ -201,6 +203,19 @@ export default function MenuPage(props) {
           {isSigningOut ? 'Signing out…' : 'Sign out'}
         </button>
       </section>
+
+      {confirmSignOut && (
+        <ConfirmDialog
+          owner="MenuPage:signout-confirm"
+          icon={LogOut}
+          title="Ready to leave?"
+          body="Are you sure you want to log out of MessApp?"
+          confirmLabel={isSigningOut ? 'Signing out…' : 'Yes, Log Out'}
+          busy={isSigningOut}
+          onConfirm={handleSignOut}
+          onCancel={() => setConfirmSignOut(false)}
+        />
+      )}
     </div>
   )
 }
