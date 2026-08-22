@@ -4,9 +4,9 @@
 
 **ONE MESS AT A TIME**
 
-*A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, and Linux environments.*
+*A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, iOS, Linux, and Windows.*
 
-[![Version](https://img.shields.io/badge/version-v0.1.6--beta-blue.svg)](https://github.com/messapp/messapp)
+[![Version](https://img.shields.io/badge/version-v0.1.7--beta-blue.svg)](https://github.com/messapp/messapp)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/messapp/messapp/blob/main/LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -57,7 +57,7 @@
 * **Real-Time Synchronization:** Instant message delivery and live state updates powered by Supabase Realtime.
 * **Server & Channel Architecture:** Organize conversations into dedicated servers with distinct text channels for structured group discussions.
 * **Direct Messaging:** Secure, private 1-on-1 conversations with other users.
-* **Cross-Platform Access:** A unified experience whether accessing the live web deployment or using the native "headless" builds for Linux (Tauri) and Android (Capacitor).
+* **Cross-Platform Access:** A unified experience whether accessing the live web deployment or using the native builds for Linux and Windows (Tauri), Android and iOS (Capacitor).
 * **Rich Messaging:** Markdown rendering with syntax highlighting for code blocks.
 * **User Customization:** Comprehensive profile management and UI theme color persistence.
 * **Robust Security:** Secure email-link authentication, session persistence, and strict Postgres Row Level Security (RLS) policies to protect user data.
@@ -71,8 +71,8 @@
 * **Frontend:** React 19 + Vite 6
 * **Styling:** Tailwind CSS v4 (Semantic design system with `@theme`)
 * **Backend & Database:** Supabase (Postgres, Auth, Realtime, Storage)
-* **Native Wrappers:** Capacitor (Android) and Tauri (Linux)
-* **Testing:** Vitest + React Testing Library
+* **Native Wrappers:** Capacitor (Android, iOS) and Tauri (Linux, Windows)
+* **Testing:** Node’s built-in test runner (`node:test`) — no Vitest or Jest
 
 ---
 
@@ -132,7 +132,7 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 ## 🗺️ Roadmap
 
-**Current Version:** `v0.1.6-beta`
+**Current Version:** `v0.1.7-beta`
 
 ### Phase 1: Foundation (Completed)
 - [x] Cross-platform build architecture (Web, Android APK, Linux .deb/.AppImage)
@@ -157,9 +157,15 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 ---
 
-## 📄 License
+## 📄 License & Copyright
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+© 2026 Shaiyon (Skibidevs). All rights reserved.
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details. The copyright notice and permission notice must be included with every copy or substantial portion of the software. The same notice ships inside the app itself, under **Settings → Legal & Policies → Copyright**.
+
+### Third-Party Notices
+
+MessApp bundles React, Tailwind CSS, Supabase JS, Lucide icons, Capacitor, and Tauri, each distributed under its own MIT, ISC, or Apache-2.0 terms. The Fraunces and Nunito typefaces are self-hosted under the [SIL Open Font License 1.1](https://openfontlicense.org/). Their respective copyrights remain with their authors.
 
 ---
 
@@ -169,10 +175,13 @@ We welcome contributions! Please follow our established style guidelines and fea
 
 Ensure you run tests and linters before submitting a Pull Request:
 ```bash
-npm run test
+npm test
 npm run lint
 ```
 ---
-<div align=center>
+<div align="center">
+
+**© 2026 Shaiyon (Skibidevs) — MIT Licensed**
+
 *MessApp is proudly built for communities, one mess at a time.*
 </div>

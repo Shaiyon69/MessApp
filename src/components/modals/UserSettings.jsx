@@ -1013,6 +1013,22 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                       <p>You wield complete authority over your footprint. You may execute localized message deletion, full conversation wiping, or total account eradication at will. Account deletion triggers an immediate cascade purge across our active server arrays.</p>
                     </div>
                   </div>
+
+                  {/* The MIT terms require the notice to travel with the build,
+                      and a shipped app has no LICENSE file to open — so it
+                      lives here, alongside the attribution for the bundled
+                      dependencies and self-hosted fonts. */}
+                  <div className="premium-section rounded-2xl overflow-hidden mt-6">
+                    <div className="p-5 sm:p-6 border-b border-[var(--border-subtle)]">
+                      <h4 className="type-body font-bold text-[var(--text-main)] uppercase tracking-widest">Copyright</h4>
+                    </div>
+                    <div className="p-5 sm:p-6 text-gray-400 type-body leading-relaxed space-y-4">
+                      <p>© 2026 Shaiyon (Skibidevs). All rights reserved.</p>
+                      <p>MessApp is released under the MIT License. Permission is granted, free of charge, to use, copy, modify, and distribute this software, provided this copyright notice and the permission notice travel with every copy. The software is provided “as is”, without warranty of any kind.</p>
+                      <h5 className="text-[var(--text-main)] font-bold mt-4">Third-Party Notices</h5>
+                      <p>This app bundles React, Tailwind CSS, Supabase JS, Lucide icons, Capacitor, and Tauri, each distributed under its own MIT, ISC, or Apache-2.0 terms. The Fraunces and Nunito typefaces are self-hosted under the SIL Open Font License 1.1. Their respective copyrights remain with their authors.</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
