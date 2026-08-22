@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, ChevronDown, Link as LinkIcon } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
+import ServerIcon from '../ui/ServerIcon'
 import { safeMediaUrl } from '../../lib/security'
 import { supabase } from '../../supabaseClient'
 import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverModeration'
@@ -292,9 +293,11 @@ export default function RightSidebar({
             <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-5 pt-2 custom-scrollbar">
               <AccordionSection id="chat-info" label="Chat info" open={openInfoSections.has('chat-info')} onToggle={toggleInfoSection}>
                 <div className="flex items-center gap-3 rounded-xl bg-[var(--bg-element)] p-3">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--theme-20)] type-title font-bold text-[var(--theme-base)]">
-                    {activeServer.name?.slice(0, 1)?.toUpperCase() || 'S'}
-                  </div>
+                  <ServerIcon
+                    url={activeServer.icon_url}
+                    name={activeServer.name || 'S'}
+                    className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--theme-20)] type-title font-bold uppercase text-[var(--theme-base)]"
+                  />
                   <div className="min-w-0">
                     <p className="truncate type-title font-bold text-[var(--text-main)]">{activeServer.name}</p>
                     <p className="type-snippet text-gray-500">{serverMembers.length} member{serverMembers.length === 1 ? '' : 's'} · {activeServerRole || 'member'}</p>
