@@ -16,6 +16,7 @@ import useLongPress from '../../hooks/useLongPress'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
+import { debug } from '../../lib/debug'
 
 const SERVER_PRESET_OPTIONS = [
   { ...SERVER_PRESETS.gaming, Icon: Gamepad2, accent: 'text-indigo-300', active: 'border-indigo-400/70 bg-indigo-500/15' },
@@ -75,6 +76,9 @@ export default function ServersPage(props) {
   }, [props.pendingServerAction, props.onServerActionHandled])
 
   const canManageServer = Boolean(props.canManageActiveServer)
+  /* Deleting is the owner's alone — the delete_server RPC raises for anyone
+     else, so an admin gets Leave Server instead of a button that always fails. */
+  const isServerOwner = Boolean(props.isActiveServerOwner)
   /* The server menu has no category picker, so Create Channel drops into the
      first category — same default the per-category button would give. */
   const firstCategoryId = (props.serverCategories || [])[0]?.id
@@ -237,7 +241,8 @@ export default function ServersPage(props) {
       await refreshServers(createdServer)
       if (presetApplied) toast.success(`${SERVER_PRESETS[serverPreset]?.name || 'Server'} space created`)
       else toast('Server created with the default channels. You can add the remaining preset channels manually.', { icon: '⚠️', duration: 6000 })
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'create-server', error })
       setIsCreatingServer(false)
       toast.error('Could not create server')
     }
@@ -255,7 +260,8 @@ export default function ServersPage(props) {
       closeJoinModal()
       await refreshServers(server)
       toast.success('Server joined')
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'join-server', error })
       toast.error('Could not join server')
     }
   }
@@ -270,7 +276,8 @@ export default function ServersPage(props) {
       if (!channel) throw new Error('Channel was not created')
       closeChannelModal()
       toast.success('Channel created')
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'create-channel', error })
       setIsCreatingChannel(false)
       toast.error('Could not create channel')
     }
@@ -286,7 +293,8 @@ export default function ServersPage(props) {
       if (!category) throw new Error('Category was not created')
       closeCategoryModal()
       toast.success('Category created')
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'create-category', error })
       setIsCreatingCategory(false)
       toast.error('Could not create category')
     }
@@ -325,7 +333,8 @@ export default function ServersPage(props) {
         toast.success('Channel updated')
       }
       closeEditServerItemModal()
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'update-server-item', error })
       setIsSavingServerItem(false)
       if (isServerEdit) toast.error('Could not update server')
       else toast.error(editingServerItem.type === 'category' ? 'Could not update category' : 'Could not update channel')
@@ -354,7 +363,8 @@ export default function ServersPage(props) {
         await props.handleDeleteChannel?.(item.id)
         toast.success('Channel deleted')
       }
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'delete-server-item', error })
       toast.error(type === 'category' ? 'Could not delete category' : 'Could not delete channel')
     }
   }
@@ -372,7 +382,8 @@ export default function ServersPage(props) {
       setActiveInviteCode(data.code)
       await navigator.clipboard.writeText(data.code)
       toast.success('Invite code copied')
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'create-invite', error })
       toast.error('Could not create invite')
     } finally {
       setIsGeneratingInvite(false)
@@ -381,7 +392,7 @@ export default function ServersPage(props) {
 
   const askServerAction = (action) => {
     setIsServerMenuOpen(false)
-    if (action === 'delete' && !canManageServer) return toast.error('Only server admins can delete this server.')
+    if (action === 'delete' && !isServerOwner) return toast.error('Only the server owner can delete this server.')
     const serverName = props.activeServer?.name || 'this server'
     setDangerPrompt(action === 'delete'
       ? {
@@ -405,7 +416,8 @@ export default function ServersPage(props) {
       setIsServerMenuOpen(false)
       setPanelView('list')
       toast.success(action === 'delete' ? 'Server deleted' : 'Server left')
-    } catch (_err) {
+    } catch (error) {
+      debug.error('SERVER_ADMIN', { operation: 'server-action', error })
       toast.error(action === 'delete' ? 'Could not delete server' : 'Could not leave server')
     }
   }
@@ -619,7 +631,7 @@ export default function ServersPage(props) {
                   <button type="button" onClick={() => { setIsServerMenuOpen(false); canManageServer ? setIsCategoryModalOpen(true) : toast.error('Only server admins can add categories.') }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Category</button>
                   <button type="button" onClick={() => { setIsServerMenuOpen(false); openChannelModal(firstCategoryId) }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Channel</button>
                   <button type="button" onClick={() => openEditServerItemModal('server', props.activeServer)} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Edit Server</button>
-                  {canManageServer ? (
+                  {isServerOwner ? (
                     <button type="button" onClick={() => askServerAction('delete')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Delete Server</button>
                   ) : (
                     <button type="button" onClick={() => askServerAction('leave')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Leave Server</button>
