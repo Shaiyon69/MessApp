@@ -487,7 +487,21 @@ iframe {
     -webkit-touch-callout: none;
   }
 
+  /* Rows that open their menu on a hold: suppress the iOS copy/share callout
+     the gesture would otherwise raise. No touch-action here — the list still
+     has to scroll; useLongPress cancels the press on movement instead. */
+  .long-press-target,
+  .long-press-target button {
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   @media (pointer: coarse) {
+    .long-press-target {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
     .message-touch-target {
       user-select: none;
       -webkit-user-select: none;

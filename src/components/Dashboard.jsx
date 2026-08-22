@@ -21,7 +21,6 @@ import CallOverlay from './chat/CallOverlay'
 import RightSidebar from './layout/RightSidebar'
 import ChatArea from './layout/ChatArea'
 
-import ServerSettingsModal from './modals/ServerSettings'
 // import ChannelCreationModal from './modals/ChannelCreation'
 import ChannelSettingsModal from './modals/ChannelSettings'
 import UserSettingsModal from './modals/UserSettings'
@@ -216,7 +215,6 @@ export default function Dashboard({ session }) {
   const serverChannelsRequestRef = useRef(0)
   const pushNavigationHandlerRef = useRef(null)
   const pushNavigationMountedRef = useRef(false)
-  const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
@@ -244,7 +242,6 @@ export default function Dashboard({ session }) {
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
   const [reportTarget, setReportTarget] = useState(null)
-  const [serverSettingsName, setServerSettingsName] = useState('')
   const [channelSettingsName, setChannelSettingsName] = useState('')
   const profileCacheKey = `profile_cache_${session.user.id}`
   const [profileOverride, setProfileOverride] = useState(() => {
@@ -455,7 +452,6 @@ export default function Dashboard({ session }) {
       selectedImage: chatManagerProps.selectedImage,
       showQuickSwitcher,
 	      confirmAction,
-	      showServerSettings,
 	      showChannelModal,
 	      showChannelSettings,
 	      dmActionMenuId,
@@ -463,7 +459,7 @@ export default function Dashboard({ session }) {
 	      activeDm,
 	      view
 	    };
-	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
+	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
     const setupBackButton = async () => {
@@ -485,7 +481,6 @@ export default function Dashboard({ session }) {
 	        else if (state.selectedImage) chatManagerProps.setSelectedImage(null);
         else if (state.confirmAction) setConfirmAction(null);
         else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
-        else if (state.showServerSettings) setShowServerSettings(false);
         else if (state.showChannelModal) setShowChannelModal(false);
         else if (state.showChannelSettings) setShowChannelSettings(false);
         else if (state.settingsModalConfig.isOpen) closeUserSettings();
@@ -608,7 +603,6 @@ export default function Dashboard({ session }) {
     settingsModalConfig.isOpen,
     showQuickSwitcher,
     hasConfirmAction,
-    showServerSettings,
     showChannelModal,
     showChannelSettings,
     hasSelectedImage,
@@ -1381,10 +1375,7 @@ export default function Dashboard({ session }) {
     const cleanName = name.trim()
     const serverId = server_id || activeServer?.id
     if (!cleanName || !serverId || serverId !== activeServer?.id || !category_id) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can add channels.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can add channels.')
     const channelType = type === 'voice' ? 'voice' : 'text'
 
     const { data: lastChannel, error: positionError } = await supabase
@@ -1420,10 +1411,7 @@ export default function Dashboard({ session }) {
     const cleanName = name.trim()
     const serverId = activeServer?.id
     if (!cleanName || !serverId) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can add categories.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can add categories.')
 
     const { data: lastCategory, error: positionError } = await supabase
       .from('categories')
@@ -1454,10 +1442,7 @@ export default function Dashboard({ session }) {
   const handleUpdateCategory = async (categoryId, name) => {
     const cleanName = name.trim()
     if (!activeServer?.id || !categoryId || !cleanName) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can edit categories.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can edit categories.')
     const { data: category, error } = await supabase
       .from('categories')
       .update({ name: cleanName })
@@ -1472,10 +1457,7 @@ export default function Dashboard({ session }) {
 
   const handleDeleteCategory = async (categoryId) => {
     if (!activeServer?.id || !categoryId) return
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can delete categories.')
-      return
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can delete categories.')
     const { error } = await supabase
       .from('categories')
       .delete()
@@ -1490,10 +1472,7 @@ export default function Dashboard({ session }) {
   const handleUpdateChannel = async (channelId, name) => {
     const cleanName = name.trim()
     if (!activeServer?.id || !channelId || !cleanName) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can edit channels.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can edit channels.')
     const { data: channel, error } = await supabase
       .from('channels')
       .update({ name: cleanName })
@@ -1509,10 +1488,7 @@ export default function Dashboard({ session }) {
 
   const handleDeleteChannel = async (channelId) => {
     if (!activeServer?.id || !channelId) return
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can delete channels.')
-      return
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can delete channels.')
     const { error } = await supabase
       .from('channels')
       .delete()
@@ -1523,12 +1499,14 @@ export default function Dashboard({ session }) {
     await fetchServerChannels(activeServer.id)
   }
 
+  /* Both of these go through RPCs rather than deleting the rows directly. A
+     PostgREST delete that RLS filters down to zero rows reports no error, so
+     the raw version could not tell "left/deleted" from "silently refused" and
+     reported success either way. The functions raise instead, and delete_server
+     also queues the server's attachments for storage cleanup. */
   const handleLeaveServer = async () => {
     if (!activeServer?.id) return
-    const { error } = await supabase
-      .from('server_members')
-      .delete()
-      .match({ server_id: activeServer.id, profile_id: session.user.id })
+    const { error } = await supabase.rpc('leave_server', { target_server_id: activeServer.id })
     if (error) throw error
     setServers(current => current.filter(server => server.id !== activeServer.id))
     if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
@@ -1540,11 +1518,8 @@ export default function Dashboard({ session }) {
   }
 
   const handleDeleteServer = async () => {
-    if (!activeServer?.id || !canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can delete this server.')
-      return
-    }
-    const { error } = await supabase.from('servers').delete().eq('id', activeServer.id)
+    if (!activeServer?.id) return
+    const { error } = await supabase.rpc('delete_server', { target_server_id: activeServer.id })
     if (error) throw error
     setServers(current => current.filter(server => server.id !== activeServer.id))
     if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
@@ -2353,7 +2328,6 @@ export default function Dashboard({ session }) {
         })
       }} onClose={closeUserSettings} />}
       {reportTarget && <ReportContentModal targetLabel={reportTarget.label} onSubmit={handleSubmitReport} onClose={() => setReportTarget(null)} />}
-      {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
       {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
     </div>
   )
