@@ -1363,7 +1363,9 @@ export default function Dashboard({ session }) {
 
       if (serverChannelsRequestRef.current !== requestId) return []
       setServerCategories(nextCategories)
-      setActiveChannel(current => current && nextChannels.some(channel => channel.id === current.id) ? current : null)
+      /* Swap in the freshly read row rather than keeping the held object, so a
+         rename lands and a channel opened by id alone fills itself in. */
+      setActiveChannel(current => (current && nextChannels.find(channel => channel.id === current.id)) || null)
       setServerChannelsLoading(false)
       return nextCategories
     } catch (_err) {
@@ -1395,7 +1397,6 @@ export default function Dashboard({ session }) {
     const { data: channel, error: insertError } = await supabase
       .from('channels')
       .insert({
-        server_id: serverId,
         category_id,
         name: cleanName,
         type: channelType,
@@ -1481,7 +1482,6 @@ export default function Dashboard({ session }) {
       .from('channels')
       .update({ name: cleanName })
       .eq('id', channelId)
-      .eq('server_id', activeServer.id)
       .select()
       .single()
     if (error) throw error
@@ -1497,7 +1497,6 @@ export default function Dashboard({ session }) {
       .from('channels')
       .delete()
       .eq('id', channelId)
-      .eq('server_id', activeServer.id)
     if (error) throw error
     if (activeVoiceSession?.channelId === channelId) leaveActiveVoice()
     await fetchServerChannels(activeServer.id)
@@ -1829,6 +1828,9 @@ export default function Dashboard({ session }) {
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
   const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
+  /* delete_server is owner-only; admins can manage everything else but must
+     leave rather than delete, so the two actions gate on different checks. */
+  const isActiveServerOwner = activeServer?.owner_id === session.user.id
 
   const quickSwitcherBase = allFriends
 
@@ -2025,6 +2027,7 @@ export default function Dashboard({ session }) {
         serverCategories={serverCategories}
         serverChannelsLoading={serverChannelsLoading}
         canManageActiveServer={canManageActiveServer}
+        isActiveServerOwner={isActiveServerOwner}
         fetchServers={fetchServers}
         handleCreateChannel={handleCreateChannel}
         handleCreateCategory={handleCreateCategory}
