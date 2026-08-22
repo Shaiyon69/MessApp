@@ -1662,6 +1662,13 @@ export default function Dashboard({ session }) {
   pushNavigationHandlerRef.current = async target => {
       if (!target || !pushNavigationMountedRef.current) return
       try {
+        if (target.type === 'friend_request') {
+          setView('home')
+          setActiveDm(null)
+          setHomeTab('notifs')
+          await fetchFriendRequests()
+          return
+        }
         if (target.type === 'dm_message') {
           let dm = dms.find(item => item.dm_room_id === target.dmRoomId)
           if (!dm) {

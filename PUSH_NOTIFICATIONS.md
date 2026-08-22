@@ -8,13 +8,16 @@ conversation routing IDs and a generic message notice, never message plaintext.
 1. A signed-in installation opts in from **User Settings → Notifications**.
 2. The client obtains an FCM token on Android/Web or an APNs device token on iOS.
 3. The client upserts that token into `public.push_devices` under RLS.
-4. A Supabase Database Webhook calls `send-message-push` after a `messages` insert.
-5. The Edge Function reloads the message and membership data using the service role,
-   excludes the sender, blocked users, and muted server members, and claims an
-   idempotent delivery event.
+4. A database trigger calls `send-message-push` after a `messages` insert, and after a
+   pending `friendships` insert.
+5. The Edge Function reloads the message (or friend request) and membership data using
+   the service role, excludes the sender, blocked users, and muted server members, and
+   claims an idempotent delivery event. Friend requests skip the delivery-event claim
+   because `push_delivery_events.message_id` references `messages(id)`.
 6. FCM HTTP v1 delivers Android/Web notifications; APNs delivers iOS notifications.
-7. Tapping a notification opens the target DM or server channel after access is
-   revalidated through the signed-in user's normal Supabase queries.
+7. Tapping a notification opens the target DM or server channel — or the notifications
+   tab for a friend request — after access is revalidated through the signed-in user's
+   normal Supabase queries.
 
 The application intentionally does not place encrypted DM content or channel message
 content in provider payloads or logs.
@@ -70,7 +73,9 @@ Apply the push migrations before deploying the function:
 - `20260715000200_push_devices.sql`
 - `20260715000300_push_delivery_events.sql`
 - `20260726000100_server_moderation.sql` (server mute preferences)
-- `20260727000100_register_push_device.sql` (atomic account/token ownership)
+- `20260727000150_register_push_device.sql` (atomic account/token ownership)
+- `20260822000100_message_push_webhook.sql` + `20260822000200_fix_message_push_webhook_schema.sql` (message trigger)
+- `20260822000300_friend_request_push_webhook.sql` (friend request trigger)
 
 Configure these Supabase Edge Function secrets:
 
@@ -113,6 +118,8 @@ real accounts and two physical devices:
 5. Confirm exactly one generic notification arrives.
 6. Tap it and confirm the correct DM opens.
 7. Repeat for a non-muted server channel and confirm a muted server is excluded.
+7a. Send a friend request from the other account, confirm one "sent you a friend request"
+    notification arrives, and tapping it opens the notifications tab.
 8. Disable notifications and confirm later messages do not create deliveries.
 9. Review only bounded IDs, counts, statuses, and provider error codes in function
    logs; never log tokens, payload bodies, credentials, or message content.

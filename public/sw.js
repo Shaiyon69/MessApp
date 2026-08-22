@@ -1,6 +1,6 @@
 const CACHE_NAME = 'messapp-v2';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
-const PUSH_DATA_KEYS = ['type', 'message_id', 'dm_room_id', 'server_id', 'channel_id', 'sender_id'];
+const PUSH_DATA_KEYS = ['type', 'message_id', 'dm_room_id', 'server_id', 'channel_id', 'sender_id', 'request_id'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)));
@@ -27,12 +27,12 @@ self.addEventListener('push', (event) => {
   }
   const notification = payload.notification || {};
   const data = payload.data || {};
-  if (!notification.title || !['dm_message', 'channel_message'].includes(data.type)) return;
+  if (!notification.title || !['dm_message', 'channel_message', 'friend_request'].includes(data.type)) return;
   event.waitUntil(self.registration.showNotification(notification.title, {
     body: notification.body || 'New message',
     icon: '/messapp-icon-192.png',
     badge: '/messapp-icon-192.png',
-    tag: data.dm_room_id ? `dm-${data.dm_room_id}` : `channel-${data.channel_id}`,
+    tag: data.dm_room_id ? `dm-${data.dm_room_id}` : data.channel_id ? `channel-${data.channel_id}` : `friend-${data.sender_id}`,
     renotify: true,
     data
   }));
