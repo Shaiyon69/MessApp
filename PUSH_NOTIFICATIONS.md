@@ -14,8 +14,17 @@ conversation routing IDs and a generic message notice, never message plaintext.
    the service role, excludes the sender, blocked users, and muted server members, and
    claims an idempotent delivery event. Friend requests skip the delivery-event claim
    because `push_delivery_events.message_id` references `messages(id)`.
-6. FCM HTTP v1 delivers Android/Web notifications; APNs delivers iOS notifications.
-7. Tapping a notification opens the target DM or server channel — or the notifications
+6. Devices that reported this conversation on screen within the last 90 seconds are
+   dropped from the send, so a message you are already reading raises no notification.
+   The report lives in `push_devices.active_conversation_id/_at`, is written only while
+   the app is visible, and expires so a force-quit app cannot silence a chat.
+7. One bounded scan of the conversation (50 most recent messages) plus the reader’s
+   `dm_reads`/`channel_reads` marker turns into a per-recipient unread count, so a
+   burst reads as "4 new messages" instead of four notifications. Providers collapse
+   by conversation — FCM `tag`, `apns-collapse-id`, service-worker `tag` — so the
+   newest one replaces the visible notification rather than stacking.
+8. FCM HTTP v1 delivers Android/Web notifications; APNs delivers iOS notifications.
+9. Tapping a notification opens the target DM or server channel — or the notifications
    tab for a friend request — after access is revalidated through the signed-in user's
    normal Supabase queries.
 
@@ -76,6 +85,7 @@ Apply the push migrations before deploying the function:
 - `20260727000150_register_push_device.sql` (atomic account/token ownership)
 - `20260822000100_message_push_webhook.sql` + `20260822000200_fix_message_push_webhook_schema.sql` (message trigger)
 - `20260822000300_friend_request_push_webhook.sql` (friend request trigger)
+- `20260822000400_push_device_active_conversation.sql` (open-conversation suppression)
 
 Configure these Supabase Edge Function secrets:
 

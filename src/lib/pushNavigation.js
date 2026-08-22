@@ -1,5 +1,16 @@
 export const PUSH_NAVIGATION_EVENT = 'messapp:push-navigation'
 export const PENDING_PUSH_TARGET_KEY = 'messapp_pending_push_target'
+// The service worker asks the page which conversation is on screen before it
+// shows a notification, so a message you are already reading stays silent.
+export const ACTIVE_CONVERSATION_QUERY = 'MESSAPP_ACTIVE_CONVERSATION_QUERY'
+
+let activeConversationId = null
+
+export const setActiveConversationId = value => {
+  activeConversationId = value || null
+}
+
+export const getActiveConversationId = () => activeConversationId
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
