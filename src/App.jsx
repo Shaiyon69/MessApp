@@ -23,6 +23,10 @@ let keyboardResizeConfigured = false
 
 export default function App() {
   const [session, setSession] = useState(null)
+  /* null means "signed out", which is also what it means before getSession()
+     resolves — so nothing auth-shaped renders until this flips. Otherwise the
+     login screen paints for a frame (longer, if the token needs refreshing). */
+  const [sessionReady, setSessionReady] = useState(false)
   const [showRegister, setShowRegister] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
   const [loginMessage, setLoginMessage] = useState('')
@@ -67,10 +71,13 @@ export default function App() {
       debug.info('APP_SESSION', { operation: 'initial-session', authenticated: Boolean(session) })
     }).catch(error => {
       debug.error('APP_SESSION', { operation: 'initial-session', error })
+    }).finally(() => {
+      setSessionReady(true)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      setSessionReady(true)
       debug.info('APP_SESSION', { operation: 'auth-state-change', authEvent: _event, authenticated: Boolean(session) })
       // A recovery link may land on any path (site_url fallback, deep link);
       // send it to the update-password screen instead of the Dashboard.
@@ -145,6 +152,10 @@ export default function App() {
   }
 
   const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password'
+
+  /* Same shell, no children: the background is already painted, so the app
+     opens straight into the Dashboard for a signed-in user. */
+  if (!sessionReady) return <div className="ambient-shell flex h-full w-full" />
 
   return (
     <div className={`ambient-shell flex flex-col items-center justify-center h-full w-full font-sans ${isAuthSurface ? 'auth-shell' : 'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'}`}>
