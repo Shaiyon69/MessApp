@@ -113,7 +113,7 @@ export default function AddFriendView({ session, allFriends = [], getPresenceLab
               autoCapitalize="none"
               spellCheck={false}
               placeholder="name#0000"
-              className="h-11 min-w-0 flex-1 bg-transparent px-1 type-body font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] type-body"
+              className="h-11 min-w-0 flex-1 bg-transparent px-1 type-body font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
             />
             <button
               type="submit"
