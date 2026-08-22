@@ -1267,12 +1267,6 @@ iframe {
     box-shadow: var(--shadow-premium);
   }
 
-  .notification-badge {
-    background: #f23f43;
-    color: #fff;
-    line-height: 1;
-  }
-
   .voice-controls-drawer {
     border: 1px solid var(--border-subtle);
     background: var(--surface-container-high);
@@ -1447,6 +1441,19 @@ iframe {
     border-color: transparent;
     background: var(--surface-container-highest);
     box-shadow: none;
+  }
+
+  /* Unread notifications recolor the bell itself instead of stacking a count
+     badge on top of it. Declared after the active-tab rule so the blue holds
+     even while the Notifications tab is the one selected. */
+  .ios-segmented-control .home-tab-button[data-alert],
+  .ios-segmented-control .home-tab-button[data-alert]:hover,
+  .home-tab-button[data-alert] {
+    color: #3b82f6;
+  }
+
+  .home-tab-button[data-alert] svg {
+    filter: drop-shadow(0 0 6px rgba(59,130,246,0.45));
   }
 
   .dashboard-overview {
