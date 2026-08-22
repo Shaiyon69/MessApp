@@ -9,7 +9,8 @@ import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
@@ -18,6 +19,7 @@ import ChatEmojiPicker from './ChatEmojiPicker'
 import VoiceMessagePlayer from './VoiceMessagePlayer'
 import StatusAvatar from '../ui/StatusAvatar'
 import { debug } from '../../lib/debug'
+import { downloadFile } from '../../lib/downloadFile'
 
 const loadedMessageImageKeys = new Set()
 const MAX_LOADED_MESSAGE_IMAGE_KEYS = 1000
@@ -279,7 +281,11 @@ const MessageVideo = ({
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 type-meta font-bold text-white"
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              downloadFile(src).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'video-fallback', error }); toast.error('Download failed') })
+            }}
           >
             Download video
           </a>
@@ -1585,6 +1591,10 @@ export const MemoizedMessage = React.memo(({
                               target="_blank"
                               rel="noopener noreferrer"
                               download={attachment.file_name || true}
+                              onClickCapture={(event) => {
+                                event.preventDefault()
+                                downloadFile(attachmentUrl, attachment.file_name).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'file-card', error }); toast.error('Download failed') })
+                              }}
                               className="file-message-card flex min-w-[220px] max-w-[calc(100vw-2rem)] overflow-hidden items-center gap-3 rounded-2xl border px-4 py-3.5 text-[var(--chat-text,var(--text-main))] transition-all duration-300 ease-out transform hover:-translate-y-0.5 hover:border-[var(--theme-50)]"
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -1989,6 +1999,9 @@ export const MemoizedMessage = React.memo(({
                     >
                       <SmilePlus size={15} aria-hidden="true" />
                     </button>
+	                    {hasVisibleContent && (
+	                      <button type="button" data-reaction-action="copy" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { navigator.clipboard.writeText(visibleContent).then(() => toast.success('Copied!'), () => toast.error('Copy failed')); closeActionMenu('action_copy'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Copy" aria-label="Copy message text"><Copy size={15} aria-hidden="true" /></button>
+	                    )}
 	                    {isMe && !hasAttachments && (
 	                      <button type="button" data-reaction-action="edit" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
 	                    )}
@@ -1997,7 +2010,7 @@ export const MemoizedMessage = React.memo(({
 	                    )}
 	                    <button type="button" data-reaction-action="pin" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { togglePinnedMessage(m); closeActionMenu('action_pin'); }} className={`message-action-button md:hover:bg-[var(--border-subtle)] ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'} aria-label={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={15} aria-hidden="true" /></button>
 	                    {firstImageUrl && (
-	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.stopPropagation(); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
+	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.preventDefault(); e.stopPropagation(); downloadFile(firstImageUrl, imageAttachments[0]?.file_name).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'action-menu', error }); toast.error('Download failed') }); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
 	                        <Download size={15} aria-hidden="true" />
 	                      </a>
 	                    )}
