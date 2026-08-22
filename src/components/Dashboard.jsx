@@ -28,6 +28,7 @@ import ReportContentModal from './modals/ReportContentModal'
 
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
 import { normalizeProfileBaseName } from '../lib/security'
+import { downloadFile } from '../lib/downloadFile'
 import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
 import { buildNotifications } from '../lib/notifications'
@@ -2303,14 +2304,10 @@ export default function Dashboard({ session }) {
                 type="button"
                 className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 type-label font-bold transition hover:bg-white/20"
                 onClick={() => {
-                  const a = document.createElement('a')
-                  a.style.display = 'none'
-                  a.href = selectedImageItem?.url
-                  a.download = selectedImageItem?.name || `messapp_${selectedMediaIsVideo ? 'video' : 'image'}_${crypto.randomUUID().substring(0, 8)}.${selectedMediaIsVideo ? 'mp4' : 'jpg'}`
-                  document.body.appendChild(a)
-                  a.click()
-                  a.remove()
-                  toast.success(`${selectedMediaIsVideo ? 'Video' : 'Image'} download started`)
+                  const fallbackName = `messapp_${selectedMediaIsVideo ? 'video' : 'image'}_${crypto.randomUUID().substring(0, 8)}.${selectedMediaIsVideo ? 'mp4' : 'jpg'}`
+                  downloadFile(selectedImageItem?.url, selectedImageItem?.name || fallbackName)
+                    .then(() => toast.success(`${selectedMediaIsVideo ? 'Video' : 'Image'} download started`))
+                    .catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'lightbox', error }); toast.error('Download failed') })
                 }}
               >
                 <Download size={18} /><span className="hidden sm:inline">Save {selectedMediaIsVideo ? 'Video' : 'Image'}</span><span className="sm:hidden">Save</span>

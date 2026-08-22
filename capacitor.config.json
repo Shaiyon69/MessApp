@@ -3,6 +3,9 @@
   "appName": "MessApp",
   "webDir": "dist",
   "bundledWebRuntime": false,
+  "server": {
+    "allowNavigation": ["*.supabase.co"]
+  },
   "plugins": {
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]

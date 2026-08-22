@@ -9,9 +9,11 @@ import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, F
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import { safeMediaUrl } from '../../lib/security'
+import { downloadFile } from '../../lib/downloadFile'
 import { supabase } from '../../supabaseClient'
 import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverModeration'
 import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
+import { debug } from '../../lib/debug'
 
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
   enabled: import.meta.env?.VITE_SERVER_NOTIFICATION_PREFERENCES_ENABLED === 'true'
@@ -682,12 +684,23 @@ export default function RightSidebar({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {activeAttachments.map(({ attachment }) => (
-                        <a key={`doc-${attachment.id || attachment.file_url}`} href={safeDocumentUrl(attachment.file_url)} target="_blank" rel="noopener noreferrer" download={attachment.file_name || true} className="flex items-center gap-3 p-3 rounded-xl border border-current text-[var(--theme-base)] opacity-90 bg-[var(--surface-section)] hover:bg-[var(--bg-surface)] transition-all duration-300 ease-out transform">
+                      {activeAttachments.map(({ attachment }) => {
+                        /* A document whose hydration failed has no usable URL;
+                           an inert row beats a link that always toasts a failure. */
+                        const documentUrl = safeDocumentUrl(attachment.file_url)
+                        if (!documentUrl) return (
+                          <div key={`doc-${attachment.id || attachment.file_name}`} className="flex items-center gap-3 p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-section)] text-gray-500">
+                            <FileText size={16} className="shrink-0" />
+                            <span className="type-label truncate min-w-0">{attachment.file_name || 'Document'} • Unavailable</span>
+                          </div>
+                        )
+                        return (
+                        <a key={`doc-${attachment.id || attachment.file_url}`} href={documentUrl} target="_blank" rel="noopener noreferrer" download={attachment.file_name || true} onClick={(event) => { event.preventDefault(); downloadFile(documentUrl, attachment.file_name).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'sidebar-document', error }); toast.error('Download failed') }) }} className="flex items-center gap-3 p-3 rounded-xl border border-current text-[var(--theme-base)] opacity-90 bg-[var(--surface-section)] hover:bg-[var(--bg-surface)] transition-all duration-300 ease-out transform">
                           <FileText size={16} className="shrink-0" />
                           <span className="type-label text-gray-300 truncate min-w-0">{attachment.file_name || 'Document'}</span>
                         </a>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
