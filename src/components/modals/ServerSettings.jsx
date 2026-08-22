@@ -58,19 +58,19 @@ export default function ServerSettingsModal({ activeServer, handleUpdate, handle
 
   return (
     <div data-ui-overlay-owner="ServerSettings:modal" className="premium-backdrop fixed inset-0 flex flex-col justify-end md:justify-center items-center z-[100] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-      <div onMouseMove={trackSpotlight} className="premium-modal premium-card text-white p-6 md:p-8 rounded-t-3xl md:rounded-3xl w-full max-w-md animate-slide-up md:animate-fade-in pb-10 md:pb-8 flex flex-col max-h-[90vh]">
+      <div onMouseMove={trackSpotlight} className="premium-modal text-white p-5 rounded-t-3xl md:rounded-2xl w-full max-w-sm animate-slide-up md:animate-fade-in pb-8 md:pb-5 flex flex-col max-h-[85vh]">
         
-        <div className="flex justify-between items-center mb-6 md:mb-8">
-          <h3 className="gradient-text text-2xl md:text-3xl font-semibold tracking-tight">Server Overview</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="gradient-text type-title font-semibold tracking-tight">Server Overview</h3>
           <button onClick={onClose} className="p-2 bg-white/5 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer md:hidden outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
             <X size={20} />
           </button>
         </div>
 
-        <div className="overflow-y-auto custom-scrollbar pr-2">
-          <div className="premium-section p-5 rounded-2xl mb-6">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 block mb-2">Invite Friends</label>
-            <div className="premium-input flex items-center rounded-xl overflow-hidden ghost-border h-14">
+        <div className="overflow-y-auto custom-scrollbar -mr-2 pr-2">
+          <div className="mb-5">
+            <label className="type-meta font-bold text-gray-500 uppercase tracking-widest block mb-2">Invite Friends</label>
+            <div className="premium-input flex items-center rounded-xl overflow-hidden ghost-border h-12">
               <input className="flex-1 px-4 bg-transparent text-white font-mono outline-none w-full" value={inviteCode || 'Generate a link to share'} readOnly />
               {inviteCode ? (
                 <>
@@ -83,26 +83,26 @@ export default function ServerSettingsModal({ activeServer, handleUpdate, handle
                 </>
               ) : (
                 <button type="button" onClick={generateInvite} disabled={loading} className="premium-button px-6 flex items-center justify-center h-full cursor-pointer disabled:opacity-50 rounded-none">
-                  {loading ? <Loader2 className="animate-spin text-white" size={20} /> : <span className="text-white font-bold text-sm">Generate</span>}
+                  {loading ? <Loader2 className="animate-spin text-white" size={20} /> : <span className="text-white font-bold type-body">Generate</span>}
                 </button>
               )}
             </div>
           </div>
 
-          <div className="premium-section p-5 rounded-2xl">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1 block mb-2">Server Name</label>
-            <div className="premium-input rounded-xl ghost-border h-14 transition-all px-4 flex items-center mb-6">
+          <div>
+            <label className="type-meta font-bold text-gray-500 uppercase tracking-widest block mb-2">Server Name</label>
+            <div className="premium-input rounded-xl ghost-border h-12 transition-all px-4 flex items-center mb-5">
               <input className="bg-transparent border-none outline-none w-full text-white font-medium" type="text" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             
             <div className="flex flex-col gap-3 pt-4 border-t border-[var(--border-subtle)]">
-              <button type="button" onClick={handleUpdate} className="premium-button w-full py-4 md:py-3 rounded-xl font-bold cursor-pointer flex items-center justify-center gap-2">
+              <button type="button" onClick={handleUpdate} className="premium-button w-full h-11 rounded-xl font-bold cursor-pointer flex items-center justify-center gap-2">
                 <Save size={18} /> Save Changes
               </button>
               
               <div className="flex flex-col md:flex-row gap-3">
-                <button type="button" onClick={onClose} className="premium-secondary-button flex-1 py-4 md:py-3 rounded-xl font-bold cursor-pointer hidden md:block">Cancel</button>
-                <button type="button" onClick={handleDelete} className="premium-danger-button flex-1 py-4 md:py-3 rounded-xl font-bold cursor-pointer flex items-center justify-center gap-2">
+                <button type="button" onClick={onClose} className="premium-secondary-button flex-1 h-11 rounded-xl font-bold cursor-pointer hidden md:block">Cancel</button>
+                <button type="button" onClick={handleDelete} className="premium-danger-button flex-1 h-11 rounded-xl font-bold cursor-pointer flex items-center justify-center gap-2">
                   <Trash2 size={18} /> Delete Server
                 </button>
               </div>

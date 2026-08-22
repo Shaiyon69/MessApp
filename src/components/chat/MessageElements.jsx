@@ -282,13 +282,13 @@ const MessageVideo = ({
       {failed && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black px-4 text-center">
           <FileText size={24} className="text-gray-400" aria-hidden="true" />
-          <span className="text-xs font-bold text-white">This video codec cannot be previewed here.</span>
+          <span className="type-meta font-bold text-white">This video codec cannot be previewed here.</span>
           <a
             href={src}
             download
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold text-white"
+            className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 type-meta font-bold text-white"
             onClick={(event) => event.stopPropagation()}
           >
             Download video
@@ -322,7 +322,7 @@ const MessageVideo = ({
       {concealed && frameReady && !failed && (
         <button
           type="button"
-          className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-black/45 text-sm font-black text-white"
+          className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-black/45 type-label font-black text-white"
           onClick={(event) => {
             event.stopPropagation()
             onReveal?.()
@@ -331,7 +331,7 @@ const MessageVideo = ({
         >
           <EyeOff size={24} aria-hidden="true" />
           <span>Spoiler</span>
-          <span className="text-[10px] font-semibold text-white/75">Tap to reveal</span>
+          <span className="type-meta font-semibold text-white/75">Tap to reveal</span>
         </button>
       )}
       {!concealed && !failed && frameReady && !playing && (
@@ -361,7 +361,7 @@ const MessageVideo = ({
       {!concealed && frameReady && !failed && onHide && (
         <button
           type="button"
-          className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-lg"
+          className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 type-meta font-bold text-white shadow-lg"
           onClick={(event) => {
             event.stopPropagation()
             videoRef.current?.pause()
@@ -515,7 +515,7 @@ export const LinkPreview = ({ url }) => {
     return (
       <div className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm">
         <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="w-[240px] sm:w-[320px] md:w-96 aspect-video border-0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerPolicy="no-referrer" allowFullScreen loading="lazy"></iframe>
-        <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block px-2 py-1 text-[11px] font-bold text-current hover:underline truncate">{fallbackHost || safeUrl}</a>
+        <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block px-2 py-1 type-meta font-bold text-current hover:underline truncate">{fallbackHost || safeUrl}</a>
       </div>
     )
   }
@@ -526,7 +526,7 @@ export const LinkPreview = ({ url }) => {
         <div className="px-2 py-1">
           <div className="h-3 w-36 rounded bg-current/20 animate-pulse mb-2"></div>
           <div className="h-2 w-48 max-w-full rounded bg-current/10 animate-pulse"></div>
-          <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold truncate">{fallbackHost || safeUrl}</div>
+          <div className="type-meta text-current mt-2 uppercase tracking-widest font-bold truncate">{fallbackHost || safeUrl}</div>
         </div>
       </a>
     )
@@ -536,8 +536,8 @@ export const LinkPreview = ({ url }) => {
     return (
       <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm cursor-pointer no-underline">
         <div className="px-2 py-1">
-          <h4 className="text-[13px] font-bold text-current truncate mb-1">{fallbackHost || safeUrl}</h4>
-          <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed break-words">{safeUrl}</p>
+          <h4 className="type-label font-bold text-current truncate mb-1">{fallbackHost || safeUrl}</h4>
+          <p className="type-snippet text-current/80 line-clamp-2 break-words">{safeUrl}</p>
         </div>
       </a>
     )
@@ -551,9 +551,9 @@ export const LinkPreview = ({ url }) => {
         </div>
       )}
       <div className="px-2 py-1">
-        <h4 className="text-[13px] font-bold text-current truncate mb-1">{preview.title}</h4>
-        <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed">{preview.description}</p>
-        <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-0.5">
+        <h4 className="type-label font-bold text-current truncate mb-1">{preview.title}</h4>
+        <p className="type-snippet text-current/80 line-clamp-2">{preview.description}</p>
+        <div className="type-meta text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-0.5">
           {safeHttpUrl(preview.logo?.url) && <img src={safeHttpUrl(preview.logo.url)} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
           <span className="truncate">{preview.publisher || fallbackHost}</span>
         </div>
@@ -1310,22 +1310,22 @@ export const MemoizedMessage = React.memo(({
       {showHeader ? (
         <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-8 w-8 mt-1 shadow-md ghost-border rounded-full shrink-0" />
       ) : (
-        <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 text-[10px] text-gray-500 font-medium select-none`}></div>
+        <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 type-meta text-gray-500 font-medium select-none`}></div>
       )}
       
       <div className={`flex flex-col w-full min-w-0 ${alignRight ? 'items-end' : ''}`}>
         
         {showHeader && (
         <div className={`flex items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
-            <span className={`text-[14px] md:text-[15px] font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
-            <span className="text-[10px] text-gray-500 font-medium">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className={`type-title font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
+            <span className="type-meta text-gray-500 tabular-nums">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         )}
         
         {isEditing && !isEditingCaption && window.innerWidth >= 768 ? (
           <form onSubmit={(e) => handleUpdateMessage(e, m.id)} className="mt-1 w-full max-w-3xl">
-            <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className={`w-full bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-2.5 rounded-xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`} autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
-            <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+            <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className={`w-full bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-2.5 rounded-xl ghost-border outline-none shadow-inner type-label focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`} autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
+            <div className={`mt-1.5 flex items-center gap-2 type-meta text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
               <button
                 type="button"
                 onClick={() => handleToggleMessageSpoiler(m)}
@@ -1369,7 +1369,7 @@ export const MemoizedMessage = React.memo(({
               )}
               
               {m.reply_to_message_id && repliedMsg && !m.is_deleted && (
-                <div onClick={(e) => { e.stopPropagation(); scrollToMessage(repliedMsg); }} className={`flex items-center gap-0.5 mb-1 opacity-70 text-[11px] text-gray-400 select-none cursor-pointer hover:opacity-100 transition-opacity ${alignRight ? 'flex-row-reverse text-right' : 'text-left'}`}>
+                <div onClick={(e) => { e.stopPropagation(); scrollToMessage(repliedMsg); }} className={`flex items-center gap-0.5 mb-1 opacity-70 type-meta text-gray-400 select-none cursor-pointer hover:opacity-100 transition-opacity ${alignRight ? 'flex-row-reverse text-right' : 'text-left'}`}>
                   <CornerDownLeft size={12} className="shrink-0" />
                   <StatusAvatar url={repliedMsg.profiles?.avatar_url} username={repliedMsg.profiles?.username} showStatus={false} className="w-3 h-3 rounded-full shrink-0" />
                   <span className="font-bold truncate max-w-[80px]">{repliedMsg.profiles?.username}</span>
@@ -1380,7 +1380,7 @@ export const MemoizedMessage = React.memo(({
               {m.is_deleted ? (
                 <div className={`px-3 py-1.5 md:px-4 md:py-2 rounded-2xl border w-fit max-w-full ${alignRight ? 'rounded-tr-none border-[var(--theme-20)] text-gray-400/80' : 'rounded-tl-none border-[var(--border-subtle)] text-gray-500'} bg-transparent border-dashed shadow-sm text-left flex items-center gap-2 select-none`}>
                   <Ban size={14} className="opacity-50" />
-                  <span className="italic text-[12px] md:text-[13px]">This message was unsent.</span>
+                  <span className="italic type-body">This message was unsent.</span>
                 </div>
               ) : (
                 <>
@@ -1391,7 +1391,7 @@ export const MemoizedMessage = React.memo(({
                         event.stopPropagation()
                         setMessageSpoilerRevealed(true)
                       }}
-                      className={`flex items-center gap-2 rounded-2xl border border-dashed px-4 py-2.5 text-sm font-bold ${alignRight ? 'ml-auto' : 'mr-auto'} bg-[var(--bg-surface)]/80 text-gray-300 hover:text-white`}
+                      className={`flex items-center gap-2 rounded-2xl border border-dashed px-4 py-2.5 type-label font-bold ${alignRight ? 'ml-auto' : 'mr-auto'} bg-[var(--bg-surface)]/80 text-gray-300 hover:text-white`}
                       aria-label="Reveal spoiler message"
                     >
                       <EyeOff size={15} aria-hidden="true" />
@@ -1403,15 +1403,15 @@ export const MemoizedMessage = React.memo(({
                     </div>
                   ) : hasVisibleContent && !showCaptionBelowMedia && (
                     <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
-                      <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
+                      <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{
                             code({ inline, className, children, ...props}) {
                               const match = /language-(\w+)/.exec(className || '')
                               return !inline && match ? (
-                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                              ) : <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-[var(--border-subtle)]" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} {...props}>{children}</code>
+                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border type-label shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
+                              ) : <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono type-meta border border-[var(--border-subtle)]" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} {...props}>{children}</code>
                             },
                             a({href, ...props}) {
                               const safeHref = safeHttpUrl(href)
@@ -1448,8 +1448,8 @@ export const MemoizedMessage = React.memo(({
                                 <FileText size={24} className="text-[var(--theme-base)]" />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <span className="block text-sm font-bold text-[var(--chat-text,var(--text-main))] truncate">{attachment.file_name || 'Attachment unavailable'}</span>
-                                <span className="block text-[11px] font-semibold text-gray-500">Unavailable{attachmentSize ? ` • ${attachmentSize}` : ''}</span>
+                                <span className="block type-label font-bold text-[var(--chat-text,var(--text-main))] truncate">{attachment.file_name || 'Attachment unavailable'}</span>
+                                <span className="block type-meta font-semibold text-gray-500">Unavailable{attachmentSize ? ` • ${attachmentSize}` : ''}</span>
                               </div>
                             </div>
                           ) : attachmentIsImage ? (
@@ -1479,7 +1479,7 @@ export const MemoizedMessage = React.memo(({
                                 {attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id) && (
                                   <button
                                     type="button"
-                                    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-xl bg-black/45 text-sm font-black text-white"
+                                    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-xl bg-black/45 type-label font-black text-white"
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setRevealedAttachmentSpoilers(previous => new Set(previous).add(attachment.id))
@@ -1488,13 +1488,13 @@ export const MemoizedMessage = React.memo(({
                                   >
                                     <EyeOff size={22} aria-hidden="true" />
                                     <span>Spoiler</span>
-                                    <span className="text-[10px] font-semibold text-white/75">Tap to reveal</span>
+                                    <span className="type-meta font-semibold text-white/75">Tap to reveal</span>
                                   </button>
                                 )}
                                 {attachment.is_spoiler && revealedAttachmentSpoilers.has(attachment.id) && (
                                   <button
                                     type="button"
-                                    className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-lg"
+                                    className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 type-meta font-bold text-white shadow-lg"
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setRevealedAttachmentSpoilers(previous => {
@@ -1526,7 +1526,7 @@ export const MemoizedMessage = React.memo(({
                                 {imageIndex === 3 && imageGallery.length > 4 && (
                                   <button
                                     type="button"
-                                    className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 text-2xl font-black text-white backdrop-blur-[1px]"
+                                    className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 type-view-title font-black text-white backdrop-blur-[1px]"
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setSelectedImage({
@@ -1593,8 +1593,8 @@ export const MemoizedMessage = React.memo(({
                                 <FileText size={25} className="text-[var(--theme-base)]" />
                               </div>
                               <div className="min-w-0 flex-1 text-left">
-                                <span className="block text-sm font-bold leading-tight truncate">{attachment.file_name || 'Attachment'}</span>
-                                <span className="mt-1 block text-[11px] font-semibold text-gray-500">{attachmentSize || 'File attachment'}</span>
+                                <span className="block type-label font-bold leading-tight truncate">{attachment.file_name || 'Attachment'}</span>
+                                <span className="mt-1 block type-meta font-semibold text-gray-500">{attachmentSize || 'File attachment'}</span>
                               </div>
                               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]">
                                 <Download size={16} aria-hidden="true" />
@@ -1612,7 +1612,7 @@ export const MemoizedMessage = React.memo(({
                         <textarea
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
-                          className={`w-full resize-none bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-3 rounded-2xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`}
+                          className={`w-full resize-none bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-3 rounded-2xl ghost-border outline-none shadow-inner type-label focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`}
                           autoFocus
                           rows={2}
                           placeholder="Add a caption"
@@ -1624,7 +1624,7 @@ export const MemoizedMessage = React.memo(({
                             }
                           }}
                         />
-                        <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`mt-1.5 flex items-center gap-2 type-meta text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
                           {editContent.trim() && (
                             <button
                               type="button"
@@ -1647,7 +1647,7 @@ export const MemoizedMessage = React.memo(({
                           event.stopPropagation()
                           setMessageSpoilerRevealed(true)
                         }}
-                        className={`mt-1.5 flex items-center gap-2 rounded-2xl border border-dashed bg-[var(--bg-surface)]/80 px-4 py-2.5 text-sm font-bold text-gray-300 ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                        className={`mt-1.5 flex items-center gap-2 rounded-2xl border border-dashed bg-[var(--bg-surface)]/80 px-4 py-2.5 type-label font-bold text-gray-300 ${alignRight ? 'ml-auto' : 'mr-auto'}`}
                         aria-label="Reveal spoiler caption"
                       >
                         <EyeOff size={15} aria-hidden="true" />
@@ -1655,7 +1655,7 @@ export const MemoizedMessage = React.memo(({
                       </button>
                     ) : showCaptionBelowMedia ? (
                       <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
-                        <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
+                        <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
@@ -1681,7 +1681,7 @@ export const MemoizedMessage = React.memo(({
                         event.stopPropagation()
                         setMessageSpoilerRevealed(false)
                       }}
-                      className={`mt-1 flex items-center gap-1 rounded-full bg-[var(--bg-surface)]/80 px-2.5 py-1 text-[10px] font-bold text-gray-400 hover:text-[var(--text-main)] ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                      className={`mt-1 flex items-center gap-1 rounded-full bg-[var(--bg-surface)]/80 px-2.5 py-1 type-meta font-bold text-gray-400 hover:text-[var(--text-main)] ${alignRight ? 'ml-auto' : 'mr-auto'}`}
                       aria-label={showCaptionBelowMedia ? 'Hide spoiler caption' : 'Hide spoiler message'}
                     >
                       <Eye size={12} aria-hidden="true" />
@@ -1696,7 +1696,7 @@ export const MemoizedMessage = React.memo(({
                   ))}
 
                   {showInlineTime && (
-                    <div className={`mt-1 mb-1 rounded-lg border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-element,var(--bg-element))]/80 px-2.5 py-2 text-[10px] text-gray-400 shadow-inner animate-fade-in ${alignRight ? 'text-right' : 'text-left'}`}>
+                    <div className={`mt-1 mb-1 rounded-lg border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-element,var(--bg-element))]/80 px-2.5 py-2 type-meta text-gray-400 shadow-inner animate-fade-in ${alignRight ? 'text-right' : 'text-left'}`}>
                       <div className="font-semibold text-[var(--chat-text,var(--text-main))]">{exactTime}</div>
                       {isMe && receiptRows.slice(1).map(row => (
                         <div key={row.label} className={`mt-0.5 flex items-center gap-2 ${alignRight ? 'justify-end' : 'justify-start'}`}>
@@ -1708,7 +1708,7 @@ export const MemoizedMessage = React.memo(({
                   )}
 
                   {shouldShowDeliveryStatus && (
-                    <div className={`mt-1 flex items-center gap-0.5 text-[10px] font-bold ${deliveryMeta.className} ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`mt-1 flex items-center gap-0.5 type-meta font-bold ${deliveryMeta.className} ${alignRight ? 'justify-end' : 'justify-start'}`}>
                       {DeliveryIcon && <DeliveryIcon size={12} strokeWidth={2.4} aria-hidden="true" />}
                       <span>{deliveryMeta.label}</span>
                       {deliveryStatus === 'failed' && (
@@ -1718,7 +1718,7 @@ export const MemoizedMessage = React.memo(({
                             e.stopPropagation()
                             retryFailedMessage?.(m)
                           }}
-                          className="ml-1 inline-flex items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold text-red-300 transition-colors hover:bg-red-500/20 cursor-pointer"
+                          className="ml-1 inline-flex items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 type-meta font-bold text-red-300 transition-colors hover:bg-red-500/20 cursor-pointer"
                         >
                           <RotateCcw size={11} aria-hidden="true" />
                           Retry
@@ -1732,7 +1732,7 @@ export const MemoizedMessage = React.memo(({
                       {Object.entries(groupedReactions).map(([emoji, reactions], idx) => {
                         const hasReacted = reactions.some(r => r.profile_id === currentUserId)
                         return (
-                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
+                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg type-meta flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
                             <span>{emoji}</span> <span className={`font-bold ${hasReacted ? 'text-[var(--text-main)]' : 'text-gray-400'}`}>{reactions.length}</span>
                           </button>
                         )
@@ -1845,7 +1845,7 @@ export const MemoizedMessage = React.memo(({
                                 if (editingQuickReactions) return
                                 handleReactionButtonTouchEnd(event, emoji)
                               }}
-                              className={`flex aspect-square min-h-9 w-full min-w-0 items-center justify-center rounded-full text-xl transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-105 ring-2 ring-[var(--theme-base)]' : ''}`}
+                              className={`flex aspect-square min-h-9 w-full min-w-0 items-center justify-center rounded-full type-view-title transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-105 ring-2 ring-[var(--theme-base)]' : ''}`}
                               title={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
                               aria-label={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
                             >
@@ -1889,14 +1889,14 @@ export const MemoizedMessage = React.memo(({
                                   if (nextPosition) setReactionPopoverPosition(nextPosition)
                                   setEditingQuickReactions(true)
                                 }}
-                                className="text-[11px] font-bold text-[var(--theme-base)] hover:text-[var(--text-main)]"
+                                className="type-meta font-bold text-[var(--theme-base)] hover:text-[var(--text-main)]"
                               >
                                 Edit quick reactions
                               </button>
                             </div>
                           )}
                           {editingQuickReactions && (
-                            <div className="flex items-center justify-between gap-3 bg-[var(--bg-element)] px-3 py-2 text-[11px] font-bold text-gray-400">
+                            <div className="flex items-center justify-between gap-3 bg-[var(--bg-element)] px-3 py-2 type-meta font-bold text-gray-400">
                               <span>Pick replacement for {quickReactions[quickReactionSlot]}</span>
                               <button
                                 type="button"
@@ -1936,22 +1936,22 @@ export const MemoizedMessage = React.memo(({
                   <div className="flex min-h-10 min-w-max items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-1 shadow-sm animate-fade-in">
                     {inlineDeleteStep === 'options' && (
                       <>
-                        {(isMe || canModerateMessage) && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">{isMe ? 'Unsend' : 'Remove'}</button>}
-                        <button type="button" data-reaction-action="delete-hide-option" onClick={() => setInlineDeleteStep('confirm_me')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer">Hide</button>
+                        {(isMe || canModerateMessage) && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 type-meta font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">{isMe ? 'Unsend' : 'Remove'}</button>}
+                        <button type="button" data-reaction-action="delete-hide-option" onClick={() => setInlineDeleteStep('confirm_me')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 type-meta font-bold text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer">Hide</button>
                         <div className="mx-0.5 h-5 w-px shrink-0 bg-[var(--border-subtle)]"></div>
 	                        <button type="button" data-reaction-action="delete-cancel" onClick={() => closeActionMenu('delete_cancel')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Cancel delete menu"><X size={15}/></button>
                       </>
                     )}
                     {inlineDeleteStep === 'confirm_everyone' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
-                        <span className="px-1 text-xs font-bold text-red-400 whitespace-nowrap">{isMe ? 'Unsend?' : 'Remove?'}</span>
+                        <span className="px-1 type-meta font-bold text-red-400 whitespace-nowrap">{isMe ? 'Unsend?' : 'Remove?'}</span>
 	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, isMe ? 'everyone' : 'moderate'); closeActionMenu('action_delete_everyone'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer" aria-label={isMe ? 'Confirm unsend' : 'Confirm moderator removal'}><Check size={15}/></button>
                         <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
                     )}
                     {inlineDeleteStep === 'confirm_me' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
-                        <span className="px-1 text-xs font-bold text-gray-400 whitespace-nowrap">Hide?</span>
+                        <span className="px-1 type-meta font-bold text-gray-400 whitespace-nowrap">Hide?</span>
 	                        <button type="button" data-reaction-action="delete-confirm-hide" onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--text-main)]/10 text-[var(--text-main)] transition-colors hover:bg-[var(--text-main)]/20 cursor-pointer" aria-label="Confirm hide"><Check size={15}/></button>
                         <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
@@ -2010,7 +2010,7 @@ export const MemoizedMessage = React.memo(({
 	                      <Trash2 size={15} aria-hidden="true" />
 	                    </button>
 	                    {showReceiptDetails && (
-	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 text-[11px] text-gray-400 shadow-inner md:col-span-full">
+	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 type-meta text-gray-400 shadow-inner md:col-span-full">
 	                        {receiptRows.map(row => (
 	                          <div key={row.label} className="flex items-center justify-between gap-4 py-0.5">
 	                            <span className="font-bold text-gray-500">{row.label}</span>
