@@ -101,6 +101,8 @@ export default function RightSidebar({
   searchQuery,
   setSearchQuery,
   searchResults,
+  searchLoading,
+  onSelectSearchResult,
   scrollToMessage,
   CONVERSATION_THEMES,
   WALLPAPERS,
@@ -717,12 +719,22 @@ export default function RightSidebar({
 
             <div className="premium-input ghost-border rounded-xl flex items-center px-4 py-3 mt-6 md:mt-8 mb-6 transition-all shrink-0">
               <Search size={18} className="text-gray-500 mr-2 shrink-0" aria-hidden="true" />
-              <input type="text" placeholder="Search in chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-gray-600 font-medium min-w-0" autoFocus />
+              <input type="text" placeholder="Search all conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-gray-600 font-medium min-w-0" autoFocus />
             </div>
             
-            {searchQuery && searchResults.length === 0 && <div className="text-center text-gray-500 type-body mt-8">No messages match your query.</div>}
+            {searchLoading && <div className="text-center text-gray-500 type-body mt-8">Searching…</div>}
+
+            {/* DM history is encrypted, so it is decrypted and scanned locally
+                rather than matched by the database — the reach differs by
+                conversation and saying so beats looking broken. */}
+            {!searchLoading && searchQuery && searchResults.length === 0 && (
+              <div className="text-center text-gray-500 type-body mt-8">
+                No messages match your query.
+                <span className="mt-2 block type-meta text-gray-600">Direct messages are searched over recent history only.</span>
+              </div>
+            )}
             
-            {searchQuery && searchResults.length > 0 && (
+            {!searchLoading && searchQuery && searchResults.length > 0 && (
               <>
                 <div className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-3 shrink-0">{searchResults.length} Matches Found</div>
                 
@@ -730,13 +742,14 @@ export default function RightSidebar({
                   {searchResults.map((m, i) => (
                     <button 
                       key={m.id ? `search-res-${m.id}` : `search-fallback-${i}`}
-                      onClick={() => { scrollToMessage(m); closeRightSidebar(); }}
+                      onClick={() => { (onSelectSearchResult || scrollToMessage)(m); closeRightSidebar(); }}
                       className="w-full text-left p-3 bg-[var(--surface-section)] rounded-xl cursor-pointer hover:bg-[var(--bg-surface)] border border-transparent hover:border-[var(--theme-50)] transition-all duration-300 ease-out transform group focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none"
                     >
                       <div className="flex justify-between items-baseline mb-1">
                         <span className="type-title font-bold text-[var(--text-main)] group-hover:text-[var(--theme-base)] transition-colors truncate pr-2">{m.profiles?.username}</span>
                         <span className="type-meta text-gray-500 shrink-0">{new Date(m.created_at).toLocaleDateString()}</span>
                       </div>
+                      {m.__search?.label && <div className="type-meta text-gray-500 truncate mb-1">{m.__search.label}</div>}
                       <p className="type-snippet text-gray-300 line-clamp-3 break-words">{m.is_spoiler ? 'Spoiler' : m.content}</p>
                     </button>
                   ))}
