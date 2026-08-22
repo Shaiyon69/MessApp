@@ -29,7 +29,7 @@ const initialEdits = profile => ({
 
 const Slider = ({ label, value, min, max, step = 1, onChange, valueLabel }) => (
   <label className="block">
-    <span className="mb-1 flex items-center justify-between text-[11px] font-bold text-gray-400">
+    <span className="mb-1 flex items-center justify-between type-meta font-bold text-gray-400">
       <span>{label}</span>
       <span className="tabular-nums text-gray-500">{valueLabel || value}</span>
     </span>
@@ -182,8 +182,8 @@ export default function MediaEditorModal({
       <section className="premium-menu relative z-10 flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[2rem] border border-white/10 sm:rounded-[2rem]">
         <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5">
           <div>
-            <p className="text-sm font-black text-[var(--text-main)]">{title}</p>
-            <p className="text-[11px] text-gray-500">{isVideo ? 'Crop and reframe video' : profile ? 'Exports a sharp 1024 × 1024 profile image' : 'Crop, rotate, recolor, or draw'}</p>
+            <p className="type-label font-black text-[var(--text-main)]">{title}</p>
+            <p className="type-meta text-gray-500">{isVideo ? 'Crop and reframe video' : profile ? 'Exports a sharp 1024 × 1024 profile image' : 'Crop, rotate, recolor, or draw'}</p>
           </div>
           <button type="button" onClick={onCancel} disabled={processing} className="premium-icon-button grid h-10 w-10 place-items-center rounded-full disabled:opacity-40" aria-label="Close"><X size={18} /></button>
         </header>
@@ -211,7 +211,7 @@ export default function MediaEditorModal({
                     filter: `brightness(${edits.brightness}%) saturate(${edits.saturation}%) hue-rotate(${edits.hue}deg)`
                   }}
                 />
-                <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white">Crop preview</span>
+                <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/65 px-2.5 py-1 type-meta font-bold text-white">Crop preview</span>
               </div>
             ) : (
               <canvas
@@ -227,14 +227,14 @@ export default function MediaEditorModal({
 
           <aside className="space-y-5 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-4 lg:border-l lg:border-t-0">
             <div>
-              <p className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-500"><Crop size={14} /> Crop</p>
+              <p className="mb-2 flex items-center gap-2 type-meta font-black uppercase tracking-widest text-gray-500"><Crop size={14} /> Crop</p>
               <div className="grid grid-cols-4 gap-1.5">
                 {(profile ? ASPECT_OPTIONS.filter(option => option.id === 'square') : ASPECT_OPTIONS).map(option => (
                   <button
                     key={option.id}
                     type="button"
                     onClick={() => setEdits(current => ({ ...current, aspect: option.id }))}
-                    className={`rounded-xl px-2 py-2 text-[11px] font-bold ${edits.aspect === option.id ? 'bg-[var(--theme-base)] text-white' : 'bg-[var(--bg-element)] text-gray-400'}`}
+                    className={`rounded-xl px-2 py-2 type-meta font-bold ${edits.aspect === option.id ? 'bg-[var(--theme-base)] text-white' : 'bg-[var(--bg-element)] text-gray-400'}`}
                   >
                     {option.label}
                   </button>
@@ -243,14 +243,14 @@ export default function MediaEditorModal({
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setTool('move')} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold ${tool === 'move' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400'}`}><Move size={15} /> Reposition</button>
-              <button type="button" onClick={() => setEdits(current => ({ ...current, rotation: (current.rotation + 90) % 360 }))} className="flex items-center justify-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2.5 text-xs font-bold text-gray-300"><RotateCw size={15} /> Rotate</button>
+              <button type="button" onClick={() => setTool('move')} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 type-meta font-bold ${tool === 'move' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400'}`}><Move size={15} /> Reposition</button>
+              <button type="button" onClick={() => setEdits(current => ({ ...current, rotation: (current.rotation + 90) % 360 }))} className="flex items-center justify-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2.5 type-meta font-bold text-gray-300"><RotateCw size={15} /> Rotate</button>
             </div>
 
             <Slider label="Zoom" value={edits.zoom} min={1} max={3} step={0.01} valueLabel={`${edits.zoom.toFixed(2)}×`} onChange={zoom => setEdits(current => ({ ...current, zoom }))} />
 
             <div className="space-y-3">
-              <p className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-gray-500"><Palette size={14} /> Color</p>
+              <p className="flex items-center gap-2 type-meta font-black uppercase tracking-widest text-gray-500"><Palette size={14} /> Color</p>
               <Slider label="Brightness" value={edits.brightness} min={50} max={150} valueLabel={`${edits.brightness}%`} onChange={brightness => setEdits(current => ({ ...current, brightness }))} />
               <Slider label="Saturation" value={edits.saturation} min={0} max={200} valueLabel={`${edits.saturation}%`} onChange={saturation => setEdits(current => ({ ...current, saturation }))} />
               <Slider label="Hue" value={edits.hue} min={-180} max={180} valueLabel={`${edits.hue}°`} onChange={hue => setEdits(current => ({ ...current, hue }))} />
@@ -259,7 +259,7 @@ export default function MediaEditorModal({
             {!isVideo && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <button type="button" onClick={() => setTool(tool === 'paint' ? 'move' : 'paint')} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold ${tool === 'paint' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400'}`}><Brush size={15} /> Paint</button>
+                  <button type="button" onClick={() => setTool(tool === 'paint' ? 'move' : 'paint')} className={`flex items-center gap-2 rounded-xl px-3 py-2 type-meta font-bold ${tool === 'paint' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400'}`}><Brush size={15} /> Paint</button>
                   <button type="button" onClick={() => setEdits(current => ({ ...current, strokes: current.strokes.slice(0, -1) }))} disabled={!edits.strokes.length} className="grid h-9 w-9 place-items-center rounded-full bg-[var(--bg-element)] text-gray-400 disabled:opacity-30" aria-label="Undo paint stroke"><Undo2 size={15} /></button>
                 </div>
                 <div className="flex items-center gap-3">
@@ -269,17 +269,17 @@ export default function MediaEditorModal({
               </div>
             )}
 
-            {error && <p className="rounded-xl bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300">{error}</p>}
+            {error && <p className="rounded-xl bg-red-500/10 px-3 py-2 type-meta font-semibold text-red-300">{error}</p>}
             {processing && isVideo && (
               <div>
-                <div className="mb-1 flex justify-between text-[10px] font-bold text-gray-400"><span>Rendering video</span><span>{Math.round(progress * 100)}%</span></div>
+                <div className="mb-1 flex justify-between type-meta font-bold text-gray-400"><span>Rendering video</span><span>{Math.round(progress * 100)}%</span></div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-element)]"><div className="h-full bg-[var(--theme-base)] transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
               </div>
             )}
 
             <div className="flex gap-2 pt-1">
-              <button type="button" onClick={() => { setEdits(initialEdits(profile)); setTool('move'); setError('') }} disabled={processing} className="flex-1 rounded-xl bg-[var(--bg-element)] px-4 py-3 text-xs font-bold text-gray-300">Reset</button>
-              <button type="button" onClick={applyEdit} disabled={processing || Boolean(error && !imageRef.current && !isVideo)} className="flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-[var(--theme-base)] px-4 py-3 text-xs font-black text-white shadow-lg disabled:opacity-50">
+              <button type="button" onClick={() => { setEdits(initialEdits(profile)); setTool('move'); setError('') }} disabled={processing} className="flex-1 rounded-xl bg-[var(--bg-element)] px-4 py-3 type-meta font-bold text-gray-300">Reset</button>
+              <button type="button" onClick={applyEdit} disabled={processing || Boolean(error && !imageRef.current && !isVideo)} className="flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-[var(--theme-base)] px-4 py-3 type-meta font-black text-white shadow-lg disabled:opacity-50">
                 {processing ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                 {processing ? 'Processing…' : profile ? 'Use photo' : 'Save edit'}
               </button>

@@ -79,7 +79,7 @@ export default function CallOverlay({
           >
             <GripHorizontal size={14} className="shrink-0 text-gray-600 md:h-4 md:w-4" aria-hidden="true" />
             <span className={`h-2 w-2 shrink-0 rounded-full ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} />
-            <span className="min-w-0 flex-1 truncate text-[10px] font-black uppercase tracking-[0.16em]">
+            <span className="min-w-0 flex-1 truncate type-meta font-black uppercase tracking-[0.16em]">
               {isMiniVideoCall ? 'Video call' : 'Voice call'} · {statusLabel}
             </span>
           </button>
@@ -99,8 +99,8 @@ export default function CallOverlay({
               style={!isVideoLive && !isScreenShareLive ? localVideoStyle : undefined}
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2.5 pb-2 pt-8 md:px-3.5 md:pb-3 md:pt-12">
-              <p className="truncate text-sm font-black tracking-tight text-white md:text-base">{remoteCaller?.username || 'Call'}</p>
-              <p className={`text-[9px] font-bold uppercase tracking-widest md:text-[10px] ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
+              <p className="truncate type-label font-black tracking-tight text-white type-body">{remoteCaller?.username || 'Call'}</p>
+              <p className={`type-meta font-bold uppercase tracking-widest type-meta ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
                 {isScreenShareLive ? 'Sharing their screen' : statusLabel}{!isVideoLive && !isScreenShareLive ? ' · Your camera' : ''}
               </p>
             </div>
@@ -120,8 +120,8 @@ export default function CallOverlay({
               <span className={`absolute bottom-0.5 right-0.5 z-[3] h-3 w-3 rounded-full border-2 border-[#151820] md:bottom-1 md:right-1 md:h-3.5 md:w-3.5 md:border-[3px] ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} aria-hidden="true" />
             </div>
             <div className="relative z-[1] min-w-0 flex-1">
-              <span className="block truncate text-sm font-black tracking-tight text-white md:text-lg">{remoteCaller?.username || 'Call'}</span>
-              <span className={`mt-0.5 block truncate text-[10px] font-bold uppercase tracking-[0.15em] ${isConnected ? 'text-green-400' : 'text-[var(--theme-base)]'}`}>
+              <span className="block truncate type-label font-black tracking-tight text-white type-title">{remoteCaller?.username || 'Call'}</span>
+              <span className={`mt-0.5 block truncate type-meta font-bold uppercase tracking-[0.15em] ${isConnected ? 'text-green-400' : 'text-[var(--theme-base)]'}`}>
                 {statusLabel}{isConnected ? ` · ${micEnabled ? 'Mic on' : 'Muted'}` : ''}
               </span>
               {isConnected && (
@@ -165,13 +165,13 @@ export default function CallOverlay({
               </button>
 
               {isIncoming ? (
-                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 text-[11px] font-black text-white md:h-10 md:gap-2 md:px-4 md:text-xs"><Phone size={14} />Accept</button>
+                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 type-meta font-black text-white md:h-10 md:gap-2 md:px-4 type-meta"><Phone size={14} />Accept</button>
               ) : (
                 <button type="button" onClick={() => endCallNetwork('ended')} className="direct-call-mini-end flex h-8 w-10 items-center justify-center rounded-full bg-red-500 text-white md:h-10 md:w-12" aria-label="End call" title="End call"><PhoneOff size={15}/></button>
               )}
             </>
           )}
-          {isTerminal && <span className="px-3 py-2 text-xs font-bold text-gray-500">{statusLabel}</span>}
+          {isTerminal && <span className="px-3 py-2 type-meta font-bold text-gray-500">{statusLabel}</span>}
         </div>
       </div>
     )
@@ -207,7 +207,7 @@ export default function CallOverlay({
              className={`w-full h-full object-cover ${isVideoLive ? 'block' : 'hidden'}`}
            />
            {isScreenShareLive && (
-             <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-md">
+             <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 type-meta font-bold text-white backdrop-blur-md">
                <ScreenShare size={13} />
                {remoteCaller?.username || 'They'} is sharing their screen
              </div>
@@ -233,14 +233,14 @@ export default function CallOverlay({
         {screenShareActive && (
           <div className={`overflow-hidden shadow-2xl border border-[var(--theme-base)]/60 bg-black transition-all duration-500 ${(isVideoLive || isScreenShareLive) ? 'absolute bottom-24 left-4 md:left-8 w-28 h-20 md:w-48 md:h-32 rounded-2xl z-40' : 'w-40 h-24 rounded-2xl'}`}>
             <video ref={localScreenVideoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-white">You're sharing</div>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center type-meta font-bold uppercase tracking-wide text-white">You're sharing</div>
           </div>
         )}
 
         {!isVideoLive && !isScreenShareLive && (
           <div className="absolute bottom-[8%] flex flex-col items-center px-4 text-center">
-            <h2 className="mb-1 text-2xl font-bold tracking-tight text-white md:text-3xl">{remoteCaller?.username}</h2>
-            <p className="text-sm font-bold text-gray-300">
+            <h2 className="mb-1 type-view-title font-bold tracking-tight text-white type-display">{remoteCaller?.username}</h2>
+            <p className="type-label font-bold text-gray-300">
               {statusLabel}
             </p>
           </div>
@@ -252,12 +252,12 @@ export default function CallOverlay({
               <Video size={24} />
             </div>
             <div className="text-center">
-              <h3 className="text-white font-bold text-lg">{remoteCaller?.username || 'User'}</h3>
-              <span className="text-gray-300 text-sm">is requesting to turn on video</span>
+              <h3 className="text-white font-bold type-title">{remoteCaller?.username || 'User'}</h3>
+              <span className="text-gray-300 type-label">is requesting to turn on video</span>
             </div>
             <div className="flex gap-3 w-full mt-2">
-               <button onClick={declineVideoRequest} className="flex-1 bg-white/5 border border-white/10 text-white py-3 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer">Decline</button>
-               <button onClick={acceptVideoRequest} className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
+               <button onClick={declineVideoRequest} className="flex-1 bg-white/5 border border-white/10 text-white py-3 rounded-xl type-label font-bold hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer">Decline</button>
+               <button onClick={acceptVideoRequest} className="flex-1 bg-green-500 text-white py-3 rounded-xl type-label font-bold hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
             </div>
           </div>
         )}

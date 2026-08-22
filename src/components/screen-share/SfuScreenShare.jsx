@@ -170,8 +170,8 @@ function StreamFallback({ participant, type }) {
         <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} showStatus={false} className="h-16 w-16" />
       </div>
       <div className="min-w-0">
-        <p className="truncate text-sm font-black text-white">{participant?.displayName || 'Participant'}</p>
-        <p className="mt-1 text-xs font-bold uppercase tracking-widest text-gray-500">{type === 'camera' ? 'Camera unavailable' : 'Stream unavailable'}</p>
+        <p className="truncate type-label font-black text-white">{participant?.displayName || 'Participant'}</p>
+        <p className="mt-1 type-meta font-bold uppercase tracking-widest text-gray-500">{type === 'camera' ? 'Camera unavailable' : 'Stream unavailable'}</p>
       </div>
     </div>
   )
@@ -179,7 +179,7 @@ function StreamFallback({ participant, type }) {
 
 function ParticipantBadge({ participant, streamSummary = '', compact = false }) {
   return (
-    <div className={`flex min-w-0 items-center gap-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+    <div className={`flex min-w-0 items-center gap-2 ${compact ? 'type-meta' : 'type-meta'}`}>
       <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} status="online" className={compact ? 'h-7 w-7' : 'h-8 w-8'} />
       <div className="min-w-0">
         <p className="truncate font-black text-[var(--text-main)]">{participant?.displayName || 'Participant'}</p>
@@ -210,7 +210,7 @@ function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, camera
               <StreamFallback participant={participant} type="camera" />
             )}
           </div>
-          <div className="flex items-center gap-1 bg-black/80 px-2 py-1 text-[10px] font-black text-white">
+          <div className="flex items-center gap-1 bg-black/80 px-2 py-1 type-meta font-black text-white">
             <Camera size={11} aria-hidden="true" />
             <span className="truncate">{participant?.displayName || 'Camera'}</span>
           </div>
@@ -220,7 +220,7 @@ function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, camera
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-2 pt-10 sm:p-3 sm:pt-12">
         <div className="flex items-end justify-between gap-3">
           <ParticipantBadge participant={participant} streamSummary={summary} compact />
-          <span className="shrink-0 rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur-md">{summary}</span>
+          <span className="shrink-0 rounded-full border border-white/10 bg-black/70 px-2 py-1 type-meta font-black uppercase tracking-widest text-white backdrop-blur-md">{summary}</span>
         </div>
       </div>
 
@@ -285,7 +285,7 @@ function AvatarParticipantTile({ participant, onPin }) {
         ))}
       </div>
       <span
-        className={`mt-3 min-h-6 rounded-full bg-green-500/15 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-green-200 transition-opacity duration-200 ${participant?.speaking ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        className={`mt-3 min-h-6 rounded-full bg-green-500/15 px-2 py-1 type-meta font-black uppercase tracking-widest text-green-200 transition-opacity duration-200 ${participant?.speaking ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         aria-hidden={!participant?.speaking}
       >
         Speaking
@@ -293,8 +293,8 @@ function AvatarParticipantTile({ participant, onPin }) {
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 sm:p-3">
         <div className="flex min-w-0 items-end justify-between gap-2">
           <div className="min-w-0 text-left">
-            <p className="truncate text-xs font-black text-white sm:text-sm">{participant?.displayName || 'Participant'}</p>
-            <p className="truncate text-[10px] font-bold text-gray-400">{statusText || 'Connected'}</p>
+            <p className="truncate type-meta font-black text-white type-label">{participant?.displayName || 'Participant'}</p>
+            <p className="truncate type-meta font-bold text-gray-400">{statusText || 'Connected'}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1 text-gray-300">
             {participant?.muted && <MicOff size={13} aria-label="Muted" />}
@@ -325,7 +325,7 @@ function VolumeSlider({ value, onChange, label }) {
         className="voice-volume-slider min-w-0 flex-1"
         aria-label={label}
       />
-      <span className="w-10 shrink-0 text-right font-mono text-[11px] font-black text-gray-400">{percent}%</span>
+      <span className="w-10 shrink-0 text-right font-mono type-meta font-black text-gray-400">{percent}%</span>
     </div>
   )
 }
@@ -348,8 +348,8 @@ function VolumeMixerPanel({
               <SlidersHorizontal size={21} aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h3 id="volume-mixer-title" className="text-lg font-black text-[var(--text-main)]">Your volume mixer</h3>
-              <p className="text-xs font-semibold text-gray-500">These levels only change what you hear.</p>
+              <h3 id="volume-mixer-title" className="type-title font-black text-[var(--text-main)]">Your volume mixer</h3>
+              <p className="type-meta font-semibold text-gray-500">These levels only change what you hear.</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="voice-control-button rounded-full bg-white/5 p-2 text-gray-400 hover:text-white" aria-label="Close volume mixer" title="Close">
@@ -358,15 +358,15 @@ function VolumeMixerPanel({
         </div>
 
         <div className="mt-5">
-          <h4 className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">Participants</h4>
+          <h4 className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">Participants</h4>
           <div className="mt-2 space-y-2">
             {participants.length > 0 ? participants.map(participant => (
               <div key={participant.id} className="rounded-2xl border border-[var(--border-subtle)] bg-black/20 p-3">
                 <div className="mb-3 flex min-w-0 items-center gap-2.5">
                   <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-8 w-8" />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-black text-[var(--text-main)]">{participant.displayName}</p>
-                    <p className="text-[10px] font-bold text-gray-500">Voice and shared media</p>
+                    <p className="truncate type-label font-black text-[var(--text-main)]">{participant.displayName}</p>
+                    <p className="type-meta font-bold text-gray-500">Voice and shared media</p>
                   </div>
                 </div>
                 <VolumeSlider
@@ -376,21 +376,21 @@ function VolumeMixerPanel({
                 />
               </div>
             )) : (
-              <p className="rounded-2xl border border-dashed border-[var(--border-subtle)] px-4 py-5 text-center text-xs font-semibold text-gray-500">Other participants will appear here when they join.</p>
+              <p className="rounded-2xl border border-dashed border-[var(--border-subtle)] px-4 py-5 text-center type-meta font-semibold text-gray-500">Other participants will appear here when they join.</p>
             )}
           </div>
         </div>
 
         {streams.length > 0 && (
           <div className="mt-5">
-            <h4 className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">Stream audio</h4>
+            <h4 className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">Stream audio</h4>
             <div className="mt-2 space-y-2">
               {streams.map(item => (
                 <div key={item.id} className="rounded-2xl border border-[var(--border-subtle)] bg-black/20 p-3">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-[var(--text-main)]">{item.participant.displayName}</p>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{item.type === 'camera' ? 'Camera audio' : 'Shared screen audio'}</p>
+                      <p className="truncate type-label font-black text-[var(--text-main)]">{item.participant.displayName}</p>
+                      <p className="type-meta font-bold uppercase tracking-widest text-gray-500">{item.type === 'camera' ? 'Camera audio' : 'Shared screen audio'}</p>
                     </div>
                     {item.type === 'camera' ? <Camera size={16} className="shrink-0 text-gray-500" /> : <ScreenShare size={16} className="shrink-0 text-gray-500" />}
                   </div>
@@ -405,7 +405,7 @@ function VolumeMixerPanel({
           </div>
         )}
 
-        <p className="mt-4 text-center text-[10px] font-semibold text-gray-600">Participant levels are remembered on this device. Setting a level to 0% locally mutes that source.</p>
+        <p className="mt-4 text-center type-meta font-semibold text-gray-600">Participant levels are remembered on this device. Setting a level to 0% locally mutes that source.</p>
       </section>
     </div>
   )
@@ -553,8 +553,8 @@ function MicTestPanel({ stream, onClose }) {
               <AudioLines size={21} aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h3 id="mic-test-title" className="text-lg font-black text-[var(--text-main)]">Test your microphone</h3>
-              <p className="text-xs font-semibold text-gray-500">Record up to five seconds, then play it back locally.</p>
+              <h3 id="mic-test-title" className="type-title font-black text-[var(--text-main)]">Test your microphone</h3>
+              <p className="type-meta font-semibold text-gray-500">Record up to five seconds, then play it back locally.</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="voice-control-button rounded-full bg-white/5 p-2 text-gray-400 hover:text-white" aria-label="Close microphone test" title="Close">
@@ -576,13 +576,13 @@ function MicTestPanel({ stream, onClose }) {
               )
             })}
           </div>
-          <p className="mt-3 text-center text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">
+          <p className="mt-3 text-center type-meta font-black uppercase tracking-[0.18em] text-gray-500">
             {phase === 'recording' ? 'Recording — speak normally' : phase === 'ready' ? 'Sample ready' : 'Ready to record'}
           </p>
           {phase === 'recording' && <div className="voice-mic-test-progress mt-3 h-1 overflow-hidden rounded-full bg-white/5"><span className="block h-full rounded-full bg-green-400" /></div>}
         </div>
 
-        {error && <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300" role="alert">{error}</p>}
+        {error && <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 type-meta font-bold text-red-300" role="alert">{error}</p>}
 
         {playbackUrl && (
           <audio className="mt-4 w-full" src={playbackUrl} controls preload="metadata">
@@ -592,16 +592,16 @@ function MicTestPanel({ stream, onClose }) {
 
         <div className="mt-5 flex items-center justify-end gap-2">
           {phase === 'recording' ? (
-            <button type="button" onClick={stopRecording} className="voice-control-button inline-flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-black text-white">
+            <button type="button" onClick={stopRecording} className="voice-control-button inline-flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 type-label font-black text-white">
               <Square size={15} fill="currentColor" /> Stop recording
             </button>
           ) : (
-            <button type="button" onClick={startRecording} className="voice-control-button inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 text-sm font-black text-[var(--chat-control-text)]">
+            <button type="button" onClick={startRecording} className="voice-control-button inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 type-label font-black text-[var(--chat-control-text)]">
               <Mic size={16} /> {phase === 'ready' ? 'Record again' : 'Start mic test'}
             </button>
           )}
         </div>
-        <p className="mt-3 text-center text-[10px] font-semibold text-gray-600">The sample stays on this device and is discarded when you close this panel.</p>
+        <p className="mt-3 text-center type-meta font-semibold text-gray-600">The sample stays on this device and is discarded when you close this panel.</p>
       </section>
     </div>
   )
@@ -1410,8 +1410,8 @@ export default function SfuScreenShare({
             <Volume2 size={17} aria-hidden="true" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-black text-[var(--text-main)]">{title}</span>
-            <span className="block truncate text-[9px] font-bold uppercase tracking-widest text-gray-500 md:text-[11px]">
+            <span className="block truncate type-label font-black text-[var(--text-main)]">{title}</span>
+            <span className="block truncate type-meta font-bold uppercase tracking-widest text-gray-500 type-meta">
               {connectionLabel} - {participantCount} connected{localScreenStream ? ' - sharing screen' : ''}{localCameraStream ? ' - camera on' : ''}
             </span>
           </span>
@@ -1438,8 +1438,8 @@ export default function SfuScreenShare({
                   <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-7 w-7 md:h-8 md:w-8" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-black text-[var(--text-main)]">{participant.displayName}</p>
-                  <p className={`truncate text-[9px] font-bold uppercase tracking-widest ${participant.speaking ? 'text-green-400' : 'text-gray-500'}`}>
+                  <p className="truncate type-meta font-black text-[var(--text-main)]">{participant.displayName}</p>
+                  <p className={`truncate type-meta font-bold uppercase tracking-widest ${participant.speaking ? 'text-green-400' : 'text-gray-500'}`}>
                     {participant.speaking ? 'Speaking' : 'Listening'}
                   </p>
                 </div>
@@ -1452,7 +1452,7 @@ export default function SfuScreenShare({
               </div>
             ))}
             {participants.length > 2 && (
-              <button type="button" onClick={onOpen} className="w-full rounded-lg px-2 py-1 text-center text-[10px] font-black text-gray-500 hover:bg-white/5 hover:text-gray-300">
+              <button type="button" onClick={onOpen} className="w-full rounded-lg px-2 py-1 text-center type-meta font-black text-gray-500 hover:bg-white/5 hover:text-gray-300">
                 +{participants.length - 2} more {participants.length - 2 === 1 ? 'person' : 'people'}
               </button>
             )}
@@ -1487,13 +1487,13 @@ export default function SfuScreenShare({
                 <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#11131a] ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} />
               </div>
               <div className="min-w-0">
-                <p className="mb-0.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-gray-500">
+                <p className="mb-0.5 flex items-center gap-1.5 type-meta font-black uppercase tracking-[0.2em] text-gray-500">
                   <span className={`h-1.5 w-1.5 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} />
                   Live voice channel
                 </p>
-                <h2 className="truncate text-sm font-black tracking-tight text-[var(--text-main)] md:text-base">{title}</h2>
+                <h2 className="truncate type-label font-black tracking-tight text-[var(--text-main)] type-body">{title}</h2>
                 <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-                  <span className={`shrink-0 text-[10px] font-bold ${status === 'connected' ? 'text-green-300' : 'text-amber-300'}`}>{connectionLabel}</span>
+                  <span className={`shrink-0 type-meta font-bold ${status === 'connected' ? 'text-green-300' : 'text-amber-300'}`}>{connectionLabel}</span>
                   {sharingCount > 0 && <span className="voice-stage-stat shrink-0"><ScreenShare size={10} />{sharingCount}</span>}
                   {cameraCount > 0 && <span className="voice-stage-stat shrink-0"><Camera size={10} />{cameraCount}</span>}
                 </div>
@@ -1510,8 +1510,8 @@ export default function SfuScreenShare({
               </div>
               <div className="voice-participant-count flex items-center gap-2 rounded-full border border-[var(--border-subtle)] px-3 py-1.5">
                 <Users size={15} className="text-gray-500" aria-hidden="true" />
-                <span className="text-xs font-black text-gray-300">{participantCount}</span>
-                <span className="hidden text-[10px] font-bold text-gray-500 md:inline">{participantCount === 1 ? 'person' : 'people'}</span>
+                <span className="type-meta font-black text-gray-300">{participantCount}</span>
+                <span className="hidden type-meta font-bold text-gray-500 md:inline">{participantCount === 1 ? 'person' : 'people'}</span>
               </div>
             </div>
           </div>
@@ -1559,7 +1559,7 @@ export default function SfuScreenShare({
                   <button type="button" onClick={() => changeGridPage(-1)} className="rounded-full bg-black/75 p-2 text-white hover:bg-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Previous participant page" title="Previous page">
                     <ChevronLeft size={18} />
                   </button>
-                  <span className="rounded-full bg-black/75 px-3 py-1 text-[11px] font-black text-white">Page {Math.min(gridPage + 1, gridPageCount)} of {gridPageCount}</span>
+                  <span className="rounded-full bg-black/75 px-3 py-1 type-meta font-black text-white">Page {Math.min(gridPage + 1, gridPageCount)} of {gridPageCount}</span>
                   <button type="button" onClick={() => changeGridPage(1)} className="rounded-full bg-black/75 p-2 text-white hover:bg-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Next participant page" title="Next page">
                     <ChevronRight size={18} />
                   </button>
@@ -1582,7 +1582,7 @@ export default function SfuScreenShare({
                 {/* Slides are changed from the thumbnail strip or the arrow
                     keys; overlay arrows sat on top of the stream itself. */}
                 {viewMode === VIEW_MODES.CAROUSEL && displayStreams.length > 1 && (
-                  <span className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1 text-[11px] font-black text-white">
+                  <span className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1 type-meta font-black text-white">
                     {Math.max(displayStreams.findIndex(item => item.id === pinnedStream.id) + 1, 1)} / {displayStreams.length}
                   </span>
                 )}
@@ -1609,7 +1609,7 @@ export default function SfuScreenShare({
                     </button>
                   ))}
                   {secondaryStreams.length > 3 && (
-                    <button type="button" onClick={() => setViewMode(VIEW_MODES.GRID)} className="flex min-h-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-element)] p-3 text-xs font-black text-gray-300" aria-label="Show all streams">
+                    <button type="button" onClick={() => setViewMode(VIEW_MODES.GRID)} className="flex min-h-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-element)] p-3 type-meta font-black text-gray-300" aria-label="Show all streams">
                       +{secondaryStreams.length - 3} more
                     </button>
                   )}
@@ -1706,15 +1706,15 @@ export default function SfuScreenShare({
             <section className="voice-stage-controls-drawer absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[82dvh] overflow-y-auto rounded-[1.75rem] p-3" role="dialog" aria-modal="true" aria-label="Call controls">
               <div className="mb-3 flex items-center justify-between px-1">
                 <div>
-                  <p className="text-sm font-bold text-[var(--text-main)]">Call controls</p>
-                  <p className="text-[11px] text-[var(--text-muted)]">{title || 'Voice channel'}</p>
+                  <p className="type-label font-bold text-[var(--text-main)]">Call controls</p>
+                  <p className="type-meta text-[var(--text-muted)]">{title || 'Voice channel'}</p>
                 </div>
                 <button type="button" onClick={() => setStageControlsOpen(false)} className="voice-control-button flex h-9 w-9 items-center justify-center rounded-full bg-[var(--bg-element)] text-gray-400" aria-label="Close controls">
                   <X size={18} aria-hidden="true" />
                 </button>
               </div>
 
-              <p className="mb-1.5 px-1 text-[10px] font-black uppercase tracking-widest text-gray-500">View</p>
+              <p className="mb-1.5 px-1 type-meta font-black uppercase tracking-widest text-gray-500">View</p>
               <div className="mb-3 grid grid-cols-3 gap-2">
                 <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} className={`voice-stage-drawer-action ${viewMode === VIEW_MODES.PINNED ? 'is-active' : ''}`}>
                   <Maximize2 size={19} aria-hidden="true" /><span>Focus</span>
@@ -1727,7 +1727,7 @@ export default function SfuScreenShare({
                 </button>
               </div>
 
-              <p className="mb-1.5 px-1 text-[10px] font-black uppercase tracking-widest text-gray-500">Audio tools</p>
+              <p className="mb-1.5 px-1 type-meta font-black uppercase tracking-widest text-gray-500">Audio tools</p>
               <div className="grid grid-cols-4 gap-2">
                 <button type="button" onClick={toggleVoiceNoiseReduction} disabled={!localAudioStream || status !== 'connected'} className={`voice-stage-drawer-action disabled:opacity-40 ${noiseReductionEnabled ? 'is-active' : ''}`}>
                   <Activity size={19} aria-hidden="true" /><span>Noise</span>
@@ -1753,7 +1753,7 @@ export default function SfuScreenShare({
     <section className={`flex flex-col gap-3 ${className}`}>
       {remoteAudioPlayers}
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{connectionLabel}</span>
+        <span className="type-meta font-bold uppercase tracking-widest text-gray-500">{connectionLabel}</span>
         {renderControls(true)}
       </div>
     </section>
