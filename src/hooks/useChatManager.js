@@ -595,7 +595,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
               __media_bytes: decryptedBuffer.byteLength,
               is_unavailable: false
             }
-          } catch (_err) {
+          } catch (error) {
+            debug.warn('ATTACHMENT_HYDRATE', { operation: 'resolve-attachment', error })
             return { ...attachment, file_url: '', is_unavailable: true }
           }
         }))
@@ -869,6 +870,48 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }
 
+  /* Hydrating one attachment costs a signed-URL round trip and, in a DM, a
+     download plus an AES-GCM decrypt. Firing a whole page of those at once
+     starves the connection, and every failure blanks its attachment for good
+     (see the catch in decryptMessageList). So every page — the first one and
+     each scrollback page — feeds through here: newest media first, the rest a
+     few at a time between idle frames. */
+  const hydrateMediaInBackground = useCallback((pageMessages, { sharedKeys, targetId, field, isCurrentScope, priority = 'newest' }) => {
+    const mediaMessages = pageMessages.filter(message => message.message_attachments?.length)
+    if (mediaMessages.length === 0) return
+    /* Whichever end of the page the user is actually looking at goes first: the
+       bottom on the opening page, the top on a page paged in by scrolling up. */
+    const priorityMedia = priority === 'oldest'
+      ? mediaMessages.slice(0, PRIORITY_MEDIA_MESSAGE_COUNT)
+      : mediaMessages.slice(-PRIORITY_MEDIA_MESSAGE_COUNT)
+    const backgroundMedia = priority === 'oldest'
+      ? mediaMessages.slice(PRIORITY_MEDIA_MESSAGE_COUNT).reverse()
+      : mediaMessages.slice(0, -PRIORITY_MEDIA_MESSAGE_COUNT)
+    const hydrateBatch = async batch => {
+      if (!batch.length || !isCurrentScope()) return
+      const hydratedData = await decryptMessageList(batch, sharedKeys)
+      if (!isCurrentScope()) return
+      cacheSessionHydratedMessages(session.user.id, view, targetId, hydratedData)
+      setMessages(prev => {
+        const updated = mergeMessageLists(prev, hydratedData, field, targetId)
+        safeCacheSave(session.user.id, targetId, updated)
+        return isCurrentScope() ? updated : prev
+      })
+    }
+    void (async () => {
+      try {
+        await hydrateBatch(priorityMedia)
+        for (let index = backgroundMedia.length; index > 0; index -= BACKGROUND_MEDIA_BATCH_SIZE) {
+          await waitForMediaIdle()
+          const start = Math.max(0, index - BACKGROUND_MEDIA_BATCH_SIZE)
+          await hydrateBatch(backgroundMedia.slice(start, index))
+        }
+      } catch (error) {
+        debug.warn('ATTACHMENT_HYDRATE', { operation: 'background-batch', error })
+      }
+    })()
+  }, [decryptMessageList, session.user.id, view])
+
   const fetchOlderMessages = useCallback(async () => {
     if (isLoadingMore || !hasMoreMessages || messages.length === 0) return;
     const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id;
@@ -877,6 +920,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     setIsLoadingMore(true);
     const oldestMessage = messages[0];
     const field = view === 'server' ? 'channel_id' : 'dm_room_id';
+    const expectedScope = getConversationScopeKey(session.user.id, view, targetId)
+    const isCurrentScope = () => activeConversationScopeRef.current === expectedScope
 
     const { data, error } = await supabase.from('messages')
       .select(MESSAGE_SELECT)
@@ -891,8 +936,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (data.length > 0) {
       const chronoData = data.reverse();
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', chronoData);
-      const decryptedData = await decryptMessageList(chronoData, sharedKeys);
-      
+      // Text first: waiting on a page of attachments before painting made
+      // scrollback feel stuck, and hydrating them in one burst is what blanked
+      // them. hydrateMediaInBackground fills the media in behind this.
+      const decryptedData = await decryptMessageList(chronoData, sharedKeys, { hydrateAttachments: false });
+      if (!isCurrentScope()) { setIsLoadingMore(false); return; }
+
       let anchorOffsetTop = 0;
       let previousScrollTop = 0;
       if (scrollContainerRef.current) {
@@ -903,14 +952,15 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         }
       }
 
+      /* prev is the incoming side so anything already hydrated wins over the
+         raw rows we just read back. */
       setMessages(prev => {
-        const safePrev = prev.filter(m => m[field] === targetId);
-        const merged = [...decryptedData, ...safePrev];
-        const uniqueData = Array.from(new Map(merged.filter(m => m && m.id).map(item => [item.id, item])).values());
-        uniqueData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        safeCacheSave(session.user.id, targetId, uniqueData);
-        return uniqueData;
+        const merged = mergeMessageLists(decryptedData, prev, field, targetId);
+        safeCacheSave(session.user.id, targetId, merged);
+        return merged;
       });
+
+      hydrateMediaInBackground(decryptedData, { sharedKeys, targetId, field, isCurrentScope, priority: 'oldest' });
 
       setIsLoadingMore(false);
 
@@ -927,7 +977,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     } else {
       setIsLoadingMore(false);
     }
-  }, [activeChannel?.id, activeDm?.dm_room_id, view, isLoadingMore, hasMoreMessages, messages, getSharedKeysForTarget, decryptMessageList]);
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, isLoadingMore, hasMoreMessages, messages, session.user.id, getSharedKeysForTarget, decryptMessageList, hydrateMediaInBackground]);
 
   const handleScroll = (e) => {
     const target = e.target
@@ -987,32 +1037,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       })
 
       // Media access can involve signed-URL requests plus downloads and DM
-      // decryption. Keep it outside the first-render critical path, and merge
-      // only if this conversation still owns the active scope.
-      const mediaMessages = chronoWithHydratedMedia.filter(message => message.message_attachments?.length)
-      const priorityMedia = mediaMessages.slice(-PRIORITY_MEDIA_MESSAGE_COUNT)
-      const backgroundMedia = mediaMessages.slice(0, -PRIORITY_MEDIA_MESSAGE_COUNT)
-      const hydrateBatch = async batch => {
-        if (!batch.length || !isCurrentScope()) return
-        const hydratedData = await decryptMessageList(batch, sharedKeys)
-        if (!isCurrentScope()) return
-        cacheSessionHydratedMessages(session.user.id, view, targetId, hydratedData)
-        setMessages(prev => {
-          const updated = mergeMessageLists(prev, hydratedData, field, targetId)
-          safeCacheSave(session.user.id, targetId, updated)
-          return isCurrentScope() ? updated : prev
-        })
-      }
-      void (async () => {
-        try {
-          await hydrateBatch(priorityMedia)
-          for (let index = backgroundMedia.length; index > 0; index -= BACKGROUND_MEDIA_BATCH_SIZE) {
-            await waitForMediaIdle()
-            const start = Math.max(0, index - BACKGROUND_MEDIA_BATCH_SIZE)
-            await hydrateBatch(backgroundMedia.slice(start, index))
-          }
-        } catch (_err) {}
-      })()
+      // decryption. Keep it outside the first-render critical path.
+      hydrateMediaInBackground(chronoWithHydratedMedia, { sharedKeys, targetId, field, isCurrentScope })
       }
     } finally {
       if (isCurrentScope()) {
@@ -1020,7 +1046,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         setMessagesLoading(false)
       }
     }
-  }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeysForTarget, decryptMessageList, instantScrollToBottom])
+  }, [activeChannel?.id, activeDm?.dm_room_id, view, getSharedKeysForTarget, decryptMessageList, instantScrollToBottom, hydrateMediaInBackground])
 
   // Backfills messages missed while the Realtime channel was down (reconnect,
   // tab/app foregrounded after being backgrounded). Merges without forcing a

@@ -1440,7 +1440,7 @@ export const MemoizedMessage = React.memo(({
                         if (imageIndex >= 4) return null
                         return (
                         <div key={attachment.id || attachment.file_url || attachmentUrl} className={`max-w-full text-[var(--theme-base)] ${mediaAttachments.length > 1 && (!attachmentIsMedia || attachmentIsVideo) ? 'col-span-2' : ''}`}>
-                          {!attachmentUrl && attachmentIsImage ? (
+                          {!attachmentUrl && attachmentIsImage && !attachment.is_unavailable ? (
                             <div className={`${mediaAttachments.length > 1 ? 'aspect-square h-full w-full' : 'h-40 w-[min(68vw,260px)]'} animate-pulse scale-[0.98] rounded-2xl border bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md`} style={attachmentBorderStyle} aria-label="Image loading" />
                           ) : !attachmentUrl ? (
                             <div className="file-message-card flex min-w-[220px] max-w-[min(76vw,360px)] items-center gap-3 rounded-2xl border px-4 py-3.5 text-gray-500">
