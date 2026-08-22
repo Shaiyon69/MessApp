@@ -66,7 +66,9 @@ import {
 import { createVoiceChannelClient } from '../lib/voiceChannelClient'
 import { getIceServers } from '../lib/iceServers'
 import StatusAvatar from './ui/StatusAvatar'
-import { CornerDownLeft } from 'lucide-react'
+import { CornerDownLeft, Hash, Users } from 'lucide-react'
+import { debug } from '../lib/debug'
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -1732,14 +1734,75 @@ export default function Dashboard({ session }) {
     }
   }, [activeServer?.id, fetchServerChannels])
 
-  const searchResults = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    if (!showRightSidebar || rightTab !== 'search' || !query) return []
-    return chatManagerProps.validMessages.filter(m => {
-      if (m.is_deleted) return false
-      return m.content?.toLowerCase().includes(query) || m.profiles?.username?.toLowerCase().includes(query)
-    })
-  }, [chatManagerProps.validMessages, rightTab, searchQuery, showRightSidebar])
+  /* Search now reaches every conversation, not just the open one, so it is a
+     round trip (and, for DMs, a decrypt pass) rather than a filter over state.
+     Debounced, and the previous query is aborted so a fast typist does not
+     stack passes. */
+  const [searchResults, setSearchResults] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchAllConversations = chatManagerProps.searchAllConversations
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!showRightSidebar || rightTab !== 'search' || query.length < SEARCH_MIN_QUERY_LENGTH) {
+      setSearchResults([])
+      setSearchLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    setSearchLoading(true)
+    const timer = setTimeout(() => {
+      searchAllConversations(query, { signal: controller.signal })
+        .then(results => { if (!controller.signal.aborted) setSearchResults(results) })
+        .catch(error => {
+          if (controller.signal.aborted) return
+          debug.error('MESSAGE_SEARCH', { operation: 'search-all', error })
+          setSearchResults([])
+        })
+        .finally(() => { if (!controller.signal.aborted) setSearchLoading(false) })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [rightTab, searchAllConversations, searchQuery, showRightSidebar])
+
+  /* A hit can live in a conversation that is not open. Switch to it first, then
+     let scrollToMessage do its usual thing (it pages in the surrounding
+     messages itself when the target is not already rendered). */
+  const [pendingSearchJump, setPendingSearchJump] = useState(null)
+  const selectSearchResult = useCallback((message) => {
+    const scope = message?.__search
+    const alreadyOpen = scope?.type === 'dm'
+      ? scope.dmRoomId === activeDm?.dm_room_id
+      : scope?.channelId === activeChannel?.id
+    if (!scope || alreadyOpen) {
+      chatManagerProps.scrollToMessage(message)
+      return
+    }
+    if (scope.type === 'dm') {
+      const dm = dms.find(item => item.dm_room_id === scope.dmRoomId)
+      if (!dm) return toast.error('That conversation is no longer available.')
+      setView('home')
+      setActiveChannel(null)
+      selectDm(dm)
+    } else {
+      const server = servers.find(item => item.id === scope.serverId)
+      if (!server) return toast.error('That server is no longer available.')
+      setActiveServer(server)
+      setView('server')
+      setActiveDm(null)
+      setActiveChannel({ id: scope.channelId, name: scope.channelName, type: 'text' })
+    }
+    setPendingSearchJump(message)
+  }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.scrollToMessage, dms, selectDm, servers])
+
+  useEffect(() => {
+    if (!pendingSearchJump || !chatManagerProps.initialMessagesLoaded) return
+    const scope = pendingSearchJump.__search
+    const arrived = scope.type === 'dm'
+      ? activeDm?.dm_room_id === scope.dmRoomId
+      : activeChannel?.id === scope.channelId
+    if (!arrived) return
+    chatManagerProps.scrollToMessage(pendingSearchJump)
+    setPendingSearchJump(null)
+  }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.initialMessagesLoaded, chatManagerProps.scrollToMessage, pendingSearchJump])
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
   const getPresenceStatus = useCallback((profileId) => {
@@ -1775,6 +1838,32 @@ export default function Dashboard({ session }) {
   const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 
   const quickSwitcherResults = quickSwitcherQuery ? quickSwitcherBase.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) || dm.profiles.unique_tag?.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : quickSwitcherBase
+  /* Servers and the open server's channels, from state that is already loaded —
+     channels of other servers are not fetched until that server is opened, so
+     they are reachable through their server rather than listed here. */
+  const quickSwitcherPlaces = useMemo(() => {
+    const query = quickSwitcherQuery.trim().toLowerCase()
+    if (!query) return []
+    const places = [
+      ...servers.map(server => ({ kind: 'server', id: server.id, name: server.name, server })),
+      ...serverCategories.flatMap(category => (category.channels || []).map(channel => (
+        { kind: 'channel', id: channel.id, name: channel.name, channel, context: activeServer?.name }
+      )))
+    ]
+    return places.filter(place => place.name?.toLowerCase().includes(query))
+  }, [activeServer?.name, quickSwitcherQuery, serverCategories, servers])
+
+  const openQuickSwitcherPlace = useCallback((place) => {
+    setShowQuickSwitcher(false)
+    if (place.kind === 'server') {
+      setActiveServer(place.server)
+      setView('server')
+      setActiveDm(null)
+      setActiveChannel(null)
+      return
+    }
+    selectChannel(place.channel)
+  }, [selectChannel])
   const currentConversationThemeId = resolveConversationThemeId(
     view === 'server' ? activeServer?.theme_id : activeDm?.dm_rooms?.theme_id,
     view === 'home' ? activeDm?.dm_rooms?.theme_color : null
@@ -2018,6 +2107,8 @@ export default function Dashboard({ session }) {
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           searchResults={searchResults}
+          searchLoading={searchLoading}
+          onSelectSearchResult={selectSearchResult}
           scrollToMessage={chatManagerProps.scrollToMessage}
           CONVERSATION_THEMES={CONVERSATION_THEMES}
           WALLPAPERS={CHAT_WALLPAPERS}
@@ -2040,14 +2131,38 @@ export default function Dashboard({ session }) {
             </div>
             
             <div className="relative z-10 max-h-[60vh] sm:max-h-[400px] overflow-y-auto p-2 sm:p-3 custom-scrollbar">
-              {quickSwitcherQuery && quickSwitcherResults.length === 0 ? (
+              {quickSwitcherQuery && quickSwitcherResults.length === 0 && quickSwitcherPlaces.length === 0 ? (
                  <div className="text-center py-12 flex flex-col items-center">
                     <SearchX size={36} className="text-gray-600 mb-2" aria-hidden="true" />
-                    <span className="text-gray-400 font-medium">No friends match that query.</span>
+                    <span className="text-gray-400 font-medium">Nothing matches that query.</span>
                  </div>
               ) : (
                 <>
+                  {quickSwitcherPlaces.length > 0 && (
+                    <>
+                      <div className="type-meta font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Servers & Channels</div>
+                      {quickSwitcherPlaces.map(place => (
+                        <button
+                          key={`qs-place-${place.kind}-${place.id}`}
+                          onClick={() => openQuickSwitcherPlace(place)}
+                          className="w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent hover:bg-[var(--bg-base)] hover:border-[var(--border-subtle)]"
+                        >
+                          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-element)] text-gray-400">
+                              {place.kind === 'server' ? <Users size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold type-body text-[var(--text-main)] group-hover:text-indigo-400 transition-colors truncate">{place.kind === 'channel' ? `#${place.name}` : place.name}</span>
+                              <span className="type-meta text-gray-500 truncate">{place.kind === 'server' ? 'Server' : place.context || 'Channel'}</span>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {quickSwitcherResults.length > 0 && (
                   <div className="type-meta font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Friends & Conversations</div>
+                  )}
                   {quickSwitcherResults.map((dm, idx) => (
                     <button 
                       key={dm.dm_room_id ? `qs-${dm.dm_room_id}` : `qs-fallback-${idx}`} 

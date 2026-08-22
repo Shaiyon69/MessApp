@@ -12,6 +12,8 @@ import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { reconcileAuthoritativeMessages, removeMessageById } from '../lib/messageReconciliation'
 import { isHydratedAttachment } from '../lib/attachmentCache'
 import { INITIAL_MESSAGE_LIMIT, safeCacheLoad, safeCacheSave } from '../lib/messageCache'
+import { debug } from '../lib/debug'
+import { SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT, SEARCH_ROOM_CONCURRENCY, SEARCH_ROOM_MESSAGE_LIMIT, describeChannelResult, describeDmResult, escapeIlikePattern, mapWithConcurrency, matchesSearchQuery, rankSearchResults } from '../lib/messageSearch'
 import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
 
 const KeyboardImage =
@@ -2003,6 +2005,79 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     return true;
   }), [localDeletedMessages, validMessages]);
 
+  /* Search spans every conversation, so it splits by what the database can
+     actually read. Server-channel bodies are plaintext and are matched in
+     Postgres. DM bodies are AES-GCM ciphertext in the same column, so no index
+     can reach them — each room's recent history is fetched and decrypted here
+     instead. Coverage is therefore asymmetric: full history for channels,
+     SEARCH_ROOM_MESSAGE_LIMIT of it per DM. */
+  const searchAllConversations = useCallback(async (rawQuery, { signal } = {}) => {
+    const query = String(rawQuery || '').trim()
+    if (query.length < SEARCH_MIN_QUERY_LENGTH) return []
+    const lowered = query.toLowerCase()
+    const isAborted = () => Boolean(signal?.aborted)
+
+    const channelResults = await (async () => {
+      /* RLS is the real boundary, but this is the first query that sweeps the
+         whole messages table, so it names the caller's servers explicitly
+         rather than trusting the remote policy set to match the migrations. */
+      const { data: memberships, error: membershipError } = await supabase
+        .from('server_members')
+        .select('server_id')
+        .eq('profile_id', session.user.id)
+      if (membershipError) {
+        debug.warn('MESSAGE_SEARCH', { operation: 'server-memberships', error: membershipError })
+        return []
+      }
+      const serverIds = (memberships || []).map(row => row.server_id).filter(Boolean)
+      if (serverIds.length === 0) return []
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`${MESSAGE_SELECT_BASE}, channels!inner(id, name, categories!inner(id, server_id, servers(id, name)))`)
+        .in('channels.categories.server_id', serverIds)
+        .eq('is_encrypted', false)
+        .eq('is_deleted', false)
+        .ilike('content', `%${escapeIlikePattern(query)}%`)
+        .order('created_at', { ascending: false })
+        .limit(SEARCH_RESULT_LIMIT)
+      if (error) {
+        debug.warn('MESSAGE_SEARCH', { operation: 'channel-search', error })
+        return []
+      }
+      return (data || []).map(message => ({ ...message, __search: describeChannelResult(message) }))
+    })()
+
+    if (isAborted()) return []
+
+    const searchableDms = (dms || []).filter(dm => dm?.dm_room_id)
+    const dmResults = await mapWithConcurrency(searchableDms, SEARCH_ROOM_CONCURRENCY, async dm => {
+      if (isAborted()) return []
+      const { data, error } = await supabase
+        .from('messages')
+        .select(MESSAGE_SELECT_BASE)
+        .eq('dm_room_id', dm.dm_room_id)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(SEARCH_ROOM_MESSAGE_LIMIT)
+      if (error) {
+        debug.warn('MESSAGE_SEARCH', { operation: 'dm-search', error })
+        return []
+      }
+      if (!data?.length || isAborted()) return []
+      const sharedKeys = await getSharedKeysForTarget(dm.dm_room_id, true, data)
+      if (isAborted()) return []
+      // hydrateAttachments: false — a search must not pay a signed-URL round
+      // trip and a media download per hit.
+      const decrypted = await decryptMessageList(data, sharedKeys, { hydrateAttachments: false })
+      return decrypted
+        .filter(message => matchesSearchQuery(message, lowered))
+        .map(message => ({ ...message, __search: describeDmResult(message, dm) }))
+    })
+
+    if (isAborted()) return []
+    return rankSearchResults([...channelResults, ...dmResults.flat()])
+  }, [decryptMessageList, dms, getSharedKeysForTarget, session.user.id])
+
   return {
     visibleMessages, validMessages, pinnedMessages,
     isLoadingMore, hasMoreMessages, messagesLoading, initialMessagesLoaded,
@@ -2022,6 +2097,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     fileInputRef, genericFileInputRef, messageInputRef, messagesEndRef, scrollContainerRef,
     handleSendMessage, handleSendGif, handleFileUpload, handleGenericFileUpload, handleUpdateMessage,
     handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
-    executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt
+    executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt,
+    searchAllConversations
   }
 }
