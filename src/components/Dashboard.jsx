@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import imageCompression from 'browser-image-compression'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
-import { configureNativePushRegistration, registerWebPushDevice, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
+import { configureNativePushRegistration, registerWebPushDevice, reportActiveConversation, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
 import { Search, SearchX, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 
@@ -36,7 +36,8 @@ import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecr
 import {
   consumePendingPushTarget,
   consumePushTargetFromLocation,
-  PUSH_NAVIGATION_EVENT
+  PUSH_NAVIGATION_EVENT,
+  setActiveConversationId
 } from '../lib/pushNavigation'
 import {
   CONVERSATION_THEMES,
@@ -1679,6 +1680,30 @@ export default function Dashboard({ session }) {
         if (pushNavigationMountedRef.current) toast.error('That conversation is no longer available.')
       }
     }
+
+  /* Whichever room is on screen is the one push has to stay quiet about — told
+     to the service worker for notifications already in flight, and to the push
+     sender so it can skip this device entirely. Nothing is reported while the
+     app is hidden: a backgrounded chat is exactly when a notification is
+     wanted. The repeat keeps the server-side report inside its freshness
+     window while the conversation stays open. */
+  useEffect(() => {
+    const conversationId = (view === 'home' ? activeDm?.dm_room_id : activeChannel?.id) || null
+    const profileId = session.user.id
+    const publish = () => {
+      const visibleConversationId = document.visibilityState === 'visible' ? conversationId : null
+      setActiveConversationId(visibleConversationId)
+      void reportActiveConversation({ profileId, conversationId: visibleConversationId })
+    }
+    publish()
+    document.addEventListener('visibilitychange', publish)
+    const refresh = conversationId ? window.setInterval(publish, 60_000) : null
+    return () => {
+      document.removeEventListener('visibilitychange', publish)
+      if (refresh) window.clearInterval(refresh)
+      setActiveConversationId(null)
+    }
+  }, [view, activeDm?.dm_room_id, activeChannel?.id, session.user.id])
 
   useEffect(() => {
     pushNavigationMountedRef.current = true

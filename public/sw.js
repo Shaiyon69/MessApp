@@ -18,6 +18,23 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
+// Ask every on-screen window which conversation it is showing. The answer can
+// only come from the page, and the worker may have been restarted for this very
+// push, so it is queried per push rather than cached.
+const askOpenWindows = async () => {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const onScreen = windows.filter((client) => client.focused || client.visibilityState === 'visible');
+  return Promise.all(onScreen.map((client) => new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), 400);
+    channel.port1.onmessage = (event) => {
+      clearTimeout(timer);
+      resolve(event.data?.activeConversationId || null);
+    };
+    client.postMessage({ type: 'MESSAPP_ACTIVE_CONVERSATION_QUERY' }, [channel.port2]);
+  })));
+};
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -28,14 +45,18 @@ self.addEventListener('push', (event) => {
   const notification = payload.notification || {};
   const data = payload.data || {};
   if (!notification.title || !['dm_message', 'channel_message', 'friend_request'].includes(data.type)) return;
-  event.waitUntil(self.registration.showNotification(notification.title, {
-    body: notification.body || 'New message',
-    icon: '/messapp-icon-192.png',
-    badge: '/messapp-icon-192.png',
-    tag: data.dm_room_id ? `dm-${data.dm_room_id}` : data.channel_id ? `channel-${data.channel_id}` : `friend-${data.sender_id}`,
-    renotify: true,
-    data
-  }));
+  event.waitUntil((async () => {
+    const conversationId = data.dm_room_id || data.channel_id;
+    if (conversationId && (await askOpenWindows()).includes(conversationId)) return;
+    await self.registration.showNotification(notification.title, {
+      body: notification.body || 'New message',
+      icon: '/messapp-icon-192.png',
+      badge: '/messapp-icon-192.png',
+      tag: data.dm_room_id ? `dm-${data.dm_room_id}` : data.channel_id ? `channel-${data.channel_id}` : `friend-${data.sender_id}`,
+      renotify: true,
+      data
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

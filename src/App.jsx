@@ -17,7 +17,7 @@ import UpdatePassword from './components/UpdatePassword'
 import { applySurfaceTint, applyThemeMode, normalizeThemeMode } from './lib/theme'
 import { debug } from './lib/debug'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
-import { publishPushNavigation } from './lib/pushNavigation'
+import { ACTIVE_CONVERSATION_QUERY, getActiveConversationId, publishPushNavigation } from './lib/pushNavigation'
 
 let keyboardResizeConfigured = false
 
@@ -107,6 +107,11 @@ export default function App() {
     if (!('serviceWorker' in navigator)) return undefined
     const handleServiceWorkerMessage = event => {
       if (event.data?.type === 'MESSAPP_PUSH_OPEN') publishPushNavigation(event.data.data)
+      if (event.data?.type === ACTIVE_CONVERSATION_QUERY) {
+        event.ports?.[0]?.postMessage({
+          activeConversationId: document.visibilityState === 'visible' ? getActiveConversationId() : null
+        })
+      }
     }
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
     return () => navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
