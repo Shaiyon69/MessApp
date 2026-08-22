@@ -10,7 +10,8 @@ import { safeHttpUrl } from '../lib/security'
 import { normalizeReactionEmoji } from '../lib/reactions'
 import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { reconcileAuthoritativeMessages, removeMessageById } from '../lib/messageReconciliation'
-import { isHydratedAttachment, normalizeCachedAttachment, serializeAttachmentForCache } from '../lib/attachmentCache'
+import { isHydratedAttachment } from '../lib/attachmentCache'
+import { INITIAL_MESSAGE_LIMIT, safeCacheLoad, safeCacheSave } from '../lib/messageCache'
 import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
 
 const KeyboardImage =
@@ -20,7 +21,6 @@ const KeyboardImage =
 window.__messappKeyboardImagePlugin = KeyboardImage
 const MESSAGE_SELECT_BASE = '*, profiles!fk_messages_profile(username, avatar_url, public_key), message_reactions(*)'
 const MESSAGE_SELECT = `${MESSAGE_SELECT_BASE}, message_attachments(*)`
-const INITIAL_MESSAGE_LIMIT = 30
 const SESSION_MEDIA_CACHE_MAX_ROOMS = 8
 const SESSION_MEDIA_CACHE_MAX_BYTES = 96 * 1024 * 1024
 const PRIORITY_MEDIA_MESSAGE_COUNT = 12
@@ -110,35 +110,6 @@ const formatBytes = (bytes, decimals = 2) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
 }
 
-const safeCacheSave = (userId, targetId, dataArray) => {
-  try {
-    const persisted = dataArray
-      .filter(message => message && !message.__local && !message.__retry_payload)
-      .slice(-INITIAL_MESSAGE_LIMIT)
-      .map(message => {
-        const persistedMessage = { ...message }
-        persistedMessage.message_attachments = (persistedMessage.message_attachments || []).map(serializeAttachmentForCache)
-        delete persistedMessage.__delivery_status
-        delete persistedMessage.__local
-        delete persistedMessage.__retry_payload
-        return persistedMessage
-      })
-    localStorage.setItem(`local_chat_${userId}_${targetId}`, JSON.stringify(persisted))
-  } catch (_err) {}
-}
-
-const safeCacheLoad = (userId, targetId) => {
-  try {
-    return (JSON.parse(localStorage.getItem(`local_chat_${userId}_${targetId}`)) || [])
-      .slice(-INITIAL_MESSAGE_LIMIT)
-      .map(message => ({
-        ...message,
-        message_attachments: (message.message_attachments || []).map(normalizeCachedAttachment)
-      }))
-  } catch (_err) {
-    return []
-  }
-}
 
 const mergeMessageLists = (previous = [], incoming = [], field, targetId) => {
   const map = new Map()
@@ -1852,6 +1823,33 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
     }
   }
+
+  // Messages typed without a working connection are persisted as failed and
+  // resent automatically: once when the room's cached history first arrives, and
+  // again on every browser online transition. Both triggers are one-shot rather
+  // than reactive because retryFailedMessage re-keys the message on each attempt,
+  // so a retry loop could never dedupe itself by id.
+  const flushOutboxRef = useRef(() => {})
+  const flushedTargetRef = useRef(null)
+  const outboxTargetId = asMessageId(view === 'server' ? activeChannel?.id : activeDm?.dm_room_id)
+  flushOutboxRef.current = () => {
+    if (!navigator.onLine) return
+    messages
+      .filter(message => message.__delivery_status === 'failed' && message.__retry_payload?.type === 'text')
+      .forEach(message => { retryFailedMessage(message) })
+  }
+
+  useEffect(() => {
+    if (!outboxTargetId || !messages.length || flushedTargetRef.current === outboxTargetId) return
+    flushedTargetRef.current = outboxTargetId
+    flushOutboxRef.current()
+  }, [messages, outboxTargetId])
+
+  useEffect(() => {
+    const onOnline = () => flushOutboxRef.current()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [])
 
   const handleGenericFileUpload = async (e) => {
     const files = Array.from(e.target.files || [])
