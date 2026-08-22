@@ -1,10 +1,9 @@
 /** Creates a Supabase auth identity; profile provisioning is backend-dependent. */
 import { useState } from 'react'
-import { ArrowRight, AtSign, KeyRound, LayoutGrid, Loader2, Lock, LogIn, User } from 'lucide-react'
+import { ArrowRight, AtSign, KeyRound, Loader2, Lock, LogIn, User } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { generateSecureRandomNumber } from '../lib/crypto'
 import { isValidUsername, normalizeProfileBaseName } from '../lib/security'
-import { trackSpotlight } from '../lib/uiEffects'
 
 export default function Register({ switchToLogin, onRegistrationComplete }) {
   const [email, setEmail] = useState('')
@@ -91,60 +90,60 @@ export default function Register({ switchToLogin, onRegistrationComplete }) {
   }
 
   return (
-    <div onMouseMove={trackSpotlight} className="glass-panel premium-card auth-card rounded-2xl md:rounded-[32px] w-full md:h-[650px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)] animate-slide-up">
+    <div className="ios-sheet auth-card rounded-3xl w-full md:h-[650px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)]">
       
       <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
         <div>
           <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
-            <div className="premium-brand-mark w-8 h-8 rounded-lg flex items-center justify-center">
-              <LayoutGrid size={14} aria-hidden="true" />
+            <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
+              <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
             </div>
             <span className="font-bold tracking-wider type-label">MESSAPP</span>
           </div>
-          <h1 className="gradient-text type-display md:text-5xl lg:text-6xl font-semibold tracking-tight mb-2 md:mb-6 font-display leading-[1.1]">
+          <h1 className="gradient-text type-display font-semibold tracking-tight mb-2 md:mb-6 leading-[1.1]">
             Claim Your<br className="hidden md:block"/><span className="md:hidden"> </span><span className="accent-gradient-text">Identity.</span>
           </h1>
-          <p className="hidden md:block text-gray-400 type-title max-w-sm mt-4 leading-relaxed font-sans">
+          <p className="hidden md:block text-[var(--text-muted)] type-title max-w-sm mt-4 leading-relaxed font-sans">
             Join the next generation of communication. Fast, secure, and infinitely customizable.
           </p>
         </div>
-        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-gray-500 uppercase tracking-widest">
+        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">
           <span>BUILT BY SKIBIDEVS</span><span className="w-8 h-[1px] bg-[var(--border-hover)] my-auto"></span><span>MESSAPP</span>
         </div>
       </div>
 
-      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--surface-strong)] flex-1 md:overflow-y-auto custom-scrollbar">
+      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--bg-base)] flex-1 md:overflow-y-auto custom-scrollbar">
         <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
-          <h2 className="type-display font-semibold tracking-tight mb-2 font-display">Create an Account</h2>
-          <p className="text-gray-400 type-label mb-6 md:mb-8">Establish who you are to access MessApp.</p>
+          <h2 className="type-view-title font-semibold tracking-tight mb-2">Create an Account</h2>
+          <p className="text-[var(--text-muted)] type-label mb-6 md:mb-8">Establish who you are to access MessApp.</p>
 
           <form onSubmit={handleRegister} className="flex flex-col gap-3 md:gap-4">
             <div>
-              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Email Address</label>
-              <div className="premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12">
-                <AtSign size={18} className="text-gray-500 mr-3" aria-hidden="true" />
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" placeholder="user@messapp.dev" />
+              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Email Address</label>
+              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
+                <AtSign size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="user@messapp.dev" />
               </div>
             </div>
             <div>
-              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Display Name</label>
-              <div className="premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12">
-                <User size={18} className="text-gray-500 mr-3" aria-hidden="true" />
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" placeholder="What should we call you?" />
+              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Display Name</label>
+              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
+                <User size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
+                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="What should we call you?" />
               </div>
             </div>
             <div>
-              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Password</label>
-              <div className="premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12">
-                <Lock size={18} className="text-gray-500 mr-3" aria-hidden="true" />
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" placeholder="••••••••" />
+              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Password</label>
+              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
+                <Lock size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
               </div>
             </div>
             <div>
-              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Confirm Password</label>
-              <div className="premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12">
-                <KeyRound size={18} className="text-gray-500 mr-3" aria-hidden="true" />
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" placeholder="••••••••" />
+              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Confirm Password</label>
+              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
+                <KeyRound size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
               </div>
             </div>
             <button type="submit" disabled={loading} className="premium-button mt-1 w-full h-12 rounded-xl font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
@@ -165,12 +164,12 @@ export default function Register({ switchToLogin, onRegistrationComplete }) {
           )}
 
           <div className="flex items-center gap-4 my-5 md:my-6">
-            <div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div><span className="type-meta font-bold text-gray-500 uppercase tracking-widest">Already have an account?</span><div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div>
+            <div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div><span className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">Already have an account?</span><div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div>
           </div>
 
           {switchToLogin && (
             <button onClick={switchToLogin} type="button" className="premium-secondary-button w-full h-12 rounded-xl font-bold flex items-center justify-center gap-2 type-label">
-              <LogIn size={18} className="text-gray-400" aria-hidden="true" />Return to Login
+              <LogIn size={18} className="text-[var(--text-muted)]" aria-hidden="true" />Return to Login
             </button>
           )}
         </div>
