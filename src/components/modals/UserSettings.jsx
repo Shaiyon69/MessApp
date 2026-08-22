@@ -17,6 +17,7 @@ import { getModeratorRole } from '../../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../../lib/profileSecrets'
 import ModerationPanel from './ModerationPanel'
 import MediaEditorModal from '../media/MediaEditorModal'
+import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
 
 /* The gradient string itself is persisted to profiles.banner_url, not the id,
    so retuning these leaves existing banners rendering as they always did — they
@@ -31,9 +32,6 @@ const BANNER_OPTIONS = [
   { id: 'midnight', value: '#0f172a' }
 ]
 
-const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
-const MAX_AVATAR_SOURCE_SIZE_BYTES = 20 * 1024 * 1024
-const MAX_AVATAR_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
 const SURFACE_TINT_LABELS = {
   neutral: 'Ink',
   ocean: 'Ocean',
@@ -289,8 +287,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const file = event.target.files?.[0]
       event.target.value = ''
       if (!file) return
-      if (!ALLOWED_AVATAR_TYPES.has((file.type || '').toLowerCase())) throw new Error('Avatar must be JPG, PNG, GIF, WebP, or AVIF.')
-      if (file.size > MAX_AVATAR_SOURCE_SIZE_BYTES) throw new Error('Source photo must be 20 MB or smaller.')
+      assertAvatarFile(file, { maxBytes: MAX_AVATAR_SOURCE_SIZE_BYTES })
       setAvatarEditorFile(file)
     } catch (error) {
       toast.error(error.message)
@@ -315,21 +312,13 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
   const uploadAvatar = async (file) => {
     try {
       setLoading(true)
-      if (!ALLOWED_AVATAR_TYPES.has((file.type || '').toLowerCase())) throw new Error('Avatar must be JPG, PNG, GIF, WebP, or AVIF.')
-      if (file.size > MAX_AVATAR_UPLOAD_SIZE_BYTES) throw new Error('Edited avatar must be 5 MB or smaller.')
-      const fileExt = file.name.split('.').pop() || 'webp'
-      const fileName = `${session.user.id}-avatar-${crypto.randomUUID()}.${fileExt}`
-
-      const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file, {
-        contentType: file.type,
-        cacheControl: '31536000',
-        upsert: false
-      })
-      if (uploadError) throw uploadError
-
-      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
+      const previousAvatarUrl = avatarUrl
+      const publicUrl = await uploadAvatarImage(supabase, file, avatarObjectName(session.user.id, file))
       const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', session.user.id)
       if (updateError) throw updateError
+      // Only once the profile points at the new file — a failed update must
+      // leave the old avatar reachable.
+      await deleteAvatarImage(supabase, previousAvatarUrl)
 
       await supabase.auth.updateUser({ data: { avatar_url: publicUrl } })
       setAvatarUrl(publicUrl)
