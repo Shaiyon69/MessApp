@@ -21,25 +21,22 @@ export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0 }
       <nav className="ios-segmented-control mx-auto grid max-w-3xl grid-cols-5 gap-1 rounded-2xl p-1" aria-label="Primary">
         {TABS.map(({ id, Icon, label }) => {
           const isActive = homeTab === id
-          /* Notifications carries the only badge in the app — see design.md §5. */
-          const badge = id === 'notifs' ? notificationCount : 0
+          /* Notifications is the only tab that signals state, and it does it by
+             glowing blue rather than carrying a count — see design.md §5. */
+          const alerted = id === 'notifs' && notificationCount > 0
           return (
             <button
               key={id}
               type="button"
               onClick={() => setHomeTab(id)}
               data-active={isActive}
+              data-alert={alerted || undefined}
               aria-current={isActive ? 'page' : undefined}
               className="home-tab-button relative flex min-h-11 items-center justify-center rounded-xl border outline-none transition-all cursor-pointer"
-              aria-label={label}
+              aria-label={alerted ? `${label} (unread)` : label}
               title={label}
             >
-              <Icon size={19} aria-hidden="true" />
-              {badge > 0 && (
-                <span className="notification-badge absolute right-1 top-1 flex h-5 min-w-5 md:h-6 md:min-w-6 items-center justify-center rounded-full px-1 type-meta font-bold tabular-nums">
-                  {badge > 99 ? '99+' : badge}
-                </span>
-              )}
+              <Icon size={19} aria-hidden="true" fill={alerted ? 'currentColor' : 'none'} />
             </button>
           )
         })}
