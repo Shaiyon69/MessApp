@@ -1,6 +1,9 @@
 /** Normalizes and applies the persisted document theme mode. */
 export const THEME_MODES = ['dark', 'light']
-export const SURFACE_TINTS = ['neutral', 'indigo', 'ocean']
+/* Renaming a tint is intentionally a silent downgrade: normalizeSurfaceTint
+   falls back to 'neutral', so the retired 'indigo'/'moss'/'clay' values
+   persisted in localStorage resolve to the base palette rather than breaking. */
+export const SURFACE_TINTS = ['neutral', 'ocean', 'steel']
 
 export function normalizeThemeMode(value) {
   return value === 'light' ? 'light' : 'dark'
@@ -16,7 +19,7 @@ export function applyThemeMode(value, { persist = true } = {}) {
   if (typeof document !== 'undefined') {
     document.documentElement.setAttribute('data-theme', theme)
     document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#000000' : '#f7f8fb')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#000000' : '#fbfcfe')
   }
 
   if (persist && typeof localStorage !== 'undefined') {
