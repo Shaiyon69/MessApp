@@ -11,6 +11,10 @@ export const normalizePushTarget = data => {
     const dmRoomId = asUuid(data.dm_room_id)
     return dmRoomId ? { type: 'dm_message', dmRoomId, messageId: asUuid(data.message_id) } : null
   }
+  if (data.type === 'friend_request') {
+    const requestId = asUuid(data.request_id)
+    return requestId ? { type: 'friend_request', requestId, senderId: asUuid(data.sender_id) } : null
+  }
   if (data.type === 'channel_message') {
     const serverId = asUuid(data.server_id)
     const channelId = asUuid(data.channel_id)
@@ -47,6 +51,13 @@ export const consumePendingPushTarget = (storage = globalThis.sessionStorage) =>
         message_id: parsed.messageId
       })
     }
+    if (parsed?.type === 'friend_request') {
+      return normalizePushTarget({
+        type: parsed.type,
+        request_id: parsed.requestId,
+        sender_id: parsed.senderId
+      })
+    }
     return normalizePushTarget({
       type: parsed?.type,
       server_id: parsed?.serverId,
@@ -69,10 +80,12 @@ export const consumePushTargetFromLocation = (
     dm_room_id: url.searchParams.get('dm_room_id'),
     server_id: url.searchParams.get('server_id'),
     channel_id: url.searchParams.get('channel_id'),
-    message_id: url.searchParams.get('message_id')
+    message_id: url.searchParams.get('message_id'),
+    request_id: url.searchParams.get('request_id'),
+    sender_id: url.searchParams.get('sender_id')
   })
   if (!target) return null
-  for (const key of ['push_type', 'dm_room_id', 'server_id', 'channel_id', 'message_id']) {
+  for (const key of ['push_type', 'dm_room_id', 'server_id', 'channel_id', 'message_id', 'request_id', 'sender_id']) {
     url.searchParams.delete(key)
   }
   historyObject?.replaceState?.({}, '', `${url.pathname}${url.search}${url.hash}`)
