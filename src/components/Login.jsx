@@ -1,5 +1,6 @@
 /** Authenticates an existing user through Supabase and hands routing to App. */
 import { useEffect, useState } from 'react'
+import { ArrowRight, AtSign, Loader2, Lock } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { trackSpotlight } from '../lib/uiEffects'
 
@@ -72,57 +73,57 @@ export default function Login({ switchToRegister, switchToForgotPassword, initia
             <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
               <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
             </div>
-            <span className="font-bold tracking-wider text-sm">MESSAPP</span>
+            <span className="font-bold tracking-wider type-label">MESSAPP</span>
           </div>
-          <h1 className="gradient-text text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight mb-2 md:mb-6 font-display leading-[1.1]">
+          <h1 className="gradient-text type-display md:text-5xl lg:text-6xl font-semibold tracking-tight mb-2 md:mb-6 font-display leading-[1.1]">
             Connect<br className="hidden md:block"/><span className="md:hidden"> </span>without<br className="hidden md:block"/><span className="md:hidden"> </span><span className="accent-gradient-text">the mess.</span>
           </h1>
-          <p className="hidden md:block text-gray-400 text-lg max-w-sm mt-4 leading-relaxed font-sans">
+          <p className="hidden md:block text-gray-400 type-title max-w-sm mt-4 leading-relaxed font-sans">
             Welcome to MessApp. Built for secure, fun, and clutter-free messaging by Skibidevs.
           </p>
         </div>
-        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 text-xs font-bold text-gray-500 uppercase tracking-widest">
+        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-gray-500 uppercase tracking-widest">
           <span>BUILT BY SKIBIDEVS</span><span className="w-8 h-[1px] bg-[var(--border-hover)] my-auto"></span><span>MESSAPP</span>
         </div>
       </div>
 
       <div className="auth-form-panel w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--surface-strong)] flex-1 md:overflow-y-auto custom-scrollbar">
         <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
-          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-2 font-display">Welcome Back</h2>
-          <p className="text-gray-400 text-sm mb-6 md:mb-8">Enter your credentials to access MessApp.</p>
+          <h2 className="type-display font-semibold tracking-tight mb-2 font-display">Welcome Back</h2>
+          <p className="text-gray-400 type-label mb-6 md:mb-8">Enter your credentials to access MessApp.</p>
 
           <form onSubmit={handleLogin} className="flex flex-col gap-4 md:gap-5">
             <div>
-              <label className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Email Address</label>
+              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Email Address</label>
               <div className="premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12">
-                <span className="material-symbols-outlined text-gray-500 mr-3 text-[18px]" aria-hidden="true">alternate_email</span>
-                <input type="email" placeholder="user@messapp.dev" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans text-[16px] md:text-sm" />
+                <AtSign size={18} className="text-gray-500 mr-3" aria-hidden="true" />
+                <input type="email" placeholder="user@messapp.dev" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" />
               </div>
             </div>
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest block">Password</label>
+                <label className="type-meta font-bold text-gray-500 uppercase tracking-widest block">Password</label>
                 {switchToForgotPassword && (
-                  <button type="button" onClick={switchToForgotPassword} className="text-[10px] md:text-xs font-bold text-indigo-300 hover:text-indigo-200 uppercase tracking-widest cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+                  <button type="button" onClick={switchToForgotPassword} className="type-meta font-bold text-indigo-300 hover:text-indigo-200 uppercase tracking-widest cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
                     Forgot?
                   </button>
                 )}
               </div>
               <div className="premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12">
-                <span className="material-symbols-outlined text-gray-500 mr-3 text-[18px]" aria-hidden="true">lock</span>
-                <input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans text-[16px] md:text-sm" />
+                <Lock size={18} className="text-gray-500 mr-3" aria-hidden="true" />
+                <input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" />
               </div>
             </div>
             <button type="submit" disabled={loading} className="premium-button mt-1 md:mt-2 w-full h-12 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-              {loading ? <span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span> : <><span className="text-sm">Enter MessApp</span><span className="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_forward</span></>}
+              {loading ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <><span className="type-label">Enter MessApp</span><ArrowRight size={18} aria-hidden="true" /></>}
             </button>
           </form>
 
           {message && (
             <div className={`mt-4 p-3 border rounded-xl text-center ${messageType === 'success' ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
-              <p className={`text-xs m-0 font-medium ${messageType === 'success' ? 'text-green-400' : 'text-red-400'}`}>{message}</p>
+              <p className={`type-meta m-0 font-medium ${messageType === 'success' ? 'text-green-400' : 'text-red-400'}`}>{message}</p>
               {canResendConfirmation && (
-                <button type="button" onClick={handleResendConfirmation} disabled={resending} className="premium-secondary-button mt-3 h-10 px-4 rounded-lg disabled:opacity-60 text-xs font-bold cursor-pointer">
+                <button type="button" onClick={handleResendConfirmation} disabled={resending} className="premium-secondary-button mt-3 h-10 px-4 rounded-lg disabled:opacity-60 type-meta font-bold cursor-pointer">
                   {resending ? 'Sending...' : 'Resend confirmation email'}
                 </button>
               )}
@@ -130,11 +131,11 @@ export default function Login({ switchToRegister, switchToForgotPassword, initia
           )}
 
           <div className="flex items-center gap-4 my-5 md:my-6">
-            <div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div><span className="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest">New to the app?</span><div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div>
+            <div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div><span className="type-meta font-bold text-gray-500 uppercase tracking-widest">New to the app?</span><div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div>
           </div>
 
           {switchToRegister && (
-            <button onClick={switchToRegister} type="button" className="premium-secondary-button w-full h-12 rounded-xl font-bold cursor-pointer text-sm">
+            <button onClick={switchToRegister} type="button" className="premium-secondary-button w-full h-12 rounded-xl font-bold cursor-pointer type-label">
               Create an Account
             </button>
           )}
