@@ -600,13 +600,15 @@ iframe {
     background-image: none;
   }
 
+  /* Mobile auth is edge to edge: the shell gives back only the safe area, so
+     the card has no gutter to sit a frame in. */
   .auth-shell {
     min-height: 100dvh;
-    padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
   .auth-card {
-    min-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom)));
+    min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 
   @media (min-width: 768px) {
@@ -2732,11 +2734,6 @@ iframe {
   background: #000 !important;
 }
 
-[data-theme="dark"] .auth-card,
-[data-theme="dark"] .auth-form-panel {
-  background: #000 !important;
-}
-
 /* Modal shells follow the same OLED rule as the app bar and tab shell: the
    sheet itself is true black, and the panels nested inside it keep their
    --surface-* tone so layering still reads. */
@@ -2766,13 +2763,21 @@ iframe {
   border-color: var(--app-accent-50);
 }
 
-[data-theme="dark"] .auth-card {
-  border-color: rgba(255, 255, 255, 0.075);
-  box-shadow: none;
+/* Full-bleed on phones, so the card outline has nothing left to separate. */
+@media (max-width: 767px) {
+  .auth-card {
+    border: 0;
+    border-radius: 0;
+  }
 }
 
-[data-theme="dark"] .auth-card > :first-child {
-  border-color: rgba(255, 255, 255, 0.065);
+/* Auth screens sit flat on the ground the same way the app's own pages do:
+   hairline borders carry the separation, nothing is elevated. The focus ring is
+   also a box-shadow, so it is exempt. */
+.auth-card,
+.auth-card .premium-button:not(:focus-visible),
+.auth-card .premium-secondary-button:not(:focus-visible) {
+  box-shadow: none;
 }
 
 .messapp-auth-logo {

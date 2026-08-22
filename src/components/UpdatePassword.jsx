@@ -1,8 +1,7 @@
 /** Completes the recovery-session password update through Supabase Auth. */
 import { useEffect, useState } from 'react'
-import { Check, KeyRound, LayoutGrid, Loader2, LogIn } from 'lucide-react'
+import { Check, KeyRound, Loader2, LogIn } from 'lucide-react'
 import { supabase } from '../supabaseClient'
-import { trackSpotlight } from '../lib/uiEffects'
 
 export default function UpdatePassword({ onComplete }) {
   const [newPassword, setNewPassword] = useState('')
@@ -65,45 +64,45 @@ export default function UpdatePassword({ onComplete }) {
   }
 
   return (
-    <div onMouseMove={trackSpotlight} className="glass-panel premium-card auth-card rounded-2xl md:rounded-[32px] w-full md:h-[580px] max-w-4xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)] animate-slide-up">
+    <div className="ios-sheet auth-card rounded-3xl w-full md:h-[580px] max-w-4xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)]">
       <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
         <div>
           <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
-            <div className="premium-brand-mark w-8 h-8 rounded-lg flex items-center justify-center">
-              <LayoutGrid size={14} aria-hidden="true" />
+            <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
+              <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
             </div>
             <span className="font-bold tracking-wider type-label">MESSAPP</span>
           </div>
-          <h1 className="gradient-text type-display md:text-5xl lg:text-6xl font-semibold tracking-tight mb-2 md:mb-6 font-display leading-[1.1]">
+          <h1 className="gradient-text type-display font-semibold tracking-tight mb-2 md:mb-6 leading-[1.1]">
             Create<br className="hidden md:block"/><span className="md:hidden"> </span><span className="accent-gradient-text">new access.</span>
           </h1>
-          <p className="hidden md:block text-gray-400 type-title max-w-sm mt-4 leading-relaxed font-sans">
+          <p className="hidden md:block text-[var(--text-muted)] type-title max-w-sm mt-4 leading-relaxed font-sans">
             Choose a new password to finish account recovery.
           </p>
         </div>
-        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-gray-500 uppercase tracking-widest">
+        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">
           <span>PASSWORD RECOVERY</span><span className="w-8 h-[1px] bg-[var(--border-hover)] my-auto"></span><span>MESSAPP</span>
         </div>
       </div>
 
-      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--surface-strong)] flex-1 md:overflow-y-auto custom-scrollbar">
+      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--bg-base)] flex-1 md:overflow-y-auto custom-scrollbar">
         <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
-          <h2 className="type-display font-semibold tracking-tight mb-2 font-display">Update Password</h2>
-          <p className="text-gray-400 type-label mb-6 md:mb-8">{sessionReady ? 'Enter your new password.' : 'Preparing your secure reset session...'}</p>
+          <h2 className="type-view-title font-semibold tracking-tight mb-2">Update Password</h2>
+          <p className="text-[var(--text-muted)] type-label mb-6 md:mb-8">{sessionReady ? 'Enter your new password.' : 'Preparing your secure reset session...'}</p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4 md:gap-5">
             <div>
-              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">New Password</label>
-              <div className={`premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12 ${messageType === 'error' && message ? 'border-red-500/40' : ''}`}>
-                <KeyRound size={18} className="text-gray-500 mr-3 shrink-0" aria-hidden="true" />
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" placeholder="••••••••" />
+              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">New Password</label>
+              <div className={`ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12 ${messageType === 'error' && message ? 'border-red-500/40' : ''}`}>
+                <KeyRound size={18} className="text-[var(--text-muted)] mr-3 shrink-0" aria-hidden="true" />
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
               </div>
             </div>
             <div>
-              <label className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Confirm Password</label>
-              <div className={`premium-input flex items-center rounded-xl ghost-border px-4 transition-all h-12 ${messageType === 'error' && message ? 'border-red-500/40' : ''}`}>
-                <Check size={18} className="text-gray-500 mr-3 shrink-0" aria-hidden="true" />
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder-gray-600 font-sans type-body" placeholder="••••••••" />
+              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Confirm Password</label>
+              <div className={`ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12 ${messageType === 'error' && message ? 'border-red-500/40' : ''}`}>
+                <Check size={18} className="text-[var(--text-muted)] mr-3 shrink-0" aria-hidden="true" />
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
               </div>
             </div>
             <button type="submit" disabled={loading || !sessionReady} className="premium-button mt-1 md:mt-2 w-full h-12 rounded-xl font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
