@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { REACTION_MENU_STATE, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from './reactions.js'
+import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from './reactions.js'
 
 test('long press opens once and can reopen after close', () => {
   const opened = transitionReactionMenu(REACTION_MENU_STATE.CLOSED, 'OPEN_TOOLBAR')
@@ -37,4 +37,20 @@ test('quick reaction, picker reaction, outside tap, and Escape all close', () =>
   for (const reason of ['QUICK_SELECTED', 'PICKER_SELECTED', 'OUTSIDE', 'ESCAPE']) {
     assert.equal(transitionReactionMenu(REACTION_MENU_STATE.PICKER, 'CLOSE'), REACTION_MENU_STATE.CLOSED, reason)
   }
+})
+
+test('quick reaction storage shapes normalize to a full unique row', () => {
+  assert.deepEqual(normalizeQuickReactions([]), QUICK_REACTION_EMOJIS)
+  assert.deepEqual(normalizeQuickReactions(['🔥', '🔥']).length, QUICK_REACTION_EMOJIS.length)
+  assert.equal(normalizeQuickReactions([{ emoji: '🔥' }])[0], '🔥')
+})
+
+test('editing a slot keeps every other slot and swaps on duplicates', () => {
+  const row = normalizeQuickReactions([])
+  assert.deepEqual(replaceQuickReaction(row, 0, '🔥'), ['🔥', ...row.slice(1)])
+  // Picking an emoji already in the row must not shrink it back to defaults.
+  const swapped = replaceQuickReaction(row, 0, row[3])
+  assert.equal(swapped[0], row[3])
+  assert.equal(swapped[3], row[0])
+  assert.equal(new Set(swapped).size, row.length)
 })

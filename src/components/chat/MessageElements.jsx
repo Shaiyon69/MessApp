@@ -11,7 +11,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play } from 'lucide-react'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
-import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
+import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
 import { getVideoAspectRatio, primeVideoPreview } from '../../lib/videoPreview'
 import ChatEmojiPicker from './ChatEmojiPicker'
@@ -19,7 +19,6 @@ import VoiceMessagePlayer from './VoiceMessagePlayer'
 import StatusAvatar from '../ui/StatusAvatar'
 import { debug } from '../../lib/debug'
 
-const QUICK_REACTION_COUNT = QUICK_REACTION_EMOJIS.length
 const loadedMessageImageKeys = new Set()
 const MAX_LOADED_MESSAGE_IMAGE_KEYS = 1000
 const TOUCH_PORTAL_Z_INDEX = 2147483000
@@ -63,15 +62,6 @@ const ActionToolbarHost = ({ owner, onBackdropPointerDown, children }) => owner 
   : <React.Fragment key={ACTION_TOOLBAR_OWNER.DESKTOP_HOVER}>{children}</React.Fragment>
 
 const ReactionPickerPortal = ({ children }) => createPortal(children, document.body)
-
-const normalizeQuickReactions = (value) => {
-  const list = Array.isArray(value) ? value : []
-  return [...list, ...QUICK_REACTION_EMOJIS]
-    .map(item => normalizeReactionEmoji(typeof item === 'string' ? item : item?.emoji || item?.type || item?.reaction))
-    .filter(Boolean)
-    .filter((item, index, self) => self.indexOf(item) === index)
-    .slice(0, QUICK_REACTION_COUNT)
-}
 
 const getQuickReactionStorageKey = (userId) => `messapp_quick_reactions_${userId || 'anon'}`
 
@@ -688,17 +678,19 @@ export const MemoizedMessage = React.memo(({
     }
   }, [closeMessageInteraction, inlineDeleteMessageId, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition])
 
+  // Each message keeps its own copy of the row, so an edit made from one message
+  // leaves every other message stale. Re-read whenever the picker opens.
   useEffect(() => {
     try {
       setQuickReactions(normalizeQuickReactions(JSON.parse(localStorage.getItem(getQuickReactionStorageKey(currentUserId)) || '[]')))
     } catch (_err) {
       setQuickReactions(QUICK_REACTION_EMOJIS)
     }
-  }, [currentUserId])
+  }, [currentUserId, showReactionPicker])
 
   const saveQuickReaction = (emoji) => {
     setQuickReactions(current => {
-      const next = normalizeQuickReactions(current.map((item, index) => index === quickReactionSlot ? normalizeReactionEmoji(emoji) : item))
+      const next = replaceQuickReaction(current, quickReactionSlot, emoji)
       try {
         localStorage.setItem(getQuickReactionStorageKey(currentUserId), JSON.stringify(next))
       } catch (_err) {}
@@ -732,6 +724,10 @@ export const MemoizedMessage = React.memo(({
       topOffset: overlayQuickReactions && isMobileViewport ? 54 : 0
     })
   }, [hasImageAttachments, isMe, showReactionPicker])
+
+  // On touch the expanded picker is a bottom sheet, so it ignores anchor
+  // positioning entirely; desktop keeps the anchored popover.
+  const reactionSheetMode = reactionInputMode === 'touch' && (showMoreReactions || editingQuickReactions)
 
   const getReactionPopoverPosition = useCallback((expanded = showMoreReactions || editingQuickReactions) => {
     const bubbleRect = bubbleRef.current?.getBoundingClientRect?.()
@@ -1276,6 +1272,9 @@ export const MemoizedMessage = React.memo(({
 
     const reposition = () => updateReactionPopoverPosition()
     const closeOnScroll = (event) => {
+      // Focusing the picker search opens the soft keyboard, which scrolls the
+      // document; that must not tear the picker down under the user.
+      if (showMoreReactions || editingQuickReactions) return
       if (reactionPopoverRef.current?.contains(event.target)) return
       if (actionMenuRef.current?.contains(event.target)) return
       closeActionMenu('message_list_scroll')
@@ -1753,7 +1752,7 @@ export const MemoizedMessage = React.memo(({
                 data-reaction-toolbar
                 data-toolbar-owner={actionToolbarOwner}
                 data-message-id={m.id}
-                className={`message-action-toolbar select-none transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
+                className={`message-action-toolbar select-none transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionSheetMode ? 'invisible' : ''} ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
                   ${isActionMenuOpen && reactionInputMode === 'touch' ? 'fixed' : `absolute top-1/2 -translate-y-1/2 ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}`}
                   ${inlineDeleteMessageId === m.id
                     ? 'flex-row h-auto w-auto min-w-max px-1.5 py-1 gap-1'
@@ -1797,8 +1796,18 @@ export const MemoizedMessage = React.memo(({
                     <div
                       ref={reactionPopoverRef}
                       data-reaction-picker
-                      className="messapp-reaction-popover premium-menu fixed z-[170] animate-fade-in rounded-2xl overflow-hidden p-1.5"
-                      style={{
+                      className={`messapp-reaction-popover premium-menu fixed z-[170] animate-fade-in overflow-hidden p-1.5 ${reactionSheetMode ? 'flex flex-col rounded-t-2xl' : 'rounded-2xl'}`}
+                      style={reactionSheetMode ? {
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100%',
+                        height: '62vh',
+                        paddingBottom: 'env(safe-area-inset-bottom)',
+                        pointerEvents: 'auto',
+                        touchAction: 'manipulation',
+                        zIndex: TOUCH_PORTAL_Z_INDEX + 1
+                      } : {
                         left: reactionPopoverPosition.left,
                         top: reactionPopoverPosition.top,
                         width: reactionPopoverPosition.width,
@@ -1819,9 +1828,12 @@ export const MemoizedMessage = React.memo(({
                       onTouchEnd={isolateReactionSurfaceEvent}
                       onTouchCancel={isolateReactionSurfaceEvent}
                       onWheel={isolateReactionSurfaceEvent}
-                      onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                      onTouchStartCapture={() => {
+                        const active = document.activeElement
+                        if (active && !reactionPopoverRef.current?.contains(active)) active.blur()
+                      }}
                     >
-                    <div className="relative z-10">
+                    <div className={`relative z-10 ${reactionSheetMode ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
                       <div className="grid grid-cols-7 items-center gap-1">
                         {quickReactions.map((emoji, index) => {
                           const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
@@ -1878,7 +1890,7 @@ export const MemoizedMessage = React.memo(({
                       </div>
 
                       {(showMoreReactions || editingQuickReactions) && (
-                        <div className="mt-1.5 rounded-xl overflow-hidden">
+                        <div className={`mt-1.5 overflow-hidden ${reactionSheetMode ? 'flex min-h-0 flex-1 flex-col rounded-xl' : 'rounded-xl'}`}>
                           {showMoreReactions && !editingQuickReactions && (
                             <div className="flex items-center justify-end bg-[var(--bg-element)] px-3 py-2">
                               <button
@@ -1912,9 +1924,10 @@ export const MemoizedMessage = React.memo(({
                               </button>
                             </div>
                           )}
+                          <div className={reactionSheetMode ? 'min-h-0 flex-1' : 'h-[360px]'}>
                           <ChatEmojiPicker
-                            width={typeof window !== 'undefined' ? Math.min(324, window.innerWidth - 28) : 324}
-                            height={editingQuickReactions ? 320 : 360}
+                            width="100%"
+                            height="100%"
                             searchDisabled={false}
                             onEmojiClick={(emojiData) => {
                               if (editingQuickReactions) {
@@ -1925,6 +1938,7 @@ export const MemoizedMessage = React.memo(({
                               void submitReaction({ stopPropagation() {}, preventDefault() {} }, emoji, 'action_react_picker')
                             }}
                           />
+                          </div>
                         </div>
                       )}
                     </div>
