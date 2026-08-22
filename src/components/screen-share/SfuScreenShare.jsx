@@ -179,7 +179,7 @@ function StreamFallback({ participant, type }) {
 
 function ParticipantBadge({ participant, streamSummary = '', compact = false }) {
   return (
-    <div className={`flex min-w-0 items-center gap-2 ${compact ? 'type-meta' : 'type-meta'}`}>
+    <div className="flex min-w-0 items-center gap-2 type-meta">
       <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} status="online" className={compact ? 'h-7 w-7' : 'h-8 w-8'} />
       <div className="min-w-0">
         <p className="truncate font-black text-[var(--text-main)]">{participant?.displayName || 'Participant'}</p>
@@ -293,7 +293,7 @@ function AvatarParticipantTile({ participant, onPin }) {
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 sm:p-3">
         <div className="flex min-w-0 items-end justify-between gap-2">
           <div className="min-w-0 text-left">
-            <p className="truncate type-meta font-black text-white type-label">{participant?.displayName || 'Participant'}</p>
+            <p className="truncate type-label font-bold text-white">{participant?.displayName || 'Participant'}</p>
             <p className="truncate type-meta font-bold text-gray-400">{statusText || 'Connected'}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1 text-gray-300">
@@ -1411,7 +1411,7 @@ export default function SfuScreenShare({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate type-label font-black text-[var(--text-main)]">{title}</span>
-            <span className="block truncate type-meta font-bold uppercase tracking-widest text-gray-500 type-meta">
+            <span className="block truncate type-meta font-bold uppercase tracking-widest text-gray-500">
               {connectionLabel} - {participantCount} connected{localScreenStream ? ' - sharing screen' : ''}{localCameraStream ? ' - camera on' : ''}
             </span>
           </span>
@@ -1491,7 +1491,7 @@ export default function SfuScreenShare({
                   <span className={`h-1.5 w-1.5 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} />
                   Live voice channel
                 </p>
-                <h2 className="truncate type-label font-black tracking-tight text-[var(--text-main)] type-body">{title}</h2>
+                <h2 className="truncate type-title font-bold tracking-tight text-[var(--text-main)]">{title}</h2>
                 <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
                   <span className={`shrink-0 type-meta font-bold ${status === 'connected' ? 'text-green-300' : 'text-amber-300'}`}>{connectionLabel}</span>
                   {sharingCount > 0 && <span className="voice-stage-stat shrink-0"><ScreenShare size={10} />{sharingCount}</span>}

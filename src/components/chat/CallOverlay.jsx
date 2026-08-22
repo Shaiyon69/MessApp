@@ -99,8 +99,8 @@ export default function CallOverlay({
               style={!isVideoLive && !isScreenShareLive ? localVideoStyle : undefined}
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2.5 pb-2 pt-8 md:px-3.5 md:pb-3 md:pt-12">
-              <p className="truncate type-label font-black tracking-tight text-white type-body">{remoteCaller?.username || 'Call'}</p>
-              <p className={`type-meta font-bold uppercase tracking-widest type-meta ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
+              <p className="truncate type-title font-bold tracking-tight text-white">{remoteCaller?.username || 'Call'}</p>
+              <p className={`type-meta font-bold uppercase tracking-widest ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
                 {isScreenShareLive ? 'Sharing their screen' : statusLabel}{!isVideoLive && !isScreenShareLive ? ' · Your camera' : ''}
               </p>
             </div>
@@ -120,7 +120,7 @@ export default function CallOverlay({
               <span className={`absolute bottom-0.5 right-0.5 z-[3] h-3 w-3 rounded-full border-2 border-[#151820] md:bottom-1 md:right-1 md:h-3.5 md:w-3.5 md:border-[3px] ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} aria-hidden="true" />
             </div>
             <div className="relative z-[1] min-w-0 flex-1">
-              <span className="block truncate type-label font-black tracking-tight text-white type-title">{remoteCaller?.username || 'Call'}</span>
+              <span className="block truncate type-title font-bold tracking-tight text-white">{remoteCaller?.username || 'Call'}</span>
               <span className={`mt-0.5 block truncate type-meta font-bold uppercase tracking-[0.15em] ${isConnected ? 'text-green-400' : 'text-[var(--theme-base)]'}`}>
                 {statusLabel}{isConnected ? ` · ${micEnabled ? 'Mic on' : 'Muted'}` : ''}
               </span>
@@ -165,7 +165,7 @@ export default function CallOverlay({
               </button>
 
               {isIncoming ? (
-                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 type-meta font-black text-white md:h-10 md:gap-2 md:px-4 type-meta"><Phone size={14} />Accept</button>
+                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 type-meta font-black text-white md:h-10 md:gap-2 md:px-4"><Phone size={14} />Accept</button>
               ) : (
                 <button type="button" onClick={() => endCallNetwork('ended')} className="direct-call-mini-end flex h-8 w-10 items-center justify-center rounded-full bg-red-500 text-white md:h-10 md:w-12" aria-label="End call" title="End call"><PhoneOff size={15}/></button>
               )}
@@ -239,7 +239,7 @@ export default function CallOverlay({
 
         {!isVideoLive && !isScreenShareLive && (
           <div className="absolute bottom-[8%] flex flex-col items-center px-4 text-center">
-            <h2 className="mb-1 type-view-title font-bold tracking-tight text-white type-display">{remoteCaller?.username}</h2>
+            <h2 className="mb-1 type-view-title font-bold tracking-tight text-white">{remoteCaller?.username}</h2>
             <p className="type-label font-bold text-gray-300">
               {statusLabel}
             </p>
