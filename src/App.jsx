@@ -72,6 +72,9 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       debug.info('APP_SESSION', { operation: 'auth-state-change', authEvent: _event, authenticated: Boolean(session) })
+      // A recovery link may land on any path (site_url fallback, deep link);
+      // send it to the update-password screen instead of the Dashboard.
+      if (_event === 'PASSWORD_RECOVERY' && window.location.pathname !== '/update-password') navigateTo('/update-password')
     })
 
     const setupDeepLinkListener = async () => {
