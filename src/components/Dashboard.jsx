@@ -9,7 +9,7 @@ import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
 import { configureNativePushRegistration, registerWebPushDevice, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
-import { Search, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
+import { Search, SearchX, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 
 import { audioSys } from '../lib/SoundEngine'
 import { triggerInteractionFeedback } from '../lib/interactionFeedback'
@@ -18,11 +18,9 @@ import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
 
 import CallOverlay from './chat/CallOverlay'
-import LeftSidebar from './layout/LeftSidebar'
 import RightSidebar from './layout/RightSidebar'
 import ChatArea from './layout/ChatArea'
 
-import ServerActionPopout from './modals/ServerActionPopout'
 import ServerSettingsModal from './modals/ServerSettings'
 // import ChannelCreationModal from './modals/ChannelCreation'
 import ChannelSettingsModal from './modals/ChannelSettings'
@@ -33,6 +31,7 @@ import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureR
 import { normalizeProfileBaseName } from '../lib/security'
 import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
+import { buildNotifications } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
 import {
@@ -171,8 +170,7 @@ export default function Dashboard({ session }) {
   const [customWallpaperState, setCustomWallpaperState] = useState({ scopeKey: '', url: '' })
   const [customWallpaperBusy, setCustomWallpaperBusy] = useState(false)
   const [view, setView] = useState('home')
-  const [homeTab, setHomeTab] = useState('all')
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [homeTab, setHomeTab] = useState('chats')
   const [servers, setServers] = useState(cachedServers)
   const [serversLoading, setServersLoading] = useState(cachedServers.length === 0)
   const [activeServer, setActiveServer] = useState(null)
@@ -201,13 +199,13 @@ export default function Dashboard({ session }) {
   const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [rightTab, setRightTab] = useState('search')
   const [searchQuery, setSearchQuery] = useState('')
-  const [serverAction, setServerAction] = useState(null)
-  const [showProfilePopout, setShowProfilePopout] = useState(false)
   
-  const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account', showMenu: true })
+  const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
   const [userStatus, setUserStatus] = useState(() => localStorage.getItem(`user_status_${session.user.id}`) || 'online')
   
-  const popoutRef = useRef(null)
+  /* The Android back listener is registered once, so it reads handleBack
+     through a ref rather than re-subscribing on every render. */
+  const handleBackRef = useRef(() => {})
   const serverMembersCacheRef = useRef(new Map())
   const serversFetchRef = useRef(null)
   const dmsFetchRef = useRef(null)
@@ -260,7 +258,6 @@ export default function Dashboard({ session }) {
   const profileData = { ...(session.user.user_metadata || {}), ...profileOverride }
   const myAvatar = profileData.avatar_url
   const myBanner = profileData.banner_url
-  const myBio = profileData.bio
   const myPronouns = profileData.pronouns
   const myUsername = profileData.username || session.user.email.split('@')[0]
   const myTag = profileData.unique_tag || `${myUsername}#0000`
@@ -280,10 +277,7 @@ export default function Dashboard({ session }) {
   }, [reportTarget, session.user.id])
 
   const closeUserSettings = useCallback(() => {
-    setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })
-    setView('home')
-    setHomeTab('all')
-    if (window.innerWidth < 768) setMobileMenuOpen(true)
+    setSettingsModalConfig({ isOpen: false, tab: 'account' })
   }, [])
 
   const handleCurrentUserRead = useCallback((roomId, readAt) => {
@@ -455,11 +449,10 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     activeDmRef.current = activeDm;
     stateRef.current = { 
-      mobileMenuOpen, 
+      homeTab,
       showRightSidebar, 
       settingsModalConfig, 
       selectedImage: chatManagerProps.selectedImage,
-      showProfilePopout,
       showQuickSwitcher,
 	      confirmAction,
 	      showServerSettings,
@@ -470,7 +463,7 @@ export default function Dashboard({ session }) {
 	      activeDm,
 	      view
 	    };
-	  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
+	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
     const setupBackButton = async () => {
@@ -492,20 +485,16 @@ export default function Dashboard({ session }) {
 	        else if (state.selectedImage) chatManagerProps.setSelectedImage(null);
         else if (state.confirmAction) setConfirmAction(null);
         else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
-        else if (state.showProfilePopout) setShowProfilePopout(false);
         else if (state.showServerSettings) setShowServerSettings(false);
         else if (state.showChannelModal) setShowChannelModal(false);
         else if (state.showChannelSettings) setShowChannelSettings(false);
-        else if (state.settingsModalConfig.isOpen) {
-            if (!state.settingsModalConfig.showMenu && window.innerWidth < 768) {
-                setSettingsModalConfig(prev => ({ ...prev, showMenu: true }));
-            } else {
-                closeUserSettings();
-            }
-        }
+        else if (state.settingsModalConfig.isOpen) closeUserSettings();
         else if (state.showRightSidebar) { setShowRightSidebar(false); setSearchQuery(''); }
-        else if (!state.mobileMenuOpen) {
-            setMobileMenuOpen(true);
+        /* Bottom-bar tabs are destinations, so back leaves them for Chats
+           before it starts unwinding conversations or exiting. */
+        else if (state.view === 'home' && !state.activeDm && state.homeTab !== 'chats') setHomeTab('chats');
+        else if (state.activeDm || state.view === 'server') {
+            handleBackRef.current();
         } else {
             if (exitTimerRef.current) {
                 CapacitorApp.exitApp();
@@ -572,7 +561,7 @@ export default function Dashboard({ session }) {
   }, [dmActionMenuId])
 
   useEffect(() => {
-    const nextScope = `${view}:${activeDm?.dm_room_id || 'none'}:${mobileMenuOpen ? 'mobile-open' : 'mobile-closed'}`
+    const nextScope = `${view}:${activeDm?.dm_room_id || 'none'}:${homeTab}`
     if (dmMenuScopeRef.current && dmMenuScopeRef.current !== nextScope && dmActionMenuId) {
       logUiFreezeDebug('dm action menu closed', {
         reason: 'scope_changed',
@@ -583,7 +572,7 @@ export default function Dashboard({ session }) {
       setDmActionMenuId(null)
     }
     dmMenuScopeRef.current = nextScope
-  }, [activeDm?.dm_room_id, dmActionMenuId, mobileMenuOpen, view])
+  }, [activeDm?.dm_room_id, dmActionMenuId, homeTab, view])
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -614,7 +603,7 @@ export default function Dashboard({ session }) {
 
     return () => cancelAnimationFrame(frame)
   }, [
-    mobileMenuOpen,
+    homeTab,
     showRightSidebar,
     settingsModalConfig.isOpen,
     showQuickSwitcher,
@@ -662,9 +651,7 @@ export default function Dashboard({ session }) {
 
     const storedDensity = localStorage.getItem('uiDensity') || localStorage.getItem('chatMessageScale') || 'default';
     const uiDensity = storedDensity === 'comfortable' || storedDensity === 'normal' ? 'default' : storedDensity === 'large' ? 'spacious' : storedDensity;
-    const chatMessageSize = uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px';
     document.documentElement.setAttribute('data-ui-density', uiDensity);
-    document.documentElement.style.setProperty('--chat-message-font-size', chatMessageSize);
   }, []);
 
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
@@ -672,7 +659,6 @@ export default function Dashboard({ session }) {
 
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
-    setMobileMenuOpen(false)
     if (dm) {
       localStorage.setItem(`last_dm_${session.user.id}`, dm.dm_room_id)
       // Preserve the prior receipt until the message viewport proves what the
@@ -713,7 +699,6 @@ export default function Dashboard({ session }) {
     setView('server')
     setActiveDm(null)
     setActiveChannel(channel)
-    setMobileMenuOpen(false)
     joinVoiceChannel(channel)
   }, [joinVoiceChannel])
 
@@ -729,7 +714,6 @@ export default function Dashboard({ session }) {
     setView('server')
     setActiveDm(null)
     setActiveChannel(channel)
-    setMobileMenuOpen(false)
   }, [activeServer, activeVoiceSession, serverCategories, servers])
 
   const leaveActiveVoice = useCallback(() => {
@@ -751,17 +735,6 @@ export default function Dashboard({ session }) {
       })
     }
   }, [activeVoiceSession, openActiveVoiceChannel])
-
-  const updateProfileBio = useCallback(async (newStatus) => {
-    const nextBio = newStatus.trim()
-    setProfileOverride(prev => {
-      const next = { ...prev, bio: nextBio }
-      localStorage.setItem(profileCacheKey, JSON.stringify(next))
-      return next
-    })
-    const { error } = await supabase.from('profiles').update({ bio: nextBio }).eq('id', session.user.id)
-    if (error) throw error
-  }, [profileCacheKey, session.user.id])
 
   useEffect(() => {
     if (!session?.user?.id) return; 
@@ -971,7 +944,7 @@ export default function Dashboard({ session }) {
   }, [])
 
   const fetchFriendRequests = async () => {
-    const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
+    const { data } = await supabase.from('friendships').select('id, sender_id, created_at, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
     if (data) setFriendRequests(data)
   }
 
@@ -1036,15 +1009,25 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const handleHomeClick = () => {
-    setView('home')
-    setHomeTab('all')
-    setActiveServer(null)
-    setActiveChannel(null)
-    selectDm(null)
+  /* The app bar's only back affordance, and the Android back button's. Server
+     channels return to the channel list they were opened from; DMs return to
+     the chat list. */
+  const handleBack = () => {
+    if (view === 'server') {
+      setActiveChannel(null)
+      setView('home')
+      setHomeTab('servers')
+    } else {
+      selectDm(null)
+    }
     closeRightSidebar()
-    setMobileMenuOpen(false)
   }
+
+  handleBackRef.current = handleBack
+
+  /* The bottom bar badge. Same derivation the notifications tab renders, so
+     the count and the list can never disagree. */
+  const notificationCount = useMemo(() => buildNotifications({ friendRequests }).length, [friendRequests])
 
   const handleConversationThemeChange = async (requestedThemeId) => {
     const themeId = normalizeConversationThemeId(requestedThemeId)
@@ -1709,8 +1692,7 @@ export default function Dashboard({ session }) {
         setView('server')
         setActiveDm(null)
         setActiveChannel(channel)
-        setMobileMenuOpen(false)
-      } catch (error) {
+          } catch (error) {
         reportPushError('open_conversation', error)
         if (pushNavigationMountedRef.current) toast.error('That conversation is no longer available.')
       }
@@ -1902,82 +1884,7 @@ export default function Dashboard({ session }) {
         toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
 
-      {/* Dashboard owns atomic DM creation and passes the canonical RPC-backed handler down. */}
-      <LeftSidebar 
-        session={session}
-        view={view}
-        setView={setView}
-        homeTab={homeTab}
-        setHomeTab={setHomeTab}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-        servers={servers}
-        serversLoading={serversLoading}
-        activeServer={activeServer}
-        serverCategories={serverCategories}
-        serverChannelsLoading={serverChannelsLoading}
-        setActiveServer={setActiveServer}
-        activeChannel={activeChannel}
-        setActiveChannel={selectChannel}
-        canManageActiveServer={canManageActiveServer}
-        activeServerRole={activeServerRole}
-        handleCreateChannel={handleCreateChannel}
-        handleCreateCategory={handleCreateCategory}
-        handleUpdateCategory={handleUpdateCategory}
-        handleDeleteCategory={handleDeleteCategory}
-        handleUpdateChannel={handleUpdateChannel}
-        handleDeleteChannel={handleDeleteChannel}
-        handleLeaveServer={handleLeaveServer}
-        handleDeleteServer={handleDeleteServer}
-        dms={dms}
-        dmsLoading={dmsLoading}
-        activeDm={activeDm}
-        selectDm={selectDm}
-        createOrOpenDm={createOrOpenDm}
-        startingDmProfileId={startingDmProfileId}
-        onlineUsersSet={onlineUsersSet}
-        userPresence={userPresence}
-        getPresenceStatus={getPresenceStatus}
-        getPresenceLabel={getPresenceLabel}
-        friendRequests={friendRequests}
-        handleAcceptRequest={handleAcceptRequest}
-        handleDeclineRequest={handleDeclineRequest}
-        serverAction={serverAction}
-        setServerAction={setServerAction}
-        fetchServers={fetchServers}
-        showProfilePopout={showProfilePopout}
-        setShowProfilePopout={setShowProfilePopout}
-        settingsModalConfig={settingsModalConfig}
-        setSettingsModalConfig={setSettingsModalConfig}
-        dmActionMenuId={dmActionMenuId}
-        setDmActionMenuId={setDmActionMenuId}
-        setConfirmAction={setConfirmAction}
-        onReportMessage={message => setReportTarget({ targetType: 'message', id: message.id, clientContent: message.content, label: 'message' })}
-        restrictedUsersSet={restrictedUsersSet}
-        blockedUsersSet={blockedUsersSet}
-        myAvatar={myAvatar}
-        myUsername={myUsername}
-        myTag={myTag}
-        myBio={myBio}
-        myPronouns={myPronouns}
-        myBanner={myBanner}
-        userStatus={userStatus}
-        setUserStatus={setUserStatus}
-        updateProfileBio={updateProfileBio}
-        popoutRef={popoutRef}
-        setShowQuickSwitcher={setShowQuickSwitcher}
-        allFriends={allFriends}
-        onlineFriends={onlineFriends}
-        appThemeMode={appThemeMode}
-        scopedChatStyle={scopedChatStyle}
-        handleHomeClick={handleHomeClick}
-        activeVoiceSession={activeVoiceSession}
-        voiceSessionState={voiceSessionState}
-        getVoiceParticipantsForChannel={getVoiceParticipantsForChannel}
-        onVoiceParticipantSelect={focusVoiceParticipant}
-      />
-
-      <ChatArea
+<ChatArea
         session={session}
         view={view}
         activeDm={activeDm}
@@ -1998,10 +1905,39 @@ export default function Dashboard({ session }) {
         openActiveVoiceChannel={openActiveVoiceChannel}
         setVoiceMuted={setVoiceMuted}
         setVoiceDeafened={setVoiceDeafened}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
+        setView={setView}
         homeTab={homeTab}
         setHomeTab={setHomeTab}
+        myTag={myTag}
+        myPronouns={myPronouns}
+        myBanner={myBanner}
+        userStatus={userStatus}
+        setUserStatus={setUserStatus}
+        setSettingsModalConfig={setSettingsModalConfig}
+        notificationCount={notificationCount}
+        handleBack={handleBack}
+        dms={dms}
+        dmsLoading={dmsLoading}
+        appThemeMode={appThemeMode}
+        setShowQuickSwitcher={setShowQuickSwitcher}
+        servers={servers}
+        serversLoading={serversLoading}
+        activeServer={activeServer}
+        setActiveServer={setActiveServer}
+        setActiveChannel={selectChannel}
+        serverCategories={serverCategories}
+        serverChannelsLoading={serverChannelsLoading}
+        canManageActiveServer={canManageActiveServer}
+        fetchServers={fetchServers}
+        handleCreateChannel={handleCreateChannel}
+        handleCreateCategory={handleCreateCategory}
+        handleUpdateCategory={handleUpdateCategory}
+        handleDeleteCategory={handleDeleteCategory}
+        handleUpdateChannel={handleUpdateChannel}
+        handleDeleteChannel={handleDeleteChannel}
+        handleLeaveServer={handleLeaveServer}
+        handleDeleteServer={handleDeleteServer}
+        onVoiceParticipantSelect={focusVoiceParticipant}
         friendRequests={friendRequests}
         onlineFriends={onlineFriends}
         allFriends={allFriends}
@@ -2092,19 +2028,19 @@ export default function Dashboard({ session }) {
           <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
-              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none text-base sm:text-xl font-display placeholder-gray-500" />
-              <div className="hidden sm:block text-[10px] font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
+              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500" />
+              <div className="hidden sm:block type-meta font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
             </div>
             
             <div className="relative z-10 max-h-[60vh] sm:max-h-[400px] overflow-y-auto p-2 sm:p-3 custom-scrollbar">
               {quickSwitcherQuery && quickSwitcherResults.length === 0 ? (
                  <div className="text-center py-12 flex flex-col items-center">
-                    <span className="material-symbols-outlined text-4xl text-gray-600 mb-2">search_off</span>
+                    <SearchX size={36} className="text-gray-600 mb-2" aria-hidden="true" />
                     <span className="text-gray-400 font-medium">No friends match that query.</span>
                  </div>
               ) : (
                 <>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Friends & Conversations</div>
+                  <div className="type-meta font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Friends & Conversations</div>
                   {quickSwitcherResults.map((dm, idx) => (
                     <button 
                       key={dm.dm_room_id ? `qs-${dm.dm_room_id}` : `qs-fallback-${idx}`} 
@@ -2115,11 +2051,11 @@ export default function Dashboard({ session }) {
                       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={getPresenceStatus(dm.profiles.id)} className="w-10 h-10" />
                         <div className="flex flex-col min-w-0">
-                          <span className={`font-bold text-[15px] transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-[var(--text-main)] group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
-                          <span className="text-[11px] text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
+                          <span className={`font-bold type-body transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-[var(--text-main)] group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
+                          <span className="type-meta text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
                         </div>
                       </div>
-                      <div className={`hidden sm:flex opacity-0 transition-opacity items-center gap-1 text-[10px] font-bold uppercase text-gray-500 ${idx === 0 ? 'opacity-100' : 'group-hover:opacity-100'}`}>
+                      <div className={`hidden sm:flex opacity-0 transition-opacity items-center gap-1 type-meta font-bold uppercase text-gray-500 ${idx === 0 ? 'opacity-100' : 'group-hover:opacity-100'}`}>
                         {dm.is_new_chat ? 'Start' : 'Jump To'} <CornerDownLeft size={12} className="text-indigo-400 ml-1" />
                       </div>
                     </button>
@@ -2134,14 +2070,14 @@ export default function Dashboard({ session }) {
       {confirmAction && (
         <div data-ui-overlay-owner="Dashboard:confirm-action" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in" style={scopedChatStyle}>
           <div className="premium-modal w-full max-w-md rounded-2xl p-6">
-            <h3 className="gradient-text relative z-10 text-xl font-semibold mb-2">
+            <h3 className="gradient-text relative z-10 type-view-title font-semibold mb-2">
               {confirmAction.type === 'block' && `Block ${confirmAction.profile.username}?`}
               {confirmAction.type === 'unblock' && `Unblock ${confirmAction.profile.username}?`}
               {confirmAction.type === 'restrict' && `Restrict ${confirmAction.profile.username}?`}
               {confirmAction.type === 'unrestrict' && `Unrestrict ${confirmAction.profile.username}?`}
               {confirmAction.type === 'delete_dm' && `Delete conversation with ${confirmAction.profile.username}?`}
             </h3>
-            <p className="relative z-10 text-gray-400 text-sm mb-8">
+            <p className="relative z-10 text-gray-400 type-label mb-8">
               {confirmAction.type === 'block' && "They won't be able to message you or see your online status."}
               {confirmAction.type === 'unblock' && "They will be able to message you again."}
               {confirmAction.type === 'restrict' && "We'll move the chat out of your main list."}
@@ -2219,8 +2155,8 @@ export default function Dashboard({ session }) {
           >
             <div className="flex min-w-0 items-center justify-between gap-3 px-2 py-1">
               <div className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-bold text-white">{chatManagerProps.selectedImage.user}</span>
-                <span className="truncate text-xs text-gray-400">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
+                <span className="truncate type-label font-bold text-white">{chatManagerProps.selectedImage.user}</span>
+                <span className="truncate type-meta text-gray-400">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
               </div>
               <button
                 type="button"
@@ -2243,7 +2179,7 @@ export default function Dashboard({ session }) {
               </button>
               <button
                 type="button"
-                className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
+                className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 type-label font-bold transition hover:bg-white/20"
                 onClick={() => {
                   const a = document.createElement('a')
                   a.style.display = 'none'
@@ -2273,11 +2209,11 @@ export default function Dashboard({ session }) {
       {showPinSetupPrompt && !showRecoveryPrompt && (
         <div data-ui-overlay-owner="Dashboard:pin-setup" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
           <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
-            <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto">
                <Key size={32} />
             </div>
-            <h3 className="gradient-text relative z-10 text-2xl font-semibold mb-2 font-display">Secure Your Messages</h3>
-            <p className="relative z-10 text-gray-400 text-sm mb-6 leading-relaxed">
+            <h3 className="gradient-text relative z-10 type-view-title font-semibold mb-2 font-display">Secure Your Messages</h3>
+            <p className="relative z-10 text-gray-400 type-label mb-6 leading-relaxed">
               MessApp uses <strong>End-to-End Encryption</strong>. Before you can chat, create a 6-Digit PIN to securely back up your keys so you don't lose your messages if you clear your browser.
             </p>
             
@@ -2287,7 +2223,7 @@ export default function Dashboard({ session }) {
               value={setupPinInput}
               onChange={(e) => setSetupPinInput(e.target.value)}
               placeholder="••••••"
-              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none transition-all mx-auto block"
+              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
             />
             
             <button
@@ -2326,11 +2262,11 @@ export default function Dashboard({ session }) {
       {showRecoveryPrompt && (
         <div data-ui-overlay-owner="Dashboard:pin-recovery" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
           <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
-            <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto">
                <Shield size={32} />
             </div>
-            <h3 className="gradient-text relative z-10 text-2xl font-semibold mb-2 font-display">Enter Your PIN</h3>
-            <p className="relative z-10 text-gray-400 text-sm mb-6 leading-relaxed">
+            <h3 className="gradient-text relative z-10 type-view-title font-semibold mb-2 font-display">Enter Your PIN</h3>
+            <p className="relative z-10 text-gray-400 type-label mb-6 leading-relaxed">
               You are logging in from a new device. Enter your <strong>6-Digit PIN</strong> to unlock your Secure Storage and restore your messages.
             </p>
             
@@ -2340,7 +2276,7 @@ export default function Dashboard({ session }) {
               value={recoveryCodeInput}
               onChange={(e) => setRecoveryCodeInput(e.target.value)}
               placeholder="••••••"
-              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none transition-all mx-auto block"
+              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
             />
             
             <div className="relative z-10 flex flex-col gap-3">

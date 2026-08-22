@@ -5,11 +5,17 @@
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Menu, Users, UserPlus, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Bell, MessageSquare, MoreVertical, Trash2, Check, SmilePlus, Plus, FileText, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, CircleDot, SlidersHorizontal, Camera, Square } from 'lucide-react'
+import { Loader2, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
 import AddFriendView from '../modals/AddFriendView'
+import BottomBar, { TABS } from './BottomBar'
+import ChatsPage from './ChatsPage'
+import MenuPage from './MenuPage'
+import NotificationsPage from './NotificationsPage'
+import QuickActionsFab from './QuickActionsFab'
+import ServersPage from './ServersPage'
 import GifPickerPopout from '../modals/GifPickerPopout'
 import ChatEmojiPicker from '../chat/ChatEmojiPicker'
 import SfuScreenShare from '../screen-share/SfuScreenShare'
@@ -36,6 +42,12 @@ const logMenuDebug = (event, payload = {}) => {
 }
 
 export default function ChatArea(props) {
+  const [pendingServerAction, setPendingServerAction] = useState(null);
+  /* Which pane ServersPage is showing. It lives here, not in ServersPage,
+     because the quick-actions FAB is centered inside the docked server bar on
+     the detail pane and floats in the corner on the list. activeServer
+     survives a back press, so it cannot stand in for this. */
+  const [serversPanelView, setServersPanelView] = useState(() => (props.activeServer ? 'detail' : 'list'));
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState([]);
@@ -266,7 +278,7 @@ export default function ChatArea(props) {
     const deltaY = Math.abs(event.clientY - gesture.startY)
     if (deltaY > 72) return
     if (gesture.side === 'left' && deltaX >= 56) {
-      props.setMobileMenuOpen(true)
+      props.handleBack?.()
     } else if (gesture.side === 'right' && deltaX <= -56) {
       if (!(props.showRightSidebar && props.rightTab === 'info')) props.toggleRightSidebar('info')
     }
@@ -421,36 +433,12 @@ useEffect(() => {
     }
   };
 
-  const renderHomeTabBar = () => (
-    <div className="home-tab-shell shrink-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:px-6 md:pb-3 md:pt-3">
-      <div className="ios-segmented-control mx-auto grid max-w-3xl grid-cols-5 gap-1 rounded-2xl p-1 md:grid-cols-4">
-        <button type="button" onClick={() => props.setMobileMenuOpen(true)} className="home-browse-button flex min-h-11 items-center justify-center rounded-xl md:hidden" aria-label="Open navigation">
-          <Menu size={21} aria-hidden="true" />
-        </button>
-        <button onClick={() => props.setHomeTab('online')} data-active={props.homeTab === 'online'} data-tab-tone="online" className="home-tab-button min-h-11 rounded-xl transition-all outline-none cursor-pointer border" aria-label="Online friends" title="Online">
-          <CircleDot size={19} aria-hidden="true" />
-        </button>
-        <button onClick={() => props.setHomeTab('all')} data-active={props.homeTab === 'all'} data-tab-tone="all" className="home-tab-button min-h-11 rounded-xl transition-all outline-none cursor-pointer border" aria-label="All friends" title="All">
-          <Users size={19} aria-hidden="true" />
-        </button>
-        <button onClick={() => props.setHomeTab('pending')} data-active={props.homeTab === 'pending'} data-tab-tone="pending" className="home-tab-button relative min-h-11 rounded-xl text-xs font-bold transition-all outline-none cursor-pointer border sm:text-sm">
-          <Bell size={19} aria-hidden="true" />
-          <span className="sr-only">Pending requests</span>
-          {props.friendRequests.length > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{props.friendRequests.length}</span>}
-        </button>
-        <button
-          onClick={() => { props.setHomeTab('add_friend'); props.selectDm(null); }}
-          data-active={props.homeTab === 'add_friend'}
-          data-tab-tone="add"
-          className="home-tab-button min-h-11 rounded-xl transition-all flex items-center justify-center cursor-pointer border"
-          aria-label="Add friend"
-          title="Add friend"
-        >
-          <UserPlus size={19} aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  )
+  const quickActions = {
+    onSearch: () => props.setShowQuickSwitcher(true),
+    onAddFriend: () => props.setHomeTab('add'),
+    onCreateServer: () => { props.setHomeTab('servers'); setPendingServerAction('create') },
+    onJoinServer: () => { props.setHomeTab('servers'); setPendingServerAction('join') }
+  };
 
   return (
       <main
@@ -480,40 +468,47 @@ useEffect(() => {
         onPointerCancelCapture={() => { edgeGestureRef.current = null }}
       >
       <header
-        className={`ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 border-b shrink-0 z-30 ${props.isChatActive ? 'border-[var(--chat-border)]' : 'border-[var(--border-subtle)]'}`}
+        className="ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30"
         style={props.isChatActive ? { backgroundColor: 'var(--chat-bg-surface)' } : undefined}
       >
         <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
-          <button type="button" onClick={() => props.setMobileMenuOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:hidden" aria-label="Open navigation">
-            <Menu size={21} aria-hidden="true" />
-          </button>
+          {/* The bottom bar is the only navigation, so the app bar carries
+              identity: the wordmark while browsing, a way back while inside a
+              conversation. */}
+          {props.isChatActive && (
+            <button type="button" onClick={props.handleBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back">
+              <ChevronLeft size={22} aria-hidden="true" />
+            </button>
+          )}
           {props.view === 'home' && !props.activeDm ? (
-            <div className="flex items-center gap-3 md:gap-6 animate-fade-in w-full min-w-0">
-              <div className="flex items-center gap-2 text-[var(--text-main)] font-bold shrink-0">
-                {props.homeTab === 'add_friend'
-                  ? <UserPlus size={22} className="hidden text-gray-400 sm:block" />
-                  : <Users size={24} className="hidden text-gray-400 sm:block" />}
-                <span className="text-lg">{props.homeTab === 'add_friend' ? 'Add' : 'Friends'}</span>
-              </div>
+            <div className="flex w-full min-w-0 items-center animate-fade-in">
+              <span className="block min-w-0 flex-1 truncate font-display type-view-title font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">
+                messapp
+              </span>
             </div>
           ) : props.view === 'home' && props.activeDm ? (
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-dm-${props.activeDm.dm_room_id}`}>
                 <StatusAvatar url={props.activeDm.profiles.avatar_url} username={props.activeDm.profiles.username} status={props.getPresenceStatus?.(props.activeDm.profiles.id)} className="w-9 h-9" loading="eager" />
                 <div className="min-w-0">
-                  <h2 className="font-headline font-bold text-[var(--chat-text,var(--text-main))] text-xl tracking-tight truncate">{props.activeDm.profiles.username}</h2>
-                  <p className="text-[11px] font-semibold text-gray-500 leading-none">{props.getPresenceLabel?.(props.activeDm.profiles.id) || 'Offline'}</p>
+                  <h2 className="font-display font-bold text-[var(--chat-text,var(--text-main))] type-title tracking-tight truncate">{props.activeDm.profiles.username}</h2>
+                  <p className="type-meta font-semibold text-gray-500 leading-none">{props.getPresenceLabel?.(props.activeDm.profiles.id) || 'Offline'}</p>
                 </div>
             </div>
           ) : props.view === 'server' && props.activeChannel ? (
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-chan-${props.activeChannel.id}`}>
               {isVoiceChannel ? <Volume2 size={20} className="text-gray-500 shrink-0" aria-hidden="true" /> : <Hash size={20} className="text-gray-500 shrink-0" aria-hidden="true" />}
-              <h2 className="font-headline font-bold text-[var(--chat-text,var(--text-main))] text-xl tracking-tight truncate">{props.activeChannel.name}</h2>
+              <h2 className="font-display font-bold text-[var(--chat-text,var(--text-main))] type-title tracking-tight truncate">{props.activeChannel.name}</h2>
             </div>
-          ) : (
-            <h2 className="font-headline font-bold text-transparent bg-clip-text text-xl tracking-tight shrink-0 truncate animate-fade-in" style={{ backgroundImage: 'linear-gradient(to right, #6366f1, #818cf8)' }} key="header-dash">MESSY APPY</h2>
-          )}
+          ) : null}
         </div>
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
+          {/* Wordmark on the left never changes, so the right side names the
+              current bottom-bar destination. */}
+          {props.view === 'home' && !props.activeDm && (
+            <span className="type-meta font-bold uppercase tracking-[0.14em] text-gray-500">
+              {TABS.find(tab => tab.id === props.homeTab)?.label}
+            </span>
+          )}
           {props.isChatActive && (
             <>
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start voice call" title="Voice call"><Phone size={20} aria-hidden="true" /></button>}
@@ -554,8 +549,8 @@ useEffect(() => {
           <section className="voice-controls-drawer absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] rounded-[1.75rem] p-3" role="dialog" aria-modal="true" aria-label="Voice controls">
             <div className="mb-2 flex items-center justify-between px-1">
               <div>
-                <p className="text-sm font-bold text-[var(--text-main)]">Voice controls</p>
-                <p className="text-[11px] text-[var(--text-muted)]">{props.activeChannel?.name}</p>
+                <p className="type-label font-bold text-[var(--text-main)]">Voice controls</p>
+                <p className="type-meta text-[var(--text-muted)]">{props.activeChannel?.name}</p>
               </div>
               <button type="button" onClick={() => setVoiceControlsOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)]" aria-label="Close">
                 <X size={18} aria-hidden="true" />
@@ -596,9 +591,9 @@ useEffect(() => {
                         <Radio size={28} aria-hidden="true" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-xs font-black uppercase tracking-widest text-gray-500">Voice channel</p>
-                        <h3 className="truncate text-2xl font-black text-[var(--text-main)]">{props.activeChannel.name}</h3>
-                        <p className={`mt-1 text-sm font-bold ${isActiveVoiceSession ? 'text-green-300' : voiceChannelParticipants.length > 0 ? 'text-[var(--theme-base)]' : 'text-gray-400'}`}>
+                        <p className="type-meta font-black uppercase tracking-widest text-gray-500">Voice channel</p>
+                        <h3 className="truncate type-view-title font-black text-[var(--text-main)]">{props.activeChannel.name}</h3>
+                        <p className={`mt-1 type-label font-bold ${isActiveVoiceSession ? 'text-green-300' : voiceChannelParticipants.length > 0 ? 'text-[var(--theme-base)]' : 'text-gray-400'}`}>
                           {isActiveVoiceSession
                             ? `Connected - ${props.voiceSessionState?.status || 'connecting'}`
                             : voiceChannelParticipants.length > 0
@@ -618,7 +613,7 @@ useEffect(() => {
                                 />
                               ))}
                             </div>
-                            <span className="truncate text-xs font-bold text-gray-400">
+                            <span className="truncate type-meta font-bold text-gray-400">
                               {voiceChannelParticipants.slice(0, 2).map(participant => participant.displayName).join(', ')}
                               {voiceChannelParticipants.length > 2 ? ` +${voiceChannelParticipants.length - 2} more` : ''}
                             </span>
@@ -632,14 +627,14 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={() => (props.joinVoiceChannel || props.selectChannel)?.(props.activeChannel)}
-                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 text-sm font-black text-[var(--chat-control-text)]"
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-4 py-2.5 type-label font-black text-[var(--chat-control-text)]"
                         >
                           <Phone size={18} aria-hidden="true" />
                           {voiceChannelParticipants.length > 0 ? 'Join them' : 'Join voice'}
                         </button>
                       ) : (
                         <>
-                          <button type="button" onClick={() => setVoiceControlsOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2.5 text-xs font-bold text-[var(--text-main)] md:hidden" aria-haspopup="dialog" aria-expanded={voiceControlsOpen}>
+                          <button type="button" onClick={() => setVoiceControlsOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2.5 type-meta font-bold text-[var(--text-main)] md:hidden" aria-haspopup="dialog" aria-expanded={voiceControlsOpen}>
                             <SlidersHorizontal size={18} aria-hidden="true" />
                             Controls
                           </button>
@@ -650,11 +645,11 @@ useEffect(() => {
                           <button type="button" onClick={toggleVoiceDeafened} className={`rounded-xl p-2.5 ${props.voiceDeafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
                             {props.voiceDeafened ? <VolumeX size={18} /> : <Volume2 size={18} />}
                           </button>
-                          <button type="button" onClick={props.openActiveVoiceChannel} className="inline-flex items-center gap-2 rounded-xl bg-green-500/15 px-4 py-2.5 text-sm font-black text-green-300">
+                          <button type="button" onClick={props.openActiveVoiceChannel} className="inline-flex items-center gap-2 rounded-xl bg-green-500/15 px-4 py-2.5 type-label font-black text-green-300">
                             <MonitorUp size={18} aria-hidden="true" />
                             Expanded
                           </button>
-                          <button type="button" onClick={props.leaveActiveVoice} className="inline-flex items-center gap-2 rounded-xl bg-red-500/15 px-4 py-2.5 text-sm font-black text-red-300">
+                          <button type="button" onClick={props.leaveActiveVoice} className="inline-flex items-center gap-2 rounded-xl bg-red-500/15 px-4 py-2.5 type-label font-black text-red-300">
                             <PhoneOff size={18} aria-hidden="true" />
                             Leave
                           </button>
@@ -666,20 +661,20 @@ useEffect(() => {
 
                   <div className="mt-6 grid gap-3 md:grid-cols-3">
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Participants</p>
-                      <p className="mt-2 text-2xl font-black text-[var(--text-main)]">{isActiveVoiceSession ? 1 + (props.voiceSessionState?.remoteCount || 0) : voiceChannelParticipants.length}</p>
+                      <p className="type-meta font-black uppercase tracking-widest text-gray-500">Participants</p>
+                      <p className="mt-2 type-view-title font-black text-[var(--text-main)]">{isActiveVoiceSession ? 1 + (props.voiceSessionState?.remoteCount || 0) : voiceChannelParticipants.length}</p>
                     </div>
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">Screen share</p>
-                      <p className={`mt-2 text-sm font-black ${props.voiceSessionState?.isSharing ? 'text-green-300' : 'text-gray-400'}`}>{props.voiceSessionState?.isSharing ? 'Live' : 'Idle'}</p>
+                      <p className="type-meta font-black uppercase tracking-widest text-gray-500">Screen share</p>
+                      <p className={`mt-2 type-label font-black ${props.voiceSessionState?.isSharing ? 'text-green-300' : 'text-gray-400'}`}>{props.voiceSessionState?.isSharing ? 'Live' : 'Idle'}</p>
                     </div>
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">You</p>
+                      <p className="type-meta font-black uppercase tracking-widest text-gray-500">You</p>
                       <div className="mt-3 flex items-center gap-3">
                         <StatusAvatar url={props.myAvatar || props.session.user.user_metadata?.avatar_url} username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email} status="online" className="h-9 w-9" />
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-[var(--text-main)]">{props.myUsername || props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0]}</p>
-                          <p className="text-xs text-gray-500">{props.voiceMuted ? 'Muted' : 'Mic ready'} / {props.voiceDeafened ? 'Deafened' : 'Listening'}</p>
+                          <p className="truncate type-label font-bold text-[var(--text-main)]">{props.myUsername || props.session.user.user_metadata?.username || props.session.user.email?.split('@')[0]}</p>
+                          <p className="type-meta text-gray-500">{props.voiceMuted ? 'Muted' : 'Mic ready'} / {props.voiceDeafened ? 'Deafened' : 'Listening'}</p>
                         </div>
                       </div>
                     </div>
@@ -688,83 +683,36 @@ useEffect(() => {
               </div>
             </div>
           ) : props.view === 'home' && !props.activeDm ? (
-            <div className="home-dashboard flex-1 flex overflow-hidden">
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {props.homeTab === 'add_friend' ? (
-                  <>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
-                      <AddFriendView session={props.session} />
-                    </div>
-                    {renderHomeTabBar()}
-                  </>
-                ) : (
-                  <>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    <div className="mx-auto flex w-full max-w-3xl flex-col p-4 md:p-6">
-                      <div className="ios-search-field mb-5 flex items-center rounded-full px-4 py-3 transition-all">
-                        <input id="dm-search-input" type="text" placeholder="Search" className="bg-transparent border-none outline-none text-[var(--text-main)] text-sm w-full placeholder-gray-500" aria-label="Search conversations" />
-                        <Search size={18} className="text-gray-500 ml-2" aria-hidden="true" />
-                      </div>
-                      <div className="mb-3 px-1 text-xs font-bold text-[var(--text-muted)]">
-                        {props.homeTab === 'online' && `Online ${props.onlineFriends.length}`}
-                        {props.homeTab === 'all' && `All ${props.allFriends.length}`}
-                        {props.homeTab === 'pending' && `Pending ${props.friendRequests.length}`}
-                      </div>
-                      <div className="space-y-2">
-                      {props.homeTab === 'pending' && props.friendRequests.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 opacity-50"><Bell size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">No pending friend requests.</p></div>
-                      )}
-                      {props.homeTab === 'pending' && props.friendRequests.map((req, i) => (
-                        <div key={req.id ? `req-${req.id}` : `fallback-req-${i}`} className="dashboard-list-row flex items-center justify-between p-3 rounded-2xl group transition-all">
-                          <div className="flex items-center gap-4">
-                            <StatusAvatar url={req.profiles?.avatar_url} username={req.profiles?.username} showStatus={false} className="w-10 h-10" />
-                            <div><div className="font-bold text-[var(--text-main)] flex items-center gap-2">{req.profiles?.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{req.profiles?.unique_tag}</span></div><div className="text-xs text-gray-400">Incoming Friend Request</div></div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => props.handleAcceptRequest(req)} className="p-2 sm:p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-green-500 hover:text-[var(--text-main)] transition-colors"><Check size={18} /></button>
-                            <button onClick={() => props.handleDeclineRequest(req.id)} className="p-2 sm:p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-red-500 hover:text-[var(--text-main)] transition-colors"><X size={18} /></button>
-                          </div>
-                        </div>
-                      ))}
-                      {(props.homeTab === 'online' || props.homeTab === 'all') && (props.homeTab === 'all' ? props.allFriends : props.onlineFriends).length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 opacity-50"><Users size={48} className="text-gray-500 mb-4" /><p className="text-gray-400 font-medium">It's quiet in here.</p></div>
-                      )}
-                      {(props.homeTab === 'online' || props.homeTab === 'all') && (props.homeTab === 'all' ? props.allFriends : props.onlineFriends).map((dm, i) => {
-                        const isMenuOpen = Boolean(dm.dm_room_id && props.dmActionMenuId === `main-${dm.dm_room_id}`);
-                        return (
-                          <div key={dm.dm_room_id ? `dm-list-${dm.dm_room_id}` : `fallback-dm-list-${i}`} className="dashboard-list-row relative flex items-center justify-between p-3 rounded-2xl group transition-all">
-                            <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => openDmContact(dm)}>
-                              <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={props.getPresenceStatus?.(dm.profiles.id)} className="w-10 h-10" />
-                              <div>
-                                <div className="font-bold text-[var(--text-main)] flex items-center gap-2">{dm.profiles.username} <span className="hidden group-hover:inline text-xs text-gray-500 font-normal">{dm.profiles?.unique_tag}</span></div>
-                                <div className="text-xs text-gray-400">{props.getPresenceLabel?.(dm.profiles.id) || 'Offline'}</div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 opacity-100 transition-opacity">
-                              <button disabled={props.startingDmProfileId === dm.profiles.id || (!dm.dm_room_id && typeof props.createOrOpenDm !== 'function')} className="p-2.5 rounded-full bg-[var(--bg-surface)] ghost-border hover:bg-[var(--bg-element)] text-gray-300 transition-colors disabled:opacity-50" onClick={(e) => { e.stopPropagation(); openDmContact(dm); }}><MessageSquare size={18} /></button>
-                              {dm.dm_room_id && <button data-dm-action-menu="main-trigger" onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(isMenuOpen ? null : `main-${dm.dm_room_id}`); }} className={`p-2.5 rounded-full ghost-border transition-colors ${isMenuOpen ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-element)] text-gray-300'}`}>
-                                <MoreVertical size={18} />
-                              </button>}
-                            </div>
-                            {isMenuOpen && (
-                              <div data-dm-action-menu="main-panel" className="premium-menu absolute right-12 top-12 w-48 rounded-xl z-[70] py-1 animate-fade-in origin-top-right">
-                                  <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setView('home'); props.selectDm(dm); }} className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors">Open Chat</button>
-                                  <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.restrictedUsersSet.has(dm.profiles.id) ? 'unrestrict' : 'restrict', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:bg-[var(--bg-element)] transition-colors">{props.restrictedUsersSet.has(dm.profiles.id) ? 'Unrestrict' : 'Mute (Restrict)'}</button>
-                                  <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: props.blockedUsersSet.has(dm.profiles.id) ? 'unblock' : 'block', profile: dm.profiles }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">{props.blockedUsersSet.has(dm.profiles.id) ? 'Unblock' : 'Block User'}</button>
-                                  <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
-                                  <button onClick={(e) => { e.stopPropagation(); props.setDmActionMenuId(null); props.setConfirmAction({ type: 'delete_dm', profile: dm.profiles, dm_room_id: dm.dm_room_id }); }} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center justify-between group"><span>Delete Chat</span><Trash2 size={14} className="opacity-50 group-hover:opacity-100"/></button>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      </div>
-                    </div>
-                    </div>
-                    {renderHomeTabBar()}
-                  </>
-                )}
+            <div className="home-dashboard relative flex flex-1 flex-col overflow-hidden">
+              {/* The FAB is positioned against this wrapper, not the shell, so its
+                  bottom edge lands exactly where the bottom bar starts. */}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+                  {props.homeTab === 'menu' ? (
+                    <MenuPage {...props} />
+                  ) : props.homeTab === 'servers' ? (
+                    <ServersPage
+                      {...props}
+                      panelView={serversPanelView}
+                      setPanelView={setServersPanelView}
+                      pendingServerAction={pendingServerAction}
+                      onServerActionHandled={() => setPendingServerAction(null)}
+                    />
+                  ) : props.homeTab === 'notifs' ? (
+                    <NotificationsPage {...props} />
+                  ) : props.homeTab === 'add' ? (
+                    <AddFriendView session={props.session} allFriends={props.allFriends} getPresenceLabel={props.getPresenceLabel} getPresenceStatus={props.getPresenceStatus} openDmContact={openDmContact} startingDmProfileId={props.startingDmProfileId} />
+                  ) : (
+                    <ChatsPage {...props} />
+                  )}
+                </div>
+                {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} />}
               </div>
+              <BottomBar
+                homeTab={props.homeTab}
+                setHomeTab={props.setHomeTab}
+                notificationCount={props.notificationCount}
+              />
             </div>
           ) : (
             <>
@@ -795,15 +743,15 @@ useEffect(() => {
                 )}
                 {props.visibleMessages.length === 0 && (props.activeChannel || props.activeDm) && !props.isLoadingMore && !props.messagesLoading && (
                   <div className="flex flex-col justify-end h-full min-h-[300px] max-w-2xl pb-10">
-                    <h3 className="font-headline text-3xl font-bold tracking-tight mb-2 text-[var(--chat-text,var(--text-main))]">Welcome to {props.view === 'home' ? 'the beginning' : `#${props.activeChannel?.name}`}</h3>
-                    <p className="text-gray-400 text-sm leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
+                    <h3 className="font-display type-display font-bold tracking-tight mb-2 text-[var(--chat-text,var(--text-main))]">Welcome to {props.view === 'home' ? 'the beginning' : `#${props.activeChannel?.name}`}</h3>
+                    <p className="text-gray-400 type-label leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
                   </div>
                 )}
                 {props.visibleMessages.map((m, index, renderedMessages) => {
                   const uniqueKey = m.id ? `msg-${m.id}` : `fallback-${index}`;
                   const isMessageBlocked = props.blockedUsersSet.has(m.profile_id);
                   if (isMessageBlocked) return (
-                    <div key={uniqueKey} className="text-center my-4"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
+                    <div key={uniqueKey} className="text-center my-4"><span className="type-meta font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                   )
                   const previousMessage = renderedMessages[index - 1]
                   const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || new Date(m.created_at) - new Date(previousMessage.created_at) > 300000;
@@ -867,13 +815,13 @@ useEffect(() => {
                 </div>
               )}
               {props.isBlocked ? (
-                <div className="p-4 mx-4 md:mx-6 mb-4 md:mb-6 text-center text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl font-bold text-sm shadow-inner z-10 relative">
+                <div className="p-4 mx-4 md:mx-6 mb-4 md:mb-6 text-center text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl font-bold type-label shadow-inner z-10 relative">
                   You cannot reply to this conversation. {props.blockReason}
                 </div>
               ) : (
                 <div className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
                   {props.typingUsers.length > 0 && (
-                    <div className="absolute -top-5 left-6 flex items-center gap-2 text-[11px] font-bold text-[var(--theme-base)] animate-fade-in pointer-events-none z-20">
+                    <div className="absolute -top-5 left-6 flex items-center gap-2 type-meta font-bold text-[var(--theme-base)] animate-fade-in pointer-events-none z-20">
                       <div className="flex items-center gap-1 px-1">
                         <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                         <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
@@ -883,7 +831,7 @@ useEffect(() => {
                     </div>
                   )}
                   {props.replyingTo && (
-                    <div className="bg-[var(--theme-20)] backdrop-blur-md border-l-4 border-[var(--theme-base)] px-4 py-2 mb-2 mx-2 rounded-r-xl flex items-center justify-between text-sm animate-fade-in shadow-sm">
+                    <div className="bg-[var(--theme-20)] backdrop-blur-md border-l-4 border-[var(--theme-base)] px-4 py-2 mb-2 mx-2 rounded-r-xl flex items-center justify-between type-label animate-fade-in shadow-sm">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-bold text-[var(--theme-base)] whitespace-nowrap">Replying to {props.replyingTo.profiles?.username}</span>
                         <span className="truncate text-gray-300 max-w-[150px] md:max-w-[300px]">{props.replyingTo.is_spoiler ? 'Spoiler' : props.replyingTo.content || 'Attachment'}</span>
@@ -895,8 +843,8 @@ useEffect(() => {
                     <div className="premium-section mx-2 mb-3 rounded-2xl p-3 animate-slide-up">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <span className="text-xs font-bold uppercase tracking-tighter text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
-                          <p className="truncate text-[11px] text-gray-500">{props.pendingFiles.length}/{props.maxPendingAttachments || 10} {props.pendingFiles.length === 1 ? 'attachment' : 'attachments'} • Add a caption below</p>
+                          <span className="type-meta font-bold uppercase tracking-tighter text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
+                          <p className="truncate type-meta text-gray-500">{props.pendingFiles.length}/{props.maxPendingAttachments || 10} {props.pendingFiles.length === 1 ? 'attachment' : 'attachments'} • Add a caption below</p>
                         </div>
                         <button type="button" onClick={() => props.setPendingFiles([])} className="rounded-full bg-red-500/10 p-2 text-red-500 transition-colors hover:bg-red-500 hover:text-white" aria-label="Remove all attachments"><X size={18}/></button>
                       </div>
@@ -925,7 +873,7 @@ useEffect(() => {
                             ) : pendingPreviewUrls[index] ? (
                               <img src={pendingPreviewUrls[index]} alt={item.name || 'Attachment preview'} className={`h-full w-full object-cover ${item.isSpoiler ? 'scale-110 blur-lg' : ''}`} />
                             ) : (
-                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2"><FileText size={28} className="text-[var(--theme-base)]" /><span className="w-full truncate text-center text-[9px] text-gray-400">{item.name}</span></div>
+                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2"><FileText size={28} className="text-[var(--theme-base)]" /><span className="w-full truncate text-center type-meta text-gray-400">{item.name}</span></div>
                             )}
                             <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label={`Remove ${item.name}`}><X size={12}/></button>
                             {(item.type === 'image' || item.type === 'video') && item.file && !item.gifUrl && (
@@ -952,10 +900,10 @@ useEffect(() => {
                               </button>
                             )}
                             {item.isSpoiler && (
-                              <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white drop-shadow">Spoiler</span>
+                              <span className="pointer-events-none absolute inset-0 flex items-center justify-center type-meta font-black uppercase tracking-widest text-white drop-shadow">Spoiler</span>
                             )}
                             {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
-                            {item.type !== 'audio' && <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 text-[9px] text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>}
+                            {item.type !== 'audio' && <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 type-meta text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>}
                           </div>
                         ))}
                       </div>
@@ -965,10 +913,10 @@ useEffect(() => {
                     <div className="premium-section mx-2 md:mx-4 mb-2 rounded-2xl border border-[var(--theme-50)] bg-[var(--theme-20)] px-3 py-2.5 animate-slide-up">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-black uppercase tracking-widest text-[var(--theme-base)]">
+                          <div className="type-meta font-black uppercase tracking-widest text-[var(--theme-base)]">
                             Editing message
                           </div>
-                          <div className="mt-1 truncate text-sm font-medium text-[var(--chat-text,var(--text-main))]">
+                          <div className="mt-1 truncate type-label font-medium text-[var(--chat-text,var(--text-main))]">
                             {props.editContent || 'Add a caption'}
                           </div>
                         </div>
@@ -990,7 +938,7 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={() => props.handleToggleMessageSpoiler(editingMessage)}
-                          className={`mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold md:hidden ${editingMessage?.is_spoiler ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-gray-300'}`}
+                          className={`mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 type-meta font-bold md:hidden ${editingMessage?.is_spoiler ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-gray-300'}`}
                           aria-pressed={Boolean(editingMessage?.is_spoiler)}
                         >
                           {editingMessage?.is_spoiler ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
@@ -1005,7 +953,7 @@ useEffect(() => {
                             props.setEditingMessageId(null)
                             props.setEditContent('')
                           }}
-                          className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-[var(--text-main)]"
+                          className="rounded-full bg-white/10 px-3 py-1.5 type-meta font-bold text-[var(--text-main)]"
                         >
                           Cancel
                         </button>
@@ -1013,7 +961,7 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={(e) => props.handleUpdateMessage(e, props.editingMessageId, { allowEmpty: true })}
-                          className="rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-3 py-1.5 text-xs font-bold text-[var(--chat-control-text)]"
+                          className="rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-3 py-1.5 type-meta font-bold text-[var(--chat-control-text)]"
                         >
                           Save
                         </button>
@@ -1037,7 +985,7 @@ useEffect(() => {
                           />
                         ))}
                       </div>
-                      <span className="w-10 shrink-0 text-right text-[11px] font-bold tabular-nums text-gray-400">{formatVoiceMessageDuration(voiceRecorderState.elapsed)}</span>
+                      <span className="w-10 shrink-0 text-right type-meta font-bold tabular-nums text-gray-400">{formatVoiceMessageDuration(voiceRecorderState.elapsed)}</span>
                       <button type="button" onClick={() => finishVoiceRecording(false)} disabled={voiceRecorderState.status === 'stopping'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--theme-base)] text-white shadow-sm transition-transform active:scale-95 disabled:opacity-50" aria-label="Stop and preview voice recording">
                         {voiceRecorderState.status === 'stopping' ? <Loader2 size={17} className="animate-spin" /> : <Square size={12} fill="currentColor" />}
                       </button>
@@ -1065,24 +1013,24 @@ useEffect(() => {
                     <div ref={attachMenuRef} className="relative shrink-0 flex items-center justify-center w-[44px] h-[44px]">
                       {showAttachMenu && (
                         <div className="premium-menu absolute bottom-full left-0 mb-3 rounded-xl z-50 flex flex-col p-1.5 animate-slide-up origin-bottom-left min-w-[160px]" onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.fileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.fileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <ImagePlus size={18} className="text-indigo-400" /> Upload Media
                           </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraPhotoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraPhotoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <Camera size={18} className="text-sky-400" /> Take a Photo
                           </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraVideoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraVideoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <Video size={18} className="text-violet-400" /> Record a Video
                           </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); startVoiceRecording(); }} disabled={voiceRecorderState.status !== 'idle'} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); startVoiceRecording(); }} disabled={voiceRecorderState.status !== 'idle'} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
                             <Mic size={18} className="text-rose-400" /> Record Voice
                           </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.genericFileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.genericFileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
                             <Paperclip size={18} className="text-green-400" /> Upload File
                           </button>
                           <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
-                          <button type="button" onClick={(e) => { setShowAttachMenu(false); toggleGifPicker(e); }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <div className="bg-pink-500/20 text-pink-400 rounded p-0.5 text-[10px] font-black">GIF</div> Send a GIF
+                          <button type="button" onClick={(e) => { setShowAttachMenu(false); toggleGifPicker(e); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
+                            <div className="bg-pink-500/20 text-pink-400 rounded p-0.5 type-meta font-black">GIF</div> Send a GIF
                           </button>
                         </div>
                       )}
@@ -1106,7 +1054,7 @@ useEffect(() => {
                         }}
                         onPaste={props.handlePaste}
                         onBeforeInput={props.handleBeforeInput}
-                        className="flex-1 bg-transparent border-none outline-none text-[var(--chat-text,var(--text-main))] resize-none py-2.5 px-4 custom-scrollbar text-[15px] md:text-[16px] font-body min-w-0 placeholder:text-gray-500 transition-all duration-300 ease-out transform" 
+                        className="flex-1 bg-transparent border-none outline-none text-[var(--chat-text,var(--text-main))] resize-none py-2.5 px-4 custom-scrollbar type-body font-body min-w-0 placeholder:text-gray-500 transition-all duration-300 ease-out transform" 
                         placeholder={
                           props.editingMessageId
                             ? 'Edit message...'
@@ -1167,7 +1115,7 @@ useEffect(() => {
                       </div>
                     </div>
                     {props.keyboardImageFallbackMessage && (
-                      <p className="px-4 pt-1 text-[11px] font-medium text-amber-300/90">
+                      <p className="px-4 pt-1 type-meta font-medium text-amber-300/90">
                         {props.keyboardImageFallbackMessage}
                       </p>
                     )}
