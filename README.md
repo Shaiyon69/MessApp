@@ -104,8 +104,17 @@ Follow these steps to set up the development environment on your local machine.
    ```env
    VITE_SUPABASE_URL=your_supabase_project_url
    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+   # Optional. Without them the GIF picker still opens, but search is disabled.
+   VITE_GIPHY_API_KEY=your_giphy_web_key
+   VITE_GIPHY_API_KEY_MOBILE=your_giphy_native_key
    ```
     *(Note: Never commit local `.env` files to version control.)*
+
+   The end-to-end suite reads its own `.env.e2e` instead, pointed at a local
+   Supabase stack — see [`.env.e2e.example`](./.env.e2e.example) and run it with
+   `npm run test:e2e`. It creates users, messages and servers, so it refuses to
+   run against anything but `127.0.0.1`.
 
    Push delivery needs separate Firebase/APNs and Supabase Edge Function setup.
    That runbook is operator-only and lives outside this repository; provider
