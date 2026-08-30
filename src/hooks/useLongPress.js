@@ -33,6 +33,12 @@ export default function useLongPress(onLongPress) {
     onContextMenu: (event) => {
       event.preventDefault()
       cancel()
+      /* Android WebView raises its own contextmenu on a touch long press, often
+         before our timer. Arm the suppression here too: without it the click
+         ending the press falls straight through to the row's own button — on the
+         composer's send button that fired the message off mid-gesture, losing
+         whatever the menu was opened to set. */
+      activated.current = true
       onLongPress(payload)
     },
     onPointerDown: (event) => {

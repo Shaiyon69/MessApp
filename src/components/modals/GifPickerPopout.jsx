@@ -1,7 +1,13 @@
-/** Loads GIF search results or queues a validated remote GIF URL. */
-import { useEffect, useMemo, useState } from 'react'
-import { ImagePlus, Link2, Loader2, Search, X } from 'lucide-react'
+/** Loads GIF search results and queues the selected GIF as an attachment. */
+import { useEffect, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { Loader2, Search, X } from 'lucide-react'
 import { safeHttpUrl } from '../../lib/security'
+
+// One dist/ ships to web, Capacitor and Tauri alike, so the GIPHY app key is
+// chosen at runtime rather than at build time. Native falls back to the web key.
+const giphyApiKey = () =>
+  (Capacitor.isNativePlatform() && import.meta.env.VITE_GIPHY_API_KEY_MOBILE) || import.meta.env.VITE_GIPHY_API_KEY
 
 const RECENT_GIFS_KEY = 'messapp_recent_gifs'
 
@@ -23,11 +29,10 @@ const rememberGif = url => {
 export default function GifPickerPopout({ onSelectGif, onClose }) {
   const [gifs, setGifs] = useState([])
   const [query, setQuery] = useState('')
-  const [gifUrl, setGifUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [recentGifs, setRecentGifs] = useState(readRecentGifs)
-  const apiKey = import.meta.env.VITE_GIPHY_API_KEY
+  const apiKey = giphyApiKey()
 
   useEffect(() => {
     if (!apiKey) {
@@ -58,12 +63,10 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
     }
   }, [apiKey, query])
 
-  const validatedGifUrl = useMemo(() => safeHttpUrl(gifUrl), [gifUrl])
-
   const chooseGif = url => {
     const safeUrl = safeHttpUrl(url)
     if (!safeUrl) {
-      setError('Enter a valid HTTPS GIF link.')
+      setError('That GIF link is not valid.')
       return
     }
     rememberGif(safeUrl)
@@ -76,7 +79,7 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
       <div className="mb-3 flex items-center justify-between">
         <div>
           <p className="type-label font-black text-[var(--text-main)]">Send a GIF</p>
-          <p className="type-label text-gray-500">{apiKey ? 'Search GIPHY or paste a direct link' : 'Paste a GIF link · search needs VITE_GIPHY_API_KEY'}</p>
+          <p className="type-label text-gray-500">{apiKey ? 'Search GIPHY' : 'Search needs VITE_GIPHY_API_KEY'}</p>
         </div>
         <button onClick={onClose} type="button" className="premium-icon-button grid h-9 w-9 place-items-center rounded-full" aria-label="Close GIF picker"><X size={15} /></button>
       </div>
@@ -87,14 +90,6 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
           <input type="search" placeholder="Search GIFs" value={query} onChange={event => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent type-body text-[var(--text-main)] outline-none placeholder:text-gray-600" autoFocus />
         </label>
       )}
-
-      <div className="mb-3 flex items-center gap-2">
-        <label className="premium-input flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-3">
-          <Link2 size={15} className="shrink-0 text-gray-500" />
-          <input type="url" inputMode="url" placeholder="https://…/animation.gif" value={gifUrl} onChange={event => { setGifUrl(event.target.value); setError('') }} className="min-w-0 flex-1 bg-transparent type-label text-[var(--text-main)] outline-none placeholder:text-gray-600" />
-        </label>
-        <button type="button" onClick={() => chooseGif(gifUrl)} disabled={!validatedGifUrl} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--theme-base)] text-white disabled:opacity-35" aria-label="Add GIF link"><ImagePlus size={18} /></button>
-      </div>
 
       {error && <p className="mb-2 rounded-xl bg-red-500/10 px-3 py-2 type-label font-semibold text-red-300">{error}</p>}
 
@@ -128,8 +123,8 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
             <span className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-pink-500/10 type-title font-black text-pink-300">GIF</span>
-            <p className="type-body font-bold text-gray-300">Paste a direct GIF link above</p>
-            <p className="mt-1 type-label text-gray-500">Selected GIFs are added to the attachment preview before sending.</p>
+            <p className="type-body font-bold text-gray-300">{apiKey ? 'No GIFs found' : 'GIF search is unavailable'}</p>
+            <p className="mt-1 type-label text-gray-500">{apiKey ? 'Selected GIFs are added to the attachment preview before sending.' : 'Set VITE_GIPHY_API_KEY to enable GIPHY search.'}</p>
           </div>
         )}
       </div>

@@ -3,23 +3,31 @@
  * mobile action portals. Mutation state comes from useChatManager; temporary
  * signed media URLs must not be persisted or logged.
  */
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
 import { getVideoAspectRatio, primeVideoPreview } from '../../lib/videoPreview'
-import ChatEmojiPicker from './ChatEmojiPicker'
 import VoiceMessagePlayer from './VoiceMessagePlayer'
 import StatusAvatar from '../ui/StatusAvatar'
 import { debug } from '../../lib/debug'
 import { downloadFile } from '../../lib/downloadFile'
+import { blurComposer } from '../../lib/composerFocus'
+import { formatMessageTime } from '../../lib/messageTime'
+
+// Both pull large dependencies (refractor, emoji-picker-react) that are only
+// needed once a message actually contains a code block or the picker is opened.
+const CodeBlock = lazy(() => import('./CodeBlock'))
+const ChatEmojiPicker = lazy(() => import('./ChatEmojiPicker'))
+
+const CODE_BLOCK_CLASS = 'rounded-xl my-2 ghost-border type-label shadow-lg bg-[var(--bg-base)]'
+const MARKDOWN_PLUGINS = [remarkGfm]
+const EMOJI_ONLY_PATTERN = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}️‍\s]+$/u
 
 const loadedMessageImageKeys = new Set()
 const MAX_LOADED_MESSAGE_IMAGE_KEYS = 1000
@@ -422,12 +430,7 @@ const describeTarget = (target) => {
   return `${element.tagName.toLowerCase()}${id}${classes}`
 }
 
-const formatReceiptTime = (value) => {
-  if (!value) return 'Not recorded'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Not recorded'
-  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+const formatReceiptTime = (value) => formatMessageTime(value) || 'Not recorded'
 
 const getSeenTimestamp = (message, peerReadAt) => {
   if (message.seen_at || message.read_at) return message.seen_at || message.read_at
@@ -458,28 +461,53 @@ const getYouTubeEmbedUrl = (value) => {
   }
 }
 
+/* Every mount used to hit microlink again, so scrolling back over a link storm
+   re-fetched the same cards. Failures are cached as null too: a link that has no
+   metadata will not grow any on a retry. */
+const linkPreviewCache = new Map()
+
+/** Host without the www., plus a short path so bare domains stay distinguishable. */
+const describeLink = (safeUrl) => {
+  try {
+    const parsed = new URL(safeUrl)
+    const host = parsed.hostname.replace(/^www\./, '')
+    const path = `${parsed.pathname}${parsed.search}`.replace(/\/$/, '')
+    return { host, path: path === '' ? '' : path }
+  } catch (_err) {
+    return { host: safeUrl, path: '' }
+  }
+}
+
+const LinkPreviewShell = ({ href, children }) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="mt-2 block w-full max-w-[20rem] overflow-hidden rounded-xl border-l-[3px] border-current bg-current/[0.07] text-current no-underline transition-colors hover:bg-current/[0.12] sm:max-w-sm"
+  >
+    {children}
+  </a>
+)
+
 export const LinkPreview = ({ url }) => {
-  const [preview, setPreview] = useState(null)
-  const [loading, setLoading] = useState(true)
   const safeUrl = useMemo(() => safeHttpUrl(url), [url])
+  const [preview, setPreview] = useState(() => linkPreviewCache.get(safeUrl) ?? null)
+  const [loading, setLoading] = useState(() => !linkPreviewCache.has(safeUrl))
   const youtubeEmbedUrl = useMemo(() => safeUrl ? getYouTubeEmbedUrl(safeUrl) : null, [safeUrl])
-  const fallbackHost = useMemo(() => {
-    if (!safeUrl) return ''
-    try {
-      return new URL(safeUrl).hostname.replace(/^www\./, '')
-    } catch (_err) {
-      return safeUrl
-    }
-  }, [safeUrl])
+  const { host: fallbackHost, path: fallbackPath } = useMemo(
+    () => (safeUrl ? describeLink(safeUrl) : { host: '', path: '' }),
+    [safeUrl]
+  )
 
   useEffect(() => {
-    if (!safeUrl) {
+    if (!safeUrl || youtubeEmbedUrl) {
+      setPreview(null)
       setLoading(false)
       return
     }
 
-    if (youtubeEmbedUrl) {
-      setPreview(null)
+    if (linkPreviewCache.has(safeUrl)) {
+      setPreview(linkPreviewCache.get(safeUrl))
       setLoading(false)
       return
     }
@@ -489,72 +517,80 @@ export const LinkPreview = ({ url }) => {
     setLoading(true)
 
     const fetchPreview = async () => {
+      let resolved = null
       try {
         const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(safeUrl)}`)
         const { data } = await res.json()
-        if (active && data && data.title) setPreview(data)
-      } catch (e) {
-        console.error("Failed to fetch link preview", e)
-      } finally {
-        if (active) setLoading(false)
+        if (data?.title) resolved = data
+      } catch (error) {
+        debug.warn('LINK_PREVIEW', { operation: 'fetch', host: fallbackHost, error })
       }
+      linkPreviewCache.set(safeUrl, resolved)
+      if (!active) return
+      setPreview(resolved)
+      setLoading(false)
     }
     fetchPreview()
     return () => {
       active = false
     }
-  }, [safeUrl, youtubeEmbedUrl])
+  }, [fallbackHost, safeUrl, youtubeEmbedUrl])
 
   if (!safeUrl) return null
 
   if (youtubeEmbedUrl) {
     return (
-      <div className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm">
-        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="w-[240px] sm:w-[320px] md:w-96 aspect-video border-0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerPolicy="no-referrer" allowFullScreen loading="lazy"></iframe>
-        <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block px-2 py-1 type-meta font-bold text-current hover:underline truncate">{fallbackHost || safeUrl}</a>
-      </div>
+      <LinkPreviewShell href={safeUrl}>
+        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="block aspect-video w-full border-0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerPolicy="no-referrer" allowFullScreen loading="lazy"></iframe>
+        <span className="block truncate px-3 py-2 type-meta font-bold uppercase tracking-widest text-current/70">{fallbackHost || safeUrl}</span>
+      </LinkPreviewShell>
     )
   }
 
   if (loading) {
     return (
-      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm no-underline">
-        <div className="px-2 py-1">
-          <div className="h-3 w-36 rounded bg-current/20 animate-pulse mb-2"></div>
-          <div className="h-2 w-48 max-w-full rounded bg-current/10 animate-pulse"></div>
-          <div className="type-meta text-current mt-2 uppercase tracking-widest font-bold truncate">{fallbackHost || safeUrl}</div>
+      <LinkPreviewShell href={safeUrl}>
+        <div className="px-3 py-2">
+          <span className="block truncate type-meta font-bold uppercase tracking-widest text-current/70">{fallbackHost || safeUrl}</span>
+          <div className="mt-1.5 h-3 w-36 max-w-full animate-pulse rounded bg-current/20" />
+          <div className="mt-1.5 h-2.5 w-48 max-w-full animate-pulse rounded bg-current/10" />
         </div>
-      </a>
+      </LinkPreviewShell>
     )
   }
 
+  // No metadata worth a card, so the link is shown as itself rather than as an
+  // empty shell with the raw URL repeated underneath it.
   if (!preview) {
     return (
-      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm cursor-pointer no-underline">
-        <div className="px-2 py-1">
-          <h4 className="type-label font-bold text-current truncate mb-1">{fallbackHost || safeUrl}</h4>
-          <p className="type-snippet text-current/80 line-clamp-2 break-words">{safeUrl}</p>
+      <LinkPreviewShell href={safeUrl}>
+        <div className="px-3 py-2">
+          <span className="block truncate type-label font-bold text-current">{fallbackHost || safeUrl}</span>
+          {fallbackPath && <span className="mt-0.5 block truncate type-snippet text-current/70">{fallbackPath}</span>}
         </div>
-      </a>
+      </LinkPreviewShell>
     )
   }
 
+  const previewImage = safeHttpUrl(preview.image?.url)
+  const previewLogo = safeHttpUrl(preview.logo?.url)
+
   return (
-    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm group cursor-pointer no-underline">
-      {safeHttpUrl(preview.image?.url) && (
-        <div className="w-full h-32 overflow-hidden border-b border-current">
-          <img src={safeHttpUrl(preview.image.url)} alt="Preview" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" fetchPriority="low" />
+    <LinkPreviewShell href={safeUrl}>
+      {previewImage && (
+        <div className="aspect-[1.91/1] w-full overflow-hidden bg-current/10">
+          <img src={previewImage} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" fetchPriority="low" />
         </div>
       )}
-      <div className="px-2 py-1">
-        <h4 className="type-label font-bold text-current truncate mb-1">{preview.title}</h4>
-        <p className="type-snippet text-current/80 line-clamp-2">{preview.description}</p>
-        <div className="type-meta text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-0.5">
-          {safeHttpUrl(preview.logo?.url) && <img src={safeHttpUrl(preview.logo.url)} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
+      <div className="px-3 py-2">
+        <span className="flex items-center gap-1.5 type-meta font-bold uppercase tracking-widest text-current/70">
+          {previewLogo && <img src={previewLogo} className="h-3.5 w-3.5 shrink-0 rounded-sm" alt="" loading="lazy" decoding="async" />}
           <span className="truncate">{preview.publisher || fallbackHost}</span>
-        </div>
+        </span>
+        <p className="mt-1 line-clamp-2 type-label font-bold text-current">{preview.title}</p>
+        {preview.description && <p className="mt-0.5 line-clamp-2 type-snippet text-current/70">{preview.description}</p>}
       </div>
-    </a>
+    </LinkPreviewShell>
   )
 }
 
@@ -1080,19 +1116,49 @@ export const MemoizedMessage = React.memo(({
     closeActionMenu('portal_backdrop', { pointerType: event.pointerType })
   }
 
-  const groupedReactions = m.message_reactions?.reduce((acc, r) => {
+  const groupedReactions = useMemo(() => m.message_reactions?.reduce((acc, r) => {
     const emoji = normalizeReactionEmoji(r.emoji)
     if (!emoji) return acc
-    acc[emoji] = [...(acc[emoji] || []), { ...r, emoji }]
+    if (acc[emoji]) acc[emoji].push({ ...r, emoji })
+    else acc[emoji] = [{ ...r, emoji }]
     return acc
-  }, {}) || {}
+  }, {}) || {}, [m.message_reactions])
 
-  const exactTime = new Date(m.created_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const exactTime = useMemo(() => formatMessageTime(m.created_at), [m.created_at])
 
   const visibleContent = renderedContent ?? (typeof m.content === 'string' ? m.content : '')
   const isMessageSpoilerHidden = Boolean(m.is_spoiler && !messageSpoilerRevealed)
   const visiblePreviewLinks = isMessageSpoilerHidden ? [] : previewLinks
-  const isEmojiOnly = typeof visibleContent === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(visibleContent.trim());
+  const isEmojiOnly = useMemo(
+    () => typeof visibleContent === 'string' && EMOJI_ONLY_PATTERN.test(visibleContent.trim()),
+    [visibleContent]
+  )
+
+  // Fresh `components`/`remarkPlugins` literals defeat react-markdown's internal
+  // memo and force a full remark parse on every render of every message.
+  const markdownComponents = useMemo(() => {
+    const linkColor = isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)'
+    return {
+      code({ inline, className, children, ...props }) {
+        const match = /language-(\w+)/.exec(className || '')
+        const source = String(children).replace(/\n$/, '')
+        if (inline || !match) {
+          return <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono type-meta border border-[var(--border-subtle)]" style={{ color: linkColor }} {...props}>{children}</code>
+        }
+        return (
+          <Suspense fallback={<pre className={CODE_BLOCK_CLASS}><code>{source}</code></pre>}>
+            <CodeBlock language={match[1]} className={CODE_BLOCK_CLASS} {...props}>{source}</CodeBlock>
+          </Suspense>
+        )
+      },
+      a({ href, ...props }) {
+        const safeHref = safeHttpUrl(href)
+        if (!safeHref) return <span {...props} />
+        return <a className="hover:underline underline-offset-2" style={{ color: linkColor }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
+      },
+      img() { return null }
+    }
+  }, [isMe])
   const hasVisibleContent = typeof visibleContent === 'string' && visibleContent.trim() !== ''
   const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
   const isEditingCaption = isEditing && hasImageAttachments
@@ -1323,7 +1389,7 @@ export const MemoizedMessage = React.memo(({
         {showHeader && (
         <div className={`flex items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
             <span className={`type-title font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
-            <span className="type-meta text-gray-500 tabular-nums">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="type-meta text-gray-500 tabular-nums">{exactTime}</span>
           </div>
         )}
         
@@ -1410,21 +1476,8 @@ export const MemoizedMessage = React.memo(({
                     <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
                       <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                         <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            code({ inline, className, children, ...props}) {
-                              const match = /language-(\w+)/.exec(className || '')
-                              return !inline && match ? (
-                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border type-label shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                              ) : <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono type-meta border border-[var(--border-subtle)]" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} {...props}>{children}</code>
-                            },
-                            a({href, ...props}) {
-                              const safeHref = safeHttpUrl(href)
-                              if (!safeHref) return <span {...props} />
-                              return <a className="hover:underline underline-offset-2" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
-                            },
-                            img() { return null }
-                          }}
+                          remarkPlugins={MARKDOWN_PLUGINS}
+                          components={markdownComponents}
                         >
                           {visibleContent}
                         </ReactMarkdown>
@@ -1666,15 +1719,8 @@ export const MemoizedMessage = React.memo(({
                       <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
                         <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                           <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              a({href, ...props}) {
-                                const safeHref = safeHttpUrl(href)
-                                if (!safeHref) return <span {...props} />
-                                return <a className="hover:underline underline-offset-2" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
-                              },
-                              img() { return null }
-                            }}
+                            remarkPlugins={MARKDOWN_PLUGINS}
+                            components={markdownComponents}
                           >
                             {visibleContent}
                           </ReactMarkdown>
@@ -1703,6 +1749,14 @@ export const MemoizedMessage = React.memo(({
                       <LinkPreview url={link.url} />
                     </div>
                   ))}
+
+                  {/* A disappearing message says so, or it just goes missing. */}
+                  {m.expires_at && (
+                    <div className={`mt-1 flex items-center gap-1 type-meta font-bold text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                      <Timer size={11} aria-hidden="true" />
+                      <span>Disappears {formatMessageTime(m.expires_at)}</span>
+                    </div>
+                  )}
 
                   {showInlineTime && (
                     <div className={`mt-1 mb-1 rounded-lg border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-element,var(--bg-element))]/80 px-2.5 py-2 type-meta text-gray-400 shadow-inner animate-fade-in ${alignRight ? 'text-right' : 'text-left'}`}>
@@ -1839,8 +1893,7 @@ export const MemoizedMessage = React.memo(({
                       onTouchCancel={isolateReactionSurfaceEvent}
                       onWheel={isolateReactionSurfaceEvent}
                       onTouchStartCapture={() => {
-                        const active = document.activeElement
-                        if (active && !reactionPopoverRef.current?.contains(active)) active.blur()
+                        blurComposer()
                       }}
                     >
                     <div className={`relative z-10 ${reactionSheetMode ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
@@ -1935,19 +1988,21 @@ export const MemoizedMessage = React.memo(({
                             </div>
                           )}
                           <div className={reactionSheetMode ? 'min-h-0 flex-1' : 'h-[360px]'}>
-                          <ChatEmojiPicker
-                            width="100%"
-                            height="100%"
-                            searchDisabled={false}
-                            onEmojiClick={(emojiData) => {
-                              if (editingQuickReactions) {
-                                saveQuickReaction(emojiData.emoji)
-                                return
-                              }
-                              const emoji = normalizeReactionEmoji(emojiData.emoji)
-                              void submitReaction({ stopPropagation() {}, preventDefault() {} }, emoji, 'action_react_picker')
-                            }}
-                          />
+                          <Suspense fallback={<div className="h-full w-full" />}>
+                            <ChatEmojiPicker
+                              width="100%"
+                              height="100%"
+                              searchDisabled={false}
+                              onEmojiClick={(emojiData) => {
+                                if (editingQuickReactions) {
+                                  saveQuickReaction(emojiData.emoji)
+                                  return
+                                }
+                                const emoji = normalizeReactionEmoji(emojiData.emoji)
+                                void submitReaction({ stopPropagation() {}, preventDefault() {} }, emoji, 'action_react_picker')
+                              }}
+                            />
+                          </Suspense>
                           </div>
                         </div>
                       )}
@@ -1990,7 +2045,7 @@ export const MemoizedMessage = React.memo(({
                       style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined}
                       onClick={openReactionPicker}
                       onTouchStartCapture={() => { 
-                        if (document.activeElement) document.activeElement.blur(); 
+                        blurComposer(); 
                       }}
                       onMouseDown={(e) => { e.preventDefault(); }}
                       className="message-action-button text-gray-500 hover:text-yellow-400 md:hover:bg-[var(--border-subtle)]" 
