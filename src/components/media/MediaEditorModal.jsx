@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Brush, Check, Crop, Loader2, Move, Palette, RotateCw, Undo2, X } from 'lucide-react'
+import { Brush, Check, Crop, Loader2, RotateCw, Undo2, X } from 'lucide-react'
 import {
+  clampMediaValue,
   createEditedImageFile,
   createEditedVideoFile,
   drawEditedMediaFrame,
@@ -15,36 +16,27 @@ const ASPECT_OPTIONS = [
   { id: 'landscape', label: '16:9' }
 ]
 
+const PAINT_COLORS = ['#ffffff', '#000000', '#ef4444', '#facc15', '#22c55e', '#3b82f6']
+const BRUSH_WIDTH = 0.012
+const MIN_ZOOM = 1
+const MAX_ZOOM = 3
+
 const initialEdits = profile => ({
   aspect: profile ? 'square' : 'original',
   rotation: 0,
   zoom: 1,
   offsetX: 0,
   offsetY: 0,
-  brightness: 100,
-  saturation: 100,
-  hue: 0,
   strokes: []
 })
 
-const Slider = ({ label, value, min, max, step = 1, onChange, valueLabel }) => (
-  <label className="block">
-    <span className="mb-1 flex items-center justify-between type-meta font-bold text-gray-400">
-      <span>{label}</span>
-      <span className="tabular-nums text-gray-500">{valueLabel || value}</span>
-    </span>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={event => onChange(Number(event.target.value))}
-      className="w-full accent-[var(--theme-base)]"
-    />
-  </label>
-)
+const pointerSpread = pointers => {
+  const [first, second] = [...pointers.values()]
+  return Math.hypot(first.x - second.x, first.y - second.y)
+}
 
+/* One photo, a handful of icons over it. Colour grading lived here once and only
+   made the sheet harder to read — the lib still defaults those to identity. */
 export default function MediaEditorModal({
   file,
   profile = false,
@@ -56,12 +48,14 @@ export default function MediaEditorModal({
   const canvasRef = useRef(null)
   const imageRef = useRef(null)
   const interactionRef = useRef(null)
+  // Live pointers, so a second finger can turn a drag into a pinch mid-gesture.
+  const pointersRef = useRef(new Map())
   const [objectUrl, setObjectUrl] = useState('')
   const [sourceSize, setSourceSize] = useState({ width: 1, height: 1 })
   const [edits, setEdits] = useState(() => initialEdits(profile))
   const [tool, setTool] = useState('move')
-  const [paintColor, setPaintColor] = useState('#ffffff')
-  const [paintWidth, setPaintWidth] = useState(0.012)
+  const [cropOpen, setCropOpen] = useState(false)
+  const [paintColor, setPaintColor] = useState(PAINT_COLORS[0])
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
@@ -101,6 +95,8 @@ export default function MediaEditorModal({
     drawEditedMediaFrame(context, imageRef.current, edits, canvas.width, canvas.height)
   }, [edits, isVideo, previewSize])
 
+  const setZoom = value => setEdits(current => ({ ...current, zoom: clampMediaValue(value, MIN_ZOOM, MAX_ZOOM) }))
+
   const pointerPosition = event => {
     const rect = canvasRef.current.getBoundingClientRect()
     return {
@@ -110,13 +106,19 @@ export default function MediaEditorModal({
   }
 
   const handlePointerDown = event => {
-    if (isVideo && tool === 'paint') return
+    const pointers = pointersRef.current
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
     event.currentTarget.setPointerCapture?.(event.pointerId)
+    if (pointers.size === 2) {
+      interactionRef.current = { type: 'pinch', spread: pointerSpread(pointers), zoom: edits.zoom }
+      return
+    }
+    if (pointers.size > 2) return
     if (tool === 'paint') {
       const point = pointerPosition(event)
       setEdits(current => ({
         ...current,
-        strokes: [...current.strokes, { color: paintColor, width: paintWidth, points: [point, point] }]
+        strokes: [...current.strokes, { color: paintColor, width: BRUSH_WIDTH, points: [point, point] }]
       }))
       interactionRef.current = { type: 'paint' }
       return
@@ -131,8 +133,15 @@ export default function MediaEditorModal({
   }
 
   const handlePointerMove = event => {
+    const pointers = pointersRef.current
+    if (pointers.has(event.pointerId)) pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
     const interaction = interactionRef.current
     if (!interaction) return
+    if (interaction.type === 'pinch') {
+      if (pointers.size < 2) return
+      setZoom(interaction.zoom * (pointerSpread(pointers) / Math.max(1, interaction.spread)))
+      return
+    }
     if (interaction.type === 'paint') {
       const point = pointerPosition(event)
       setEdits(current => ({
@@ -152,9 +161,13 @@ export default function MediaEditorModal({
   }
 
   const stopInteraction = event => {
+    pointersRef.current.delete(event.pointerId)
     interactionRef.current = null
     event.currentTarget.releasePointerCapture?.(event.pointerId)
   }
+
+  // Desktop has no pinch, and the profile crops are mostly used there.
+  const handleWheel = event => setZoom(edits.zoom - event.deltaY * 0.002)
 
   const applyEdit = async () => {
     setProcessing(true)
@@ -175,118 +188,139 @@ export default function MediaEditorModal({
     }
   }
 
+  const surfaceHandlers = {
+    onPointerDown: handlePointerDown,
+    onPointerMove: handlePointerMove,
+    onPointerUp: stopInteraction,
+    onPointerCancel: stopInteraction,
+    onWheel: handleWheel
+  }
+  const toolButton = 'grid h-10 w-10 place-items-center rounded-full backdrop-blur transition-colors disabled:opacity-40'
+  const toolIdle = 'bg-black/55 text-white hover:bg-black/70'
+  const toolActive = 'bg-white text-black'
+
   if (!file) return null
   return createPortal(
-    <div className="fixed inset-0 z-[240] flex items-end justify-center bg-black/80 p-0 backdrop-blur-md sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" className="absolute inset-0" onClick={processing ? undefined : onCancel} aria-label="Close media editor" />
-      <section className="premium-menu relative z-10 flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-[2rem] border border-white/10 sm:rounded-[2rem]">
-        <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5">
-          <div>
-            <p className="type-label font-black text-[var(--text-main)]">{title}</p>
-            <p className="type-meta text-gray-500">{isVideo ? 'Crop and reframe video' : profile ? 'Exports a sharp 1024 × 1024 profile image' : 'Crop, rotate, recolor, or draw'}</p>
+    <div className="fixed inset-0 z-[240] flex flex-col bg-black" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+        {isVideo ? (
+          <div
+            className="relative max-h-full w-full max-w-3xl touch-none overflow-hidden"
+            style={{ aspectRatio: String(aspect) }}
+            {...surfaceHandlers}
+          >
+            <video
+              src={objectUrl}
+              controls
+              playsInline
+              preload="metadata"
+              onLoadedMetadata={event => setSourceSize({ width: event.currentTarget.videoWidth, height: event.currentTarget.videoHeight })}
+              className="h-full w-full object-cover"
+              style={{
+                transform: `translate(${edits.offsetX}%, ${edits.offsetY}%) rotate(${edits.rotation}deg) scale(${edits.zoom})`
+              }}
+            />
           </div>
-          <button type="button" onClick={onCancel} disabled={processing} className="premium-icon-button grid h-10 w-10 place-items-center rounded-full disabled:opacity-40" aria-label="Close"><X size={18} /></button>
-        </header>
+        ) : (
+          <canvas
+            ref={canvasRef}
+            className={`max-h-full max-w-full touch-none ${tool === 'paint' ? 'cursor-crosshair' : 'cursor-move'}`}
+            {...surfaceHandlers}
+          />
+        )}
+      </div>
 
-        <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="flex min-h-[300px] items-center justify-center overflow-hidden bg-[#050506] p-3 sm:p-5">
-            {isVideo ? (
-              <div
-                className="relative w-full max-w-3xl touch-none overflow-hidden rounded-2xl border border-white/10 bg-black"
-                style={{ aspectRatio: String(aspect) }}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={stopInteraction}
-                onPointerCancel={stopInteraction}
-              >
-                <video
-                  src={objectUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  onLoadedMetadata={event => setSourceSize({ width: event.currentTarget.videoWidth, height: event.currentTarget.videoHeight })}
-                  className="h-full w-full object-cover"
-                  style={{
-                    transform: `translate(${edits.offsetX}%, ${edits.offsetY}%) rotate(${edits.rotation}deg) scale(${edits.zoom})`,
-                    filter: `brightness(${edits.brightness}%) saturate(${edits.saturation}%) hue-rotate(${edits.hue}deg)`
-                  }}
-                />
-                <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/65 px-2.5 py-1 type-meta font-bold text-white">Crop preview</span>
-              </div>
-            ) : (
-              <canvas
-                ref={canvasRef}
-                className={`max-h-[62dvh] max-w-full touch-none rounded-2xl border border-white/10 shadow-2xl ${tool === 'paint' ? 'cursor-crosshair' : 'cursor-move'}`}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={stopInteraction}
-                onPointerCancel={stopInteraction}
-              />
-            )}
-          </div>
-
-          <aside className="space-y-5 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-4 lg:border-l lg:border-t-0">
-            <div>
-              <p className="mb-2 flex items-center gap-2 type-meta font-black uppercase tracking-widest text-gray-500"><Crop size={14} /> Crop</p>
-              <div className="grid grid-cols-4 gap-1.5">
-                {(profile ? ASPECT_OPTIONS.filter(option => option.id === 'square') : ASPECT_OPTIONS).map(option => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setEdits(current => ({ ...current, aspect: option.id }))}
-                    className={`rounded-xl px-2 py-2 type-meta font-bold ${edits.aspect === option.id ? 'bg-[var(--theme-base)] text-white' : 'bg-[var(--bg-element)] text-gray-400'}`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setTool('move')} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 type-meta font-bold ${tool === 'move' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400'}`}><Move size={15} /> Reposition</button>
-              <button type="button" onClick={() => setEdits(current => ({ ...current, rotation: (current.rotation + 90) % 360 }))} className="flex items-center justify-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2.5 type-meta font-bold text-gray-300"><RotateCw size={15} /> Rotate</button>
-            </div>
-
-            <Slider label="Zoom" value={edits.zoom} min={1} max={3} step={0.01} valueLabel={`${edits.zoom.toFixed(2)}×`} onChange={zoom => setEdits(current => ({ ...current, zoom }))} />
-
-            <div className="space-y-3">
-              <p className="flex items-center gap-2 type-meta font-black uppercase tracking-widest text-gray-500"><Palette size={14} /> Color</p>
-              <Slider label="Brightness" value={edits.brightness} min={50} max={150} valueLabel={`${edits.brightness}%`} onChange={brightness => setEdits(current => ({ ...current, brightness }))} />
-              <Slider label="Saturation" value={edits.saturation} min={0} max={200} valueLabel={`${edits.saturation}%`} onChange={saturation => setEdits(current => ({ ...current, saturation }))} />
-              <Slider label="Hue" value={edits.hue} min={-180} max={180} valueLabel={`${edits.hue}°`} onChange={hue => setEdits(current => ({ ...current, hue }))} />
-            </div>
-
-            {!isVideo && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <button type="button" onClick={() => setTool(tool === 'paint' ? 'move' : 'paint')} className={`flex items-center gap-2 rounded-xl px-3 py-2 type-meta font-bold ${tool === 'paint' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400'}`}><Brush size={15} /> Paint</button>
-                  <button type="button" onClick={() => setEdits(current => ({ ...current, strokes: current.strokes.slice(0, -1) }))} disabled={!edits.strokes.length} className="grid h-9 w-9 place-items-center rounded-full bg-[var(--bg-element)] text-gray-400 disabled:opacity-30" aria-label="Undo paint stroke"><Undo2 size={15} /></button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <input type="color" value={paintColor} onChange={event => setPaintColor(event.target.value)} className="h-9 w-12 rounded-lg bg-transparent" aria-label="Paint color" />
-                  <input type="range" min="0.004" max="0.04" step="0.002" value={paintWidth} onChange={event => setPaintWidth(Number(event.target.value))} className="flex-1 accent-[var(--theme-base)]" aria-label="Brush size" />
-                </div>
-              </div>
-            )}
-
-            {error && <p className="rounded-xl bg-red-500/10 px-3 py-2 type-meta font-semibold text-red-300">{error}</p>}
-            {processing && isVideo && (
-              <div>
-                <div className="mb-1 flex justify-between type-meta font-bold text-gray-400"><span>Rendering video</span><span>{Math.round(progress * 100)}%</span></div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-element)]"><div className="h-full bg-[var(--theme-base)] transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-1">
-              <button type="button" onClick={() => { setEdits(initialEdits(profile)); setTool('move'); setError('') }} disabled={processing} className="flex-1 rounded-xl bg-[var(--bg-element)] px-4 py-3 type-meta font-bold text-gray-300">Reset</button>
-              <button type="button" onClick={applyEdit} disabled={processing || Boolean(error && !imageRef.current && !isVideo)} className="flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-[var(--theme-base)] px-4 py-3 type-meta font-black text-white shadow-lg disabled:opacity-50">
-                {processing ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                {processing ? 'Processing…' : profile ? 'Use photo' : 'Save edit'}
-              </button>
-            </div>
-          </aside>
+      <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <button type="button" onClick={onCancel} disabled={processing} className={`${toolButton} ${toolIdle}`} aria-label="Close media editor"><X size={18} /></button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEdits(current => ({ ...current, rotation: (current.rotation + 90) % 360 }))}
+            className={`${toolButton} ${toolIdle}`}
+            aria-label="Rotate 90 degrees"
+          ><RotateCw size={18} /></button>
+          {/* Profile crops are locked square, so the chips would have one option. */}
+          {!profile && (
+            <button
+              type="button"
+              onClick={() => setCropOpen(open => !open)}
+              className={`${toolButton} ${cropOpen ? toolActive : toolIdle}`}
+              aria-pressed={cropOpen}
+              aria-label="Crop"
+            ><Crop size={18} /></button>
+          )}
+          {!isVideo && (
+            <button
+              type="button"
+              onClick={() => setTool(tool === 'paint' ? 'move' : 'paint')}
+              className={`${toolButton} ${tool === 'paint' ? toolActive : toolIdle}`}
+              aria-pressed={tool === 'paint'}
+              aria-label="Draw"
+            ><Brush size={18} /></button>
+          )}
         </div>
-      </section>
+      </div>
+
+      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {cropOpen && !profile && (
+          <div className="flex justify-center gap-2" role="group" aria-label="Crop shape">
+            {ASPECT_OPTIONS.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setEdits(current => ({ ...current, aspect: option.id }))}
+                className={`rounded-full px-3.5 py-1.5 type-meta font-bold backdrop-blur ${edits.aspect === option.id ? 'bg-white text-black' : 'bg-black/55 text-white'}`}
+                aria-pressed={edits.aspect === option.id}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {tool === 'paint' && !isVideo && (
+          <div className="flex items-center justify-center gap-2">
+            {PAINT_COLORS.map(color => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => setPaintColor(color)}
+                style={{ backgroundColor: color }}
+                className={`h-8 w-8 rounded-full border-2 transition-transform ${paintColor === color ? 'scale-110 border-white' : 'border-white/30'}`}
+                aria-pressed={paintColor === color}
+                aria-label={`Draw in ${color}`}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() => setEdits(current => ({ ...current, strokes: current.strokes.slice(0, -1) }))}
+              disabled={!edits.strokes.length}
+              className={`${toolButton} ${toolIdle}`}
+              aria-label="Undo stroke"
+            ><Undo2 size={16} /></button>
+          </div>
+        )}
+
+        {error && <p className="rounded-xl bg-red-500/15 px-3 py-2 text-center type-meta font-semibold text-red-300">{error}</p>}
+        {processing && isVideo && (
+          <div>
+            <div className="mb-1 flex justify-between type-meta font-bold text-gray-300"><span>Rendering video</span><span>{Math.round(progress * 100)}%</span></div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-[var(--accent)] transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={applyEdit}
+            disabled={processing || Boolean(error && !imageRef.current && !isVideo)}
+            className="flex items-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 type-meta font-black text-white shadow-lg disabled:opacity-50"
+          >
+            {processing ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            {processing ? 'Processing…' : profile ? 'Use photo' : 'Done'}
+          </button>
+        </div>
+      </div>
     </div>,
     document.body
   )
