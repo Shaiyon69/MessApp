@@ -1657,23 +1657,9 @@ iframe {
     box-shadow: var(--shadow-premium);
   }
 
-  .premium-composer::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: none;
-    opacity: 0;
-    transition: opacity 220ms var(--m3-standard);
-  }
-
   .premium-composer:focus-within {
     border-color: var(--theme-50, var(--border-accent));
     box-shadow: 0 0 0 2px var(--theme-50, var(--border-accent));
-  }
-
-  .premium-composer:focus-within::before {
-    opacity: 1;
   }
 
   [data-theme="dark"] .ambient-shell,
@@ -1685,8 +1671,7 @@ iframe {
   [data-theme="dark"] .premium-modal::before,
   [data-theme="dark"] .premium-section::before,
   [data-theme="dark"] .premium-menu::before,
-  [data-theme="dark"] .glass-panel::before,
-  [data-theme="dark"] .premium-composer::before {
+  [data-theme="dark"] .glass-panel::before {
     display: none;
     opacity: 0;
     background: none;
@@ -1740,10 +1725,6 @@ iframe {
   [data-theme="light"] .premium-composer {
     background: var(--surface-container-high);
     box-shadow: 0 0 0 1px rgba(15,23,42,0.04), 0 10px 24px rgba(15,23,42,0.08);
-  }
-
-  [data-theme="light"] .premium-composer::before {
-    background: none;
   }
 
   [data-theme="light"] .premium-composer:focus-within {
@@ -2757,6 +2738,36 @@ iframe {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+/* The composer sat on --surface-container-high, a blue-grey slab against the
+   OLED black thread above it. Same rule as the menus: black fill, hairline. */
+[data-theme="dark"] .premium-composer {
+  background: #000 !important;
+  border-color: var(--chat-border, rgba(255, 255, 255, 0.12));
+}
+
+/* Focus rang at --theme-50. Mono's accent is #f5f5f5, so a focused composer
+   wore a near-solid white outline against the black thread. --theme-20 keeps
+   the state readable without the hard line. */
+[data-theme="dark"] .premium-composer:focus-within {
+  box-shadow: 0 0 0 1px var(--theme-20, var(--border-accent));
+}
+
+/* Its icon buttons carried the same tint from --surface-section. They follow
+   the send button now: black fill, hairline, white glyph — no accent wash, so
+   a near-white accent like Mono's has nothing to disappear into. */
+[data-theme="dark"] .premium-icon-button {
+  background: #000 !important;
+  color: var(--chat-control-text, var(--text-main));
+  border-color: var(--chat-border, rgba(255, 255, 255, 0.1));
+}
+
+[data-theme="dark"] .premium-icon-button:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: var(--chat-control-text, var(--text-main));
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+
 /* Add-friend chrome follows the same OLED rule: black fill, hairline border.
    Focus keeps the accent ring — the fill going black must not take the state
    with it. */
@@ -2938,6 +2949,15 @@ iframe {
   box-shadow: none !important;
 }
 
+/* Over live video the mini control row is chrome floating on the picture rather
+   than a surface of its own, so it opts out of the OLED fill above. */
+[data-theme] .direct-call-mini-controls.is-overlay,
+.direct-call-mini-controls.is-overlay {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.82), transparent) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
 [data-theme="dark"] .direct-call-mini-control,
 [data-theme="dark"] .premium-call-control,
 [data-theme="dark"] .voice-drawer-action,
@@ -3008,6 +3028,15 @@ iframe {
   color: #fff !important;
   border: 1px solid #4ade80 !important;
   box-shadow: none !important;
+}
+
+/* The chat info sidebar follows the MENU tab too. The conversation theme sets
+   --chat-bg-surface inline, which no stylesheet rule can outrank, so the ground
+   is repainted directly; the theme still shows through the accents inside. */
+[data-theme="dark"] .right-sidebar-panel {
+  background: #000 !important;
+  border-color: rgba(255, 255, 255, 0.055);
+  --surface-section: var(--bg-element);
 }
 
 /* The settings modal is the same material as the MENU tab: true-black ground,
