@@ -3,9 +3,9 @@
  * chat hook supply data/actions. Mobile trays and viewport offsets stay aligned
  * with native keyboard and safe-area behavior.
  */
-import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square } from 'lucide-react'
+import { Loader2, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -16,12 +16,13 @@ import MenuPage from './MenuPage'
 import NotificationsPage from './NotificationsPage'
 import QuickActionsFab from './QuickActionsFab'
 import ServersPage from './ServersPage'
-import GifPickerPopout from '../modals/GifPickerPopout'
-import ChatEmojiPicker from '../chat/ChatEmojiPicker'
-import SfuScreenShare from '../screen-share/SfuScreenShare'
-import MediaEditorModal from '../media/MediaEditorModal'
 import { debug } from '../../lib/debug'
 import { openDmEntry } from '../../lib/chatActions'
+import useLongPress from '../../hooks/useLongPress'
+import { DISAPPEARING_OPTIONS, describeExpiry } from '../../lib/messageExpiry'
+import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_DEAD_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
+import { blurComposer, resizeComposer, enterSends } from '../../lib/composerFocus'
+import { getPendingFileFingerprint } from '../../hooks/useChatManager'
 import { primeVideoPreview } from '../../lib/videoPreview'
 import {
   formatVoiceMessageDuration,
@@ -30,6 +31,15 @@ import {
   normalizeVoiceMessageMimeType
 } from '../../lib/voiceMessages'
 import { getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
+
+// Kept out of the boot bundle — each is only mounted behind a user action
+// (opening a picker, editing media, joining a voice channel).
+const GifPickerPopout = lazy(() => import('../modals/GifPickerPopout'))
+const ChatEmojiPicker = lazy(() => import('../chat/ChatEmojiPicker'))
+const SfuScreenShare = lazy(() => import('../screen-share/SfuScreenShare'))
+const MediaEditorModal = lazy(() => import('../media/MediaEditorModal'))
+
+const MODERATOR_ROLES = ['owner', 'admin', 'moderator']
 
 const debugStack = () => new Error().stack?.split('\n').slice(2, 8).join('\n')
 
@@ -56,13 +66,28 @@ export default function ChatArea(props) {
   const [voiceRecorderState, setVoiceRecorderState] = useState({ status: 'idle', elapsed: 0 });
   const [voiceLevels, setVoiceLevels] = useState(() => Array.from({ length: 28 }, () => 0.08));
   const [mediaEditorTarget, setMediaEditorTarget] = useState(null);
+  const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
+  const [radialOpen, setRadialOpen] = useState(false);
+  const [radialIndex, setRadialIndex] = useState(null);
+  /* Ticks up while a timed wedge is held, walking its lifetime through the
+     cycle. Reset whenever the thumb moves to another wedge, so a lifetime is
+     always chosen by dwelling rather than inherited from the last wedge. */
+  const [radialStep, setRadialStep] = useState(0);
+  /* The composer is uncontrolled — handleSendMessage reads the DOM value — so
+     the send button needs its own signal for whether anything is typed. */
+  const [composerHasText, setComposerHasText] = useState(false)
+  // null while nothing is being held; otherwise what releasing would do.
+  const [voiceHold, setVoiceHold] = useState(null);
   
   const emojiPickerRef = useRef(null);
   const gifPickerRef = useRef(null);
   const attachMenuRef = useRef(null);
+  const sendOptionsRef = useRef(null);
+  const sendPressRef = useRef(null);
   const cameraPhotoInputRef = useRef(null);
   const cameraVideoInputRef = useRef(null);
   const voiceRecorderRef = useRef(null);
+  const voiceStartingRef = useRef(false);
   const voiceRecorderStreamRef = useRef(null);
   const voiceRecorderChunksRef = useRef([]);
   const voiceRecorderTimerRef = useRef(null);
@@ -140,10 +165,18 @@ export default function ChatArea(props) {
   }, [])
 
   const startVoiceRecording = async () => {
+    /* A touch pointerup is followed by a click, so the hold path and the tap
+       path both arrive here for one gesture. The flag has to be a ref set before
+       the first await: on the very first recording the permission prompt sits in
+       the middle of that await, and both callers would otherwise get past a
+       check on the recorder itself and open two microphone streams. */
+    if (voiceStartingRef.current || voiceRecorderRef.current) return
+    voiceStartingRef.current = true
     setShowAttachMenu(false)
     setShowInputEmojiPicker(false)
     props.setShowGifPicker(false)
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder !== 'function') {
+      voiceStartingRef.current = false
       toast.error('Voice recording is not available on this device.')
       return
     }
@@ -228,6 +261,7 @@ export default function ChatArea(props) {
       }
 
       recorder.start(250)
+      voiceStartingRef.current = false
       setVoiceRecorderState({ status: 'recording', elapsed: 0 })
       voiceRecorderTimerRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - startedAt) / 1000)
@@ -235,6 +269,7 @@ export default function ChatArea(props) {
         if (elapsed >= 300 && recorder.state === 'recording') recorder.stop()
       }, 250)
     } catch (error) {
+      voiceStartingRef.current = false
       releaseVoiceRecorder()
       const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError'
       toast.error(denied ? 'Microphone permission is needed to record a voice message.' : 'Could not start voice recording.')
@@ -324,7 +359,7 @@ export default function ChatArea(props) {
   }), [props.createOrOpenDm, props.selectDm])
 
   const toggleEmojiPicker = () => {
-    if (document.activeElement) document.activeElement.blur();
+    blurComposer();
     props.setShowGifPicker(false);
     setShowAttachMenu(false);
     setShowInputEmojiPicker(prev => !prev);
@@ -333,7 +368,7 @@ export default function ChatArea(props) {
   const toggleGifPicker = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (document.activeElement) document.activeElement.blur();
+    blurComposer();
     setShowInputEmojiPicker(false);
     setShowAttachMenu(false);
     props.setShowGifPicker(!props.showGifPicker);
@@ -351,6 +386,10 @@ export default function ChatArea(props) {
 
       if (attachMenuRef.current && !attachMenuRef.current.contains(event.target)) {
         setShowAttachMenu(false)
+      }
+
+      if (sendOptionsRef.current && !sendOptionsRef.current.contains(event.target)) {
+        setSendOptionsOpen(false)
       }
     }
 
@@ -413,12 +452,184 @@ useEffect(() => {
           type: target.type,
           name: editedFile.name,
           size: editedFile.size,
-          fingerprint: `${editedFile.name}:${editedFile.size}:${editedFile.lastModified}`
+          fingerprint: getPendingFileFingerprint(editedFile)
         }
       : item))
     setMediaEditorTarget(null)
     toast.success(target.type === 'video' ? 'Video crop ready to send' : 'Image edit ready to send')
   }
+
+  /* Drafts are saved per conversation on every keystroke rather than on the way
+     out: the composer lives inside a keyed subtree, so by the time an effect
+     cleanup could run for the old conversation the textarea has already been
+     replaced and there is nothing left to read.
+     ponytail: in memory, so drafts die on reload. Surviving that means writing
+     DM plaintext to localStorage, which is a privacy call to make on purpose. */
+  const draftsRef = useRef(new Map())
+
+  // The field is uncontrolled, so every path that changes its value has to say
+  // so: React never sees the text and cannot size the box on its own.
+  const syncComposer = () => {
+    const input = props.messageInputRef.current
+    resizeComposer(input)
+    const text = input?.value || ''
+    if (!props.editingMessageId) {
+      if (text) draftsRef.current.set(activeChatKey, text)
+      else draftsRef.current.delete(activeChatKey)
+    }
+    setComposerHasText(Boolean(text.trim()))
+  };
+
+  // Switching conversations remounts the composer empty; put the draft back.
+  useEffect(() => {
+    const input = props.messageInputRef.current
+    if (!input || props.editingMessageId) return
+    input.value = draftsRef.current.get(activeChatKey) || ''
+    resizeComposer(input)
+    setComposerHasText(Boolean(input.value.trim()))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatKey])
+
+  // Edit mode loads text into the field without an input event of its own.
+  useEffect(() => {
+    resizeComposer(props.messageInputRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.editingMessageId, props.editContent])
+
+  // No text and nothing queued: the send button is where voice lives now.
+  const sendIsVoice = !composerHasText
+    && !props.pendingFiles?.length
+    && !props.editingMessageId
+    && voiceRecorderState.status === 'idle';
+
+  /* Hold the send button and a radial of send combinations opens around it: drag
+     onto a wedge and release to send with it, all in one gesture. Releasing
+     without leaving the button falls back to the full options menu, which is
+     still where the persistent toggles and the longer lifetimes live. */
+  const bindSendOptions = useLongPress(() => {
+    blurComposer();
+    const press = sendPressRef.current;
+    // Mouse and right-click have nothing to drag: go straight to the menu, and
+    // on the mic there is no menu to go to — a click will record instead.
+    if (!press) { if (!sendIsVoice) setSendOptionsOpen(true); return; }
+    press.held = true;
+    if (press.voice) {
+      /* Recording starts on the hold rather than on pointerdown so a plain tap
+         stays a tap: the tap path records hands-free, which is the only way in
+         for anyone who cannot sustain a press. */
+      setVoiceHold('hold');
+      startVoiceRecording();
+      press.element?.setPointerCapture?.(press.pointerId);
+      return;
+    }
+    setSendOptionsOpen(false);
+    setRadialOpen(true);
+    /* Capture once the hold has opened the radial. The drag leaves the 44px
+       button almost immediately, and without capture the moves and the pointerup
+       land on whatever sits above the composer. Capturing earlier would break the
+       ordinary tap: a captured pointer retargets its click to this wrapper, so
+       the submit button never sees it and nothing sends. */
+    press.element?.setPointerCapture?.(press.pointerId);
+  });
+
+  /* The three states the voice gesture can be in. A released hold is a locked
+     take, and so is the tap-to-record path — both leave voiceHold null while
+     the recorder runs on without a thumb. */
+  const voiceStage = voiceHold === 'cancel' ? 'cancel'
+    : voiceHold === 'hold' ? 'hold'
+      : 'lock';
+
+  const sendOptionHandlers = bindSendOptions();
+  const radialHit = (press, event) => (press?.held
+    ? pickSendRadial(event.clientX - press.x, press.y - event.clientY)
+    : null);
+
+  const endSendPress = () => {
+    sendPressRef.current = null;
+    setRadialOpen(false);
+    setRadialIndex(null);
+    setRadialStep(0);
+    setVoiceHold(null);
+  };
+
+  const radialChoice = SEND_RADIAL_OPTIONS[radialIndex];
+
+  /* Resting on a timed wedge walks it through the lifetimes rather than adding
+     more wedges to aim at: three targets stay reachable by thumb, and the one
+     under it keeps offering the next choice for as long as it is held. */
+  useEffect(() => {
+    if (!radialChoice?.timed) return;
+    const timer = setInterval(() => {
+      navigator.vibrate?.(15);
+      setRadialStep(step => step + 1);
+    }, SEND_RADIAL_CYCLE_MS);
+    return () => clearInterval(timer);
+  }, [radialChoice]);
+
+  const sendGesture = {
+    ...sendOptionHandlers,
+    onPointerDown: (event) => {
+      const tracked = (event.pointerType === 'touch' || event.pointerType === 'pen')
+        && !event.target?.closest?.('[data-no-long-press]');
+      sendPressRef.current = tracked
+        ? { x: event.clientX, y: event.clientY, held: false, voice: sendIsVoice, hint: null, index: null, moved: 0, pointerId: event.pointerId, element: event.currentTarget }
+        : null;
+      sendOptionHandlers.onPointerDown(event);
+    },
+    onPointerMove: (event) => {
+      sendOptionHandlers.onPointerMove(event);
+      const press = sendPressRef.current;
+      if (!press?.held) return;
+      const dy = press.y - event.clientY;
+      press.moved = Math.max(press.moved, Math.hypot(event.clientX - press.x, dy));
+      if (press.voice) {
+        const hint = pickVoiceHold(event.clientX - press.x, dy);
+        if (hint !== press.hint) {
+          navigator.vibrate?.(30);
+          press.hint = hint;
+          setVoiceHold(hint || 'hold');
+        }
+        return;
+      }
+      const index = radialHit(press, event);
+      if (index === press.index) return;
+      if (index !== null) navigator.vibrate?.(30);
+      press.index = index;
+      setRadialIndex(index);
+      setRadialStep(0);
+    },
+    onPointerUp: (event) => {
+      const press = sendPressRef.current;
+      if (press?.voice && press.held) {
+        const hint = press.hint;
+        sendOptionHandlers.onPointerUp(event);
+        endSendPress();
+        if (hint === 'cancel') finishVoiceRecording(true);
+        /* 'lock' leaves it running for the bar's stop button. So does a release
+           that arrives before the recorder is up: the very first hold sits
+           behind the microphone permission prompt, and stopping a recorder that
+           never started would just swallow the gesture. */
+        else if (!hint && voiceRecorderRef.current?.state === 'recording') finishVoiceRecording(false);
+        return;
+      }
+      const choice = SEND_RADIAL_OPTIONS[radialHit(press, event)];
+      // Held but barely moved: the thumb wanted the menu, not a wedge.
+      const wantsMenu = Boolean(press?.held) && !choice && press.moved < SEND_RADIAL_DEAD_PX;
+      sendOptionHandlers.onPointerUp(event);
+      endSendPress();
+      /* Only the drag gesture decides the menu. A mouse never fills sendPressRef,
+         so without this guard the pointerup closed the menu that the same
+         right-click had just opened through onContextMenu. */
+      if (press) setSendOptionsOpen(wantsMenu);
+      if (!choice) return;
+      props.handleSendMessage(null, {
+        forceSpoiler: choice.spoiler,
+        forceExpirySeconds: radialDuration(choice, radialStep)?.seconds ?? null
+      });
+      syncComposer();
+    },
+    onPointerCancel: (event) => { endSendPress(); sendOptionHandlers.onPointerCancel(event); }
+  };
 
   const handleEmojiSelect = (emojiData) => {
     const input = props.messageInputRef.current;
@@ -432,6 +643,19 @@ useEffect(() => {
       input.focus();
     }
   };
+
+  /* The click is deferred a tick: the tray unmounts on selection, and a
+     synchronous .click() on a node inside a subtree React is tearing down gets
+     dropped. The GIF entry runs inline instead — it needs the live event. */
+  const openFilePicker = (ref) => setTimeout(() => ref.current?.click(), 0)
+
+  const attachOptions = [
+    { id: 'media', label: 'Media', Icon: ImagePlus, open: () => openFilePicker(props.fileInputRef) },
+    { id: 'photo', label: 'Photo', Icon: Camera, open: () => openFilePicker(cameraPhotoInputRef) },
+    { id: 'video', label: 'Video', Icon: Video, open: () => openFilePicker(cameraVideoInputRef) },
+    { id: 'file', label: 'File', Icon: Paperclip, open: () => openFilePicker(props.genericFileInputRef) },
+    { id: 'gif', label: 'GIF', Icon: Film, open: (event) => toggleGifPicker(event) }
+  ]
 
   const quickActions = {
     onSearch: () => props.setShowQuickSwitcher(true),
@@ -522,6 +746,7 @@ useEffect(() => {
       </header>
 
       {props.activeVoiceSession && (
+        <Suspense fallback={null}>
         <SfuScreenShare
           roomId={props.activeVoiceSession.roomId}
           createClient={props.screenShareClientFactory}
@@ -541,6 +766,7 @@ useEffect(() => {
           onOpen={props.openActiveVoiceChannel}
           onStateChange={props.setVoiceSessionState}
         />
+        </Suspense>
       )}
 
       {voiceControlsOpen && isActiveVoiceSession && (
@@ -719,6 +945,8 @@ useEffect(() => {
               <div 
                 className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-8 relative z-10 transition-[padding] duration-300 ease-out"
                 ref={props.scrollContainerRef} 
+                role="log"
+                aria-label={props.view === 'home' ? `Messages with ${props.activeDm?.profiles?.username || 'this conversation'}` : `Messages in #${props.activeChannel?.name || 'this channel'}`}
                 onScroll={props.handleScroll}
                 style={{ ...messageListStyle, visibility: isInitialPositionReady ? 'visible' : 'hidden' }}
                 data-call-minimized={props.isCallMinimized ? 'true' : undefined}
@@ -754,11 +982,14 @@ useEffect(() => {
                     <div key={uniqueKey} className="text-center my-4"><span className="type-meta font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                   )
                   const previousMessage = renderedMessages[index - 1]
-                  const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || new Date(m.created_at) - new Date(previousMessage.created_at) > 300000;
+                  const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || Date.parse(m.created_at) - Date.parse(previousMessage.created_at) > 300000;
                   const isMe = m.profile_id === props.session.user.id;
                   const alignRight = isMe;
                   const isEditing = props.editingMessageId === m.id;
                   const isHighlighted = props.highlightedMessageId === m.id;
+                  // Narrowed per row so one message's edit/delete state does not
+                  // re-render every other row through MemoizedMessage.
+                  const isInlineDeleting = props.inlineDeleteMessageId === m.id;
                   const repliedMsg = m.reply_to_message_id ? validMessagesById.get(m.reply_to_message_id) : null;
                   return (
                     <MemoizedMessage 
@@ -770,18 +1001,18 @@ useEffect(() => {
                       isHighlighted={isHighlighted}
                       currentUserId={props.session.user.id}
                       isEditing={isEditing}
-                      editContent={props.editContent}
+                      editContent={isEditing ? props.editContent : ''}
                       setEditContent={props.setEditContent}
                       handleUpdateMessage={props.handleUpdateMessage}
                       handleToggleMessageSpoiler={props.handleToggleMessageSpoiler}
                       handleToggleAttachmentSpoiler={props.handleToggleAttachmentSpoiler}
                       setEditingMessageId={props.setEditingMessageId}
-                      inlineDeleteMessageId={props.inlineDeleteMessageId}
-                      inlineDeleteStep={props.inlineDeleteStep}
+                      inlineDeleteMessageId={isInlineDeleting ? m.id : null}
+                      inlineDeleteStep={isInlineDeleting ? props.inlineDeleteStep : null}
                       setInlineDeleteMessageId={props.setInlineDeleteMessageId}
                       setInlineDeleteStep={props.setInlineDeleteStep}
                       executeInlineDelete={props.executeInlineDelete}
-                      canModerateMessage={props.view === 'server' && ['owner', 'admin', 'moderator'].includes(props.activeServerRole)}
+                      canModerateMessage={props.view === 'server' && MODERATOR_ROLES.includes(props.activeServerRole)}
                       toggleReaction={props.toggleReaction}
                       setReplyingTo={props.setReplyingTo}
                       repliedMsg={repliedMsg}
@@ -969,26 +1200,45 @@ useEffect(() => {
                     </div>
                   )}
                   {voiceRecorderState.status !== 'idle' && (
-                    <div className="mx-2 mb-2 flex h-14 items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-2 shadow-lg md:mx-4" role="status" aria-live="polite">
-                      <button type="button" onClick={() => finishVoiceRecording(true)} disabled={voiceRecorderState.status === 'stopping'} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-gray-400 transition-colors hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" aria-label="Discard voice recording">
-                        <Trash2 size={17} />
-                      </button>
-                      <span className="relative h-2 w-2 shrink-0 rounded-full bg-rose-500">
-                        {voiceRecorderState.status === 'recording' && <span className="absolute inset-0 animate-ping rounded-full bg-rose-500" aria-hidden="true" />}
-                      </span>
+                    <div className="mx-2 mb-2 flex h-14 items-center gap-2 rounded-full border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-base,var(--bg-base))] px-2 shadow-lg md:mx-4" role="status" aria-live="polite">
+                      {/* Left: the three states the gesture can be in, lit one at a
+                          time — holding, locked hands-free, about to discard.
+                          Middle: the level meter. Right: elapsed time and stop. */}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span className={`grid h-8 w-8 place-items-center rounded-full transition-all ${voiceStage === 'hold' ? 'scale-110 bg-[var(--chat-control-bg)] text-[var(--chat-control-text)] ring-1 ring-[var(--chat-control-border)]' : 'text-[var(--text-subtle)]'}`}>
+                          <Mic size={16} aria-hidden="true" />
+                        </span>
+                        <span className={`grid h-8 w-8 place-items-center rounded-full transition-all ${voiceStage === 'lock' ? 'scale-110 bg-[var(--chat-control-bg)] text-[var(--chat-control-text)] ring-1 ring-[var(--chat-control-border)]' : 'text-[var(--text-subtle)]'}`}>
+                          <Lock size={16} aria-hidden="true" />
+                        </span>
+                        {/* Still a button: once the take is locked the thumb is off
+                            the send button and this is the only way to bin it. */}
+                        <button
+                          type="button"
+                          onClick={() => finishVoiceRecording(true)}
+                          disabled={voiceRecorderState.status === 'stopping'}
+                          className={`grid h-8 w-8 place-items-center rounded-full transition-all disabled:opacity-50 ${voiceStage === 'cancel' ? 'scale-110 bg-rose-500 text-white' : 'text-[var(--text-subtle)] hover:bg-rose-500/10 hover:text-rose-400'}`}
+                          aria-label="Discard voice recording"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </div>
                       <div className="flex h-8 min-w-0 flex-1 items-center gap-[2px] overflow-hidden" aria-label="Live microphone level">
                         {voiceLevels.slice(-20).map((level, index) => (
                           <span
                             key={index}
-                            className="min-w-[2px] flex-1 rounded-full bg-[var(--theme-base)] transition-[height] duration-75"
+                            className={`min-w-[2px] flex-1 rounded-full transition-[height] duration-75 ${voiceStage === 'cancel' ? 'bg-rose-500' : 'bg-[var(--theme-base)]'}`}
                             style={{ height: `${Math.max(18, level * 100)}%`, opacity: 0.35 + level * 0.65 }}
                           />
                         ))}
                       </div>
                       <span className="w-10 shrink-0 text-right type-meta font-bold tabular-nums text-gray-400">{formatVoiceMessageDuration(voiceRecorderState.elapsed)}</span>
-                      <button type="button" onClick={() => finishVoiceRecording(false)} disabled={voiceRecorderState.status === 'stopping'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--theme-base)] text-white shadow-sm transition-transform active:scale-95 disabled:opacity-50" aria-label="Stop and preview voice recording">
+                      <button type="button" onClick={() => finishVoiceRecording(false)} disabled={voiceRecorderState.status === 'stopping'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)] shadow-sm transition-transform active:scale-95 disabled:opacity-50" aria-label="Stop and preview voice recording">
                         {voiceRecorderState.status === 'stopping' ? <Loader2 size={17} className="animate-spin" /> : <Square size={12} fill="currentColor" />}
                       </button>
+                      <span className="sr-only">
+                        {voiceStage === 'cancel' ? 'Release to discard' : voiceStage === 'lock' ? 'Recording hands-free' : 'Holding to record. Drag up to lock, anywhere else to discard'}
+                      </span>
                       <span className="sr-only">{voiceRecorderState.status === 'stopping' ? 'Preparing voice message' : 'Recording voice message'}</span>
                     </div>
                   )}
@@ -998,44 +1248,49 @@ useEffect(() => {
                           props.handleUpdateMessage(e, props.editingMessageId, { allowEmpty: true })
                         } else {
                           props.handleSendMessage(e)
+                          syncComposer()
+                          setSendOptionsOpen(false)
                         }
                       }
-                    } 
+                    }
                     className="premium-composer rounded-3xl flex items-center gap-2 p-1.5 transition-all duration-300 ease-out transform relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
-                    <div ref={gifPickerRef} onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}>
+                    <div ref={gifPickerRef} onTouchStartCapture={() => { blurComposer(); }}>
                       {props.showGifPicker && (
-                        <GifPickerPopout 
-                          onSelectGif={props.handleSendGif} 
-                          onClose={() => props.setShowGifPicker(false)} 
-                        />
+                        <Suspense fallback={null}>
+                          <GifPickerPopout
+                            onSelectGif={props.handleSendGif}
+                            onClose={() => props.setShowGifPicker(false)}
+                          />
+                        </Suspense>
                       )}
                     </div>
+                    {/* One flat row rather than a stacked menu: five destinations
+                        read faster side by side, and the row lands under the
+                        thumb instead of climbing the screen away from it. */}
                     <div ref={attachMenuRef} className="relative shrink-0 flex items-center justify-center w-[44px] h-[44px]">
                       {showAttachMenu && (
-                        <div className="premium-menu absolute bottom-full left-0 mb-3 rounded-xl z-50 flex flex-col p-1.5 animate-slide-up origin-bottom-left min-w-[160px]" onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.fileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <ImagePlus size={18} className="text-indigo-400" /> Upload Media
-                          </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraPhotoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <Camera size={18} className="text-sky-400" /> Take a Photo
-                          </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => cameraVideoInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <Video size={18} className="text-violet-400" /> Record a Video
-                          </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); startVoiceRecording(); }} disabled={voiceRecorderState.status !== 'idle'} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
-                            <Mic size={18} className="text-rose-400" /> Record Voice
-                          </button>
-                          <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); setTimeout(() => props.genericFileInputRef.current?.click(), 0); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <Paperclip size={18} className="text-green-400" /> Upload File
-                          </button>
-                          <div className="h-[1px] bg-[var(--border-subtle)] my-1 mx-2"></div>
-                          <button type="button" onClick={(e) => { setShowAttachMenu(false); toggleGifPicker(e); }} className="flex items-center gap-3 px-3 py-2.5 type-label text-[var(--text-main)] font-medium hover:bg-[var(--bg-element)] rounded-lg transition-colors cursor-pointer">
-                            <div className="bg-pink-500/20 text-pink-400 rounded p-0.5 type-meta font-black">GIF</div> Send a GIF
-                          </button>
+                        <div
+                          role="group"
+                          aria-label="Attachment options"
+                          className="premium-menu absolute bottom-full left-0 mb-3 z-50 flex gap-1 rounded-2xl p-1.5 animate-slide-up origin-bottom-left"
+                          onTouchStartCapture={() => { blurComposer(); }}
+                          onKeyDown={(e) => { if (e.key === 'Escape') setShowAttachMenu(false) }}
+                        >
+                          {attachOptions.map(({ id, label, Icon, open }) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowAttachMenu(false); open(e); }}
+                              className="flex w-[60px] shrink-0 cursor-pointer flex-col items-center gap-1 rounded-xl px-1 py-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--theme-base)]"
+                            >
+                              <Icon size={20} aria-hidden="true" />
+                              <span className="type-meta font-semibold">{label}</span>
+                            </button>
+                          ))}
                         </div>
                       )}
-                      <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (document.activeElement) document.activeElement.blur(); setShowAttachMenu(!showAttachMenu); }} disabled={props.isUploading} className="premium-icon-button w-full h-full flex items-center justify-center rounded-full cursor-pointer hover:text-[var(--theme-base)]">
-                        {props.isUploading ? <Loader2 className="animate-spin text-[var(--text-main)]" size={20} /> : <Plus size={22} className="transition-transform duration-200" />}
+                      <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); blurComposer(); setShowAttachMenu(!showAttachMenu); }} disabled={props.isUploading} aria-expanded={showAttachMenu} aria-label="Attach" className="premium-icon-button w-full h-full flex items-center justify-center rounded-full cursor-pointer">
+                        {props.isUploading ? <Loader2 className="animate-spin text-[var(--text-main)]" size={20} /> : <Plus size={22} className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`} />}
                       </button>
                     </div>
                     <input type="file" accept="image/*,video/*,.gif" multiple ref={props.fileInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
@@ -1043,7 +1298,9 @@ useEffect(() => {
                     <input type="file" accept="video/*" capture="environment" ref={cameraVideoInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <input type="file" accept="*/*" multiple ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <div className="flex-1 flex flex-col min-w-0">
-                    <div className="flex items-center bg-[var(--chat-bg-element)] rounded-[22px] relative min-w-0 border border-transparent min-h-[44px]">
+                    {/* Black field, hairline edge: the fill used to be
+                        --chat-bg-element, a blue-grey slab on an OLED thread. */}
+                    <div className="flex items-center bg-[var(--chat-bg-base,var(--bg-base))] rounded-[22px] relative min-w-0 border border-[var(--chat-border,var(--border-subtle))] min-h-[44px]">
                       <textarea 
                         data-message-composer="true"
                         ref={props.messageInputRef}
@@ -1052,6 +1309,8 @@ useEffect(() => {
                           props.setShowGifPicker(false); 
                           setShowAttachMenu(false); 
                         }}
+                        onBlur={() => debug.debug('COMPOSER', { operation: 'blur', hadText: Boolean(props.messageInputRef.current?.value) })}
+                        onInput={syncComposer}
                         onPaste={props.handlePaste}
                         onBeforeInput={props.handleBeforeInput}
                         className="flex-1 bg-transparent border-none outline-none text-[var(--chat-text,var(--text-main))] resize-none py-2.5 px-4 custom-scrollbar type-body font-body min-w-0 placeholder:text-gray-500 transition-all duration-300 ease-out transform" 
@@ -1069,7 +1328,7 @@ useEffect(() => {
                         }}
                         onKeyDown={(e) => {
                           if (props.editingMessageId) {
-                            if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
+                            if (e.key === 'Enter' && !e.shiftKey && enterSends()) {
                               e.preventDefault()
                               props.handleUpdateMessage(e, props.editingMessageId, { allowEmpty: true })
                             }
@@ -1080,34 +1339,41 @@ useEffect(() => {
                             return
                           }
 
-                          if (e.key === 'Enter' && !e.shiftKey) {
+                          if (e.key === 'Enter' && !e.shiftKey && enterSends()) {
                             e.preventDefault()
                             props.handleSendMessage(e)
+                            syncComposer()
                           }
                         }} 
                         rows={1} 
-                        style={{ minHeight: '44px', maxHeight: '200px' }} 
+                        style={{ minHeight: '44px' }} 
                       />
                       <div ref={emojiPickerRef} className="flex items-center justify-center h-[44px] w-[44px] shrink-0">
                         {showInputEmojiPicker && (
                           <div 
                             className="premium-menu fixed bottom-20 right-2 sm:absolute sm:bottom-full sm:right-0 md:right-4 sm:mb-2 z-[100] rounded-xl overflow-hidden"
-                            onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                            onTouchStartCapture={() => { blurComposer(); }}
                           >
-                            <ChatEmojiPicker
-                              width={typeof window !== 'undefined' && window.innerWidth < 360 ? Math.min(window.innerWidth - 16, 320) : 320}
-                              height={380}
-                              searchDisabled={true}
-                              onEmojiClick={handleEmojiSelect} 
-                            />
+                            <Suspense fallback={<div style={{ width: 320, height: 380 }} />}>
+                              <ChatEmojiPicker
+                                width={typeof window !== 'undefined' && window.innerWidth < 360 ? Math.min(window.innerWidth - 16, 320) : 320}
+                                height={380}
+                                searchDisabled={true}
+                                onEmojiClick={handleEmojiSelect}
+                              />
+                            </Suspense>
                           </div>
                         )}
-                        <button 
-                          type="button" 
-                          onClick={toggleEmojiPicker} 
-                          onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }} 
-                          disabled={props.isUploading} 
-                          className={`w-[36px] h-[36px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'text-[var(--theme-base)] bg-[var(--theme-10)]' : 'premium-icon-button hover:text-[var(--theme-base)]'}`} 
+                        {/* The glyph is a smiley — it already draws a circle. A
+                            button border here reads as a doubled outline, so this
+                            one control goes borderless. */}
+                        <button
+                          type="button"
+                          onClick={toggleEmojiPicker}
+                          onTouchStartCapture={() => { blurComposer(); }}
+                          disabled={props.isUploading}
+                          style={{ borderColor: 'transparent' }}
+                          className={`w-[44px] h-[44px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'premium-icon-button'}`}
                           title="Insert Emoji"
                         >
                           <SmilePlus size={20} aria-hidden="true" />
@@ -1120,20 +1386,125 @@ useEffect(() => {
                       </p>
                     )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => props.setComposerSpoiler(!props.composerSpoiler)}
-                      disabled={props.isUploading || Boolean(props.editingMessageId)}
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${props.composerSpoiler ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--theme-base)]'}`}
-                      aria-pressed={Boolean(props.composerSpoiler)}
-                      aria-label={props.composerSpoiler ? 'Send text normally' : 'Send text as spoiler'}
-                      title={props.composerSpoiler ? 'Text will be hidden as a spoiler' : 'Mark text as spoiler'}
-                    >
-                      <EyeOff size={18} aria-hidden="true" />
-                    </button>
-                    <button type="submit" disabled={props.isUploading} className="flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)] transition-all hover:brightness-110 disabled:opacity-50">
-                      <Send size={18} className="translate-x-[-1px] translate-y-[1px]" aria-hidden="true" />
-                    </button>
+                    {/* One button: send when there is something to send, record
+                        otherwise. Holding it opens how-to-send instead, which is
+                        where the spoiler toggle now lives. */}
+                    {/* touch-none: an upward drag here is the spoiler gesture, not a
+                        scroll — let the browser claim it and it fires pointercancel
+                        mid-swipe. */}
+                    <div ref={sendOptionsRef} className="relative shrink-0 touch-none" {...sendGesture}>
+                      {/* The wedges sit on an arc up and to the left: the drag never
+                          runs into the screen edge, and the thumb never covers the
+                          option it is sitting on. Pointer events stay off them —
+                          the press is captured on the wrapper and hit-tests by
+                          angle, so a wedge only has to draw itself. */}
+                      {radialOpen && (
+                        <div className="pointer-events-none absolute left-1/2 top-1/2 z-50" aria-hidden="true">
+                          {SEND_RADIAL_OPTIONS.map((option, index) => (
+                            <div
+                              key={option.id}
+                              style={{
+                                left: `${Math.cos(option.angle * Math.PI / 180) * SEND_RADIAL_PX}px`,
+                                top: `${-Math.sin(option.angle * Math.PI / 180) * SEND_RADIAL_PX}px`
+                              }}
+                              className={`absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-0.5 rounded-full border shadow-lg transition-transform duration-150 ${radialIndex === index ? 'scale-110 border-blue-400 bg-blue-500/30 text-blue-100' : 'border-[var(--chat-control-border)] bg-[var(--bg-element)] text-[var(--text-muted)]'}`}
+                            >
+                              {option.spoiler
+                                ? <EyeOff size={16} aria-hidden="true" />
+                                : <Timer size={16} aria-hidden="true" />}
+                              {/* An unselected timed wedge shows where its cycle
+                                  starts; the selected one counts on from there. */}
+                              {option.timed
+                                ? <span className="type-meta font-black leading-none">{radialDuration(option, radialIndex === index ? radialStep : 0).id}</span>
+                                : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* The menu is the tap-driven half of the same control: it
+                          keeps the persistent toggles and the lifetimes the three
+                          wedges have no room for. */}
+                      {sendOptionsOpen && (
+                        <div className="premium-menu absolute bottom-full right-0 mb-3 z-50 flex w-[9rem] flex-col gap-1 rounded-xl p-1.5 animate-slide-up origin-bottom-right" role="menu" aria-label="Send options">
+                          <button
+                            type="button"
+                            data-no-long-press
+                            onClick={() => props.setComposerSpoiler(!props.composerSpoiler)}
+                            disabled={Boolean(props.editingMessageId)}
+                            className={`flex items-center gap-2 rounded-lg px-2.5 py-2 type-label font-medium transition-colors hover:bg-[var(--bg-element)] disabled:opacity-40 ${props.composerSpoiler ? 'bg-amber-500/20 text-amber-200' : 'text-[var(--text-main)]'}`}
+                            role="menuitemcheckbox"
+                            aria-checked={Boolean(props.composerSpoiler)}
+                          >
+                            <EyeOff size={16} className={props.composerSpoiler ? 'text-amber-300' : 'text-amber-400/70'} aria-hidden="true" />
+                            <span className="flex-1 text-left">Spoiler</span>
+                            {props.composerSpoiler && <Check size={16} className="text-amber-300" aria-hidden="true" />}
+                          </button>
+
+                          {/* One chip per row, tight padding: the menu is narrow now
+                              that the swipe hint is gone. */}
+                          <div className="flex flex-col gap-0.5 px-1 pb-0.5" role="group" aria-label="Disappearing">
+                            <Timer size={14} className="mx-auto text-[var(--text-muted)]" aria-hidden="true" />
+                            {DISAPPEARING_OPTIONS.map(option => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                data-no-long-press
+                                onClick={() => props.setComposerExpirySeconds(option.seconds)}
+                                className={`w-full rounded-md py-1 text-center type-meta font-bold uppercase tracking-wide transition-colors ${(props.composerExpirySeconds || null) === option.seconds ? 'bg-[var(--bg-element)] text-[var(--text-main)] ring-1 ring-inset ring-[var(--theme-base)]' : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
+                                role="menuitemradio"
+                                aria-checked={(props.composerExpirySeconds || null) === option.seconds}
+                                aria-label={option.seconds ? `Disappear after ${option.label}` : 'Do not disappear'}
+                              >
+                                {option.id}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        type={sendIsVoice ? 'button' : 'submit'}
+                        onClick={sendIsVoice ? (e) => { e.preventDefault(); e.stopPropagation(); startVoiceRecording(); } : undefined}
+                        /* The radial is a drag, so a keyboard has no way onto it.
+                           Arrow-up opens the menu instead — the same half of the
+                           control a mouse gets — and Escape closes it. */
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape' && sendOptionsOpen) { setSendOptionsOpen(false); return }
+                          if (sendIsVoice) return
+                          if (e.key === 'ArrowUp' || e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                            e.preventDefault()
+                            setSendOptionsOpen(open => !open)
+                          }
+                        }}
+                        aria-haspopup="menu"
+                        aria-expanded={sendIsVoice ? undefined : sendOptionsOpen}
+                        disabled={props.isUploading}
+                        className={`relative flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full border transition-all duration-150 hover:brightness-110 disabled:opacity-50 ${radialChoice
+                          ? 'border-blue-400 bg-blue-500/25 text-blue-200 shadow-[0_0_0_5px_rgba(96,165,250,0.2)]'
+                          /* The palette already answers "what goes on an accent
+                             fill": mono says a black pill with a white glyph,
+                             the colour themes say an accent pill with a dark
+                             one. Filling with --theme-base and labelling in
+                             white is what painted white on white in mono. */
+                          : 'border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]'}`}
+                        style={{ transform: `scale(${radialChoice ? 1.12 : 1})` }}
+                        aria-label={sendIsVoice ? 'Record a voice message. Tap to record hands-free, or hold and drag up to lock, any other direction to discard' : 'Send message. Press arrow up, or hold and drag, for send options: spoiler and disappearing messages'}
+                        title={sendIsVoice ? 'Tap to record · hold to talk, drag up to lock, away to discard' : 'Send · hold for options, drag onto one to send'}
+                      >
+                        {sendIsVoice && <Mic size={18} aria-hidden="true" />}
+                        {/* Armed: the icon says what releasing will do. */}
+                        {!sendIsVoice && radialChoice && (radialChoice.spoiler
+                          ? <EyeOff size={18} aria-hidden="true" />
+                          : <Timer size={18} aria-hidden="true" />)}
+                        {!sendIsVoice && !radialChoice && <Send size={18} className="translate-x-[-1px] translate-y-[1px]" aria-hidden="true" />}
+                        {Boolean(props.composerExpirySeconds) && (
+                          <span className="absolute -bottom-1 -right-1 rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] px-1 type-meta font-black leading-tight text-[var(--chat-control-text)]" aria-hidden="true">
+                            {describeExpiry(props.composerExpirySeconds)}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                   </form>
                 </div>
               )}
@@ -1143,12 +1514,14 @@ useEffect(() => {
       </div>
       )}
       {mediaEditorTarget && (
-        <MediaEditorModal
-          file={mediaEditorTarget.file}
-          title={mediaEditorTarget.type === 'video' ? 'Crop video' : 'Edit image'}
-          onCancel={() => setMediaEditorTarget(null)}
-          onSave={savePendingMediaEdit}
-        />
+        <Suspense fallback={null}>
+          <MediaEditorModal
+            file={mediaEditorTarget.file}
+            title={mediaEditorTarget.type === 'video' ? 'Crop video' : 'Edit image'}
+            onCancel={() => setMediaEditorTarget(null)}
+            onSave={savePendingMediaEdit}
+          />
+        </Suspense>
       )}
     </main>
   )
