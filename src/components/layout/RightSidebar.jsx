@@ -14,6 +14,7 @@ import { supabase } from '../../supabaseClient'
 import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverModeration'
 import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
 import { debug } from '../../lib/debug'
+import { formatMessageTime } from '../../lib/messageTime'
 
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
   enabled: import.meta.env?.VITE_SERVER_NOTIFICATION_PREFERENCES_ENABLED === 'true'
@@ -32,7 +33,7 @@ const AccordionSection = ({ id, label, open, onToggle, children }) => {
     <section className="overflow-hidden rounded-2xl bg-[var(--surface-section)]">
       <button type="button" onClick={() => onToggle(id)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left type-body font-bold text-[var(--text-main)]" aria-expanded={open} aria-controls={panelId}>
       <span>{label}</span>
-      <ChevronDown size={17} className={`shrink-0 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      <ChevronDown size={17} className={`shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {open && <div id={panelId} role="region" aria-label={label} className="px-4 pb-4 animate-fade-in">{children}</div>}
     </section>
@@ -67,7 +68,7 @@ const ConversationThemePicker = ({ themes, value, onChange, disabled = false }) 
             </span>
           </span>
           <span className="block truncate type-label font-bold text-[var(--text-main)]">{theme.name}</span>
-          <span className="mt-0.5 block truncate type-meta text-gray-500">{theme.description}</span>
+          <span className="mt-0.5 block truncate type-meta text-[var(--text-muted)]">{theme.description}</span>
         </button>
       )
     })}
@@ -250,7 +251,9 @@ export default function RightSidebar({
 
   const getBannerStyle = (profile) => {
     const banner = profile?.banner_url
-    const themeColor = profile?.theme_color || currentThemeHex || '#3b82f6'
+    // Fall through to the accent token so the ocean/steel surface tints reach
+    // the banner instead of a frozen blue.
+    const themeColor = profile?.theme_color || currentThemeHex || 'var(--app-accent)'
     if (!banner) return { backgroundImage: 'none', backgroundColor: themeColor }
     const safeBannerUrl = safeMediaUrl(banner)
     if (safeBannerUrl) {
@@ -268,25 +271,25 @@ export default function RightSidebar({
     <>
       <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform md:hidden" onClick={closeRightSidebar}></div>
       
-      <aside className="fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-72 md:max-w-none md:shadow-none md:backdrop-blur-none lg:w-80 xl:w-96" style={scopedChatStyle}>
+      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-72 md:max-w-none md:shadow-none md:backdrop-blur-none lg:w-80 xl:w-96" style={scopedChatStyle}>
         
         {rightTab === 'info' && activeServer && !activeDm && (
           <div className="relative flex h-full flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 pb-2 pt-4">
               <h2 className="truncate type-view-title font-bold text-[var(--text-main)]">{activeServer.name}</h2>
-              <button onClick={closeRightSidebar} className="grid h-10 w-10 place-items-center rounded-full text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]" aria-label="Close server info">
+              <button onClick={closeRightSidebar} className="grid h-10 w-10 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]" aria-label="Close server info">
                 <X size={20} aria-hidden="true" />
               </button>
             </div>
 
             <div className="flex justify-center gap-8 px-5 py-4">
-              <button type="button" onClick={toggleServerMute} disabled={!serverNotificationsAvailable} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-gray-400 disabled:cursor-not-allowed disabled:opacity-50" aria-pressed={serverMuted} title={serverNotificationsAvailable ? undefined : 'Database update required'}>
+              <button type="button" onClick={toggleServerMute} disabled={!serverNotificationsAvailable} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50" aria-pressed={serverMuted} title={serverNotificationsAvailable ? undefined : 'Database update required'}>
                 <span className={`grid h-11 w-11 place-items-center rounded-full transition-colors ${serverMuted ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-main)] group-hover:bg-[var(--bg-element-hover)]'}`}>
                   {serverMuted ? <BellOff size={20} /> : <Bell size={20} />}
                 </span>
                 {serverNotificationsAvailable ? (serverMuted ? 'Unmute' : 'Mute') : 'Unavailable'}
               </button>
-              <button type="button" onClick={() => toggleRightSidebar?.('search')} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-gray-400">
+              <button type="button" onClick={() => toggleRightSidebar?.('search')} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)]">
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--bg-element)] text-[var(--text-main)] transition-colors group-hover:bg-[var(--bg-element-hover)]">
                   <Search size={20} />
                 </span>
@@ -304,7 +307,7 @@ export default function RightSidebar({
                   />
                   <div className="min-w-0">
                     <p className="truncate type-title font-bold text-[var(--text-main)]">{activeServer.name}</p>
-                    <p className="type-snippet text-gray-500">{serverMembers.length} member{serverMembers.length === 1 ? '' : 's'} · {activeServerRole || 'member'}</p>
+                    <p className="type-snippet text-[var(--text-muted)]">{serverMembers.length} member{serverMembers.length === 1 ? '' : 's'} · {activeServerRole || 'member'}</p>
                   </div>
                 </div>
               </AccordionSection>
@@ -314,7 +317,7 @@ export default function RightSidebar({
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="type-body font-medium text-[var(--text-main)]">Server theme</p>
-                      <p className="type-label text-gray-500">
+                      <p className="type-label text-[var(--text-muted)]">
                         {conversationThemeSchemaAvailable === false
                           ? 'Database update required'
                           : ['owner', 'admin'].includes(activeServerRole) ? 'Visible to everyone' : 'Managed by server admins'}
@@ -331,7 +334,7 @@ export default function RightSidebar({
                   <div className="pt-2">
                     <div className="mb-3">
                       <p className="type-body font-medium text-[var(--text-main)]">Server wallpaper</p>
-                      <p className="type-label text-gray-500">
+                      <p className="type-label text-[var(--text-muted)]">
                         {serverWallpaperSchemaAvailable === false
                           ? ['owner', 'admin'].includes(activeServerRole) ? 'Saved for you on this device' : 'Managed by server admins'
                           : ['owner', 'admin'].includes(activeServerRole) ? 'Visible to everyone in this server' : 'Managed by server admins'}
@@ -376,7 +379,7 @@ export default function RightSidebar({
               </AccordionSection>
 
               <AccordionSection id="chat-members" label="Chat members" open={openInfoSections.has('chat-members')} onToggle={toggleInfoSection}>
-                <div className="mb-3 flex items-center gap-2 type-label font-medium text-gray-500">
+                <div className="mb-3 flex items-center gap-2 type-label font-medium text-[var(--text-muted)]">
                   <Users size={15} />
                   {serverMembers.length} member{serverMembers.length === 1 ? '' : 's'}
                 </div>
@@ -390,17 +393,17 @@ export default function RightSidebar({
                         <StatusAvatar url={profile.avatar_url} username={profile.username} status={status} className="h-10 w-10" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate type-title font-bold text-[var(--text-main)]">{profile.username || 'Unknown user'}</p>
-                          <p className="truncate type-snippet capitalize text-gray-500">{member.role || 'member'} · {getPresenceLabel?.(profile.id) || 'Offline'}</p>
+                          <p className="truncate type-snippet capitalize text-[var(--text-muted)]">{member.role || 'member'} · {getPresenceLabel?.(profile.id) || 'Offline'}</p>
                         </div>
                         {canManageMember && (
-                          <button type="button" onClick={() => setModeratingMember(member)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-gray-500 hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]" aria-label={`Moderate ${profile.username || 'member'}`}>
+                          <button type="button" onClick={() => setModeratingMember(member)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]" aria-label={`Moderate ${profile.username || 'member'}`}>
                             <MoreHorizontal size={18} />
                           </button>
                         )}
                       </div>
                     )
                   })}
-                  {serverMembers.length === 0 && <p className="py-2 type-body text-gray-500">No members found.</p>}
+                  {serverMembers.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">No members found.</p>}
                 </div>
               </AccordionSection>
 
@@ -411,7 +414,7 @@ export default function RightSidebar({
                     ['documents', 'Files', attachmentGroups.documents.length],
                     ['links', 'Links', attachmentGroups.links.length]
                   ].map(([id, label, count]) => (
-                    <button key={id} type="button" onClick={() => setMediaTab(id)} className={`rounded-lg px-2 py-2 type-label font-bold transition-colors ${mediaTab === id ? 'bg-[var(--bg-surface)] text-[var(--text-main)]' : 'text-gray-500'}`}>
+                    <button key={id} type="button" onClick={() => setMediaTab(id)} className={`rounded-lg px-2 py-2 type-label font-bold transition-colors ${mediaTab === id ? 'bg-[var(--bg-surface)] text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>
                       {label} <span className="ml-0.5 opacity-70">{count}</span>
                     </button>
                   ))}
@@ -429,7 +432,7 @@ export default function RightSidebar({
                   <div className="space-y-2">
                     {attachmentGroups.documents.map(({ attachment }, index) => (
                       <a key={attachment.id || index} href={safeDocumentUrl(attachment.file_url)} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl bg-[var(--bg-element)] p-3 type-body text-[var(--text-main)]">
-                        <FileText size={17} className="shrink-0 text-gray-500" />
+                        <FileText size={17} className="shrink-0 text-[var(--text-muted)]" />
                         <span className="truncate">{attachment.file_name || 'File'}</span>
                       </a>
                     ))}
@@ -445,11 +448,11 @@ export default function RightSidebar({
                     ))}
                   </div>
                 )}
-                {activeAttachments.length === 0 && <p className="py-2 type-body text-gray-500">Nothing shared yet.</p>}
+                {activeAttachments.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">Nothing shared yet.</p>}
               </AccordionSection>
 
               <AccordionSection id="privacy" label="Privacy & support" open={openInfoSections.has('privacy')} onToggle={toggleInfoSection}>
-                <p className="mb-3 type-label leading-relaxed text-gray-500">Manage unwanted content and ask the MessApp moderation team for support.</p>
+                <p className="mb-3 type-label leading-relaxed text-[var(--text-muted)]">Manage unwanted content and ask the MessApp moderation team for support.</p>
                 {activeServer.owner_id !== currentUserId && (
                   <button type="button" onClick={() => onReportTarget?.({ targetType: 'server', id: activeServer.id, label: 'server' })} className="flex min-h-11 w-full items-center gap-3 rounded-xl bg-red-500/10 px-3 type-body font-bold text-red-400">
                     <Flag size={17} /> Report server
@@ -462,18 +465,18 @@ export default function RightSidebar({
               <div className="absolute inset-x-3 bottom-3 z-30 rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-2xl">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="type-meta font-bold uppercase tracking-widest text-gray-500">Member controls</p>
+                    <p className="type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Member controls</p>
                     <p className="truncate font-bold text-[var(--text-main)]">{moderatingMember.profiles?.username || 'Unknown user'}</p>
                   </div>
-                  <button type="button" onClick={closeModeration} disabled={Boolean(moderationBusy)} className="grid h-9 w-9 place-items-center rounded-full text-gray-500 hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]" aria-label="Close member controls"><X size={18} /></button>
+                  <button type="button" onClick={closeModeration} disabled={Boolean(moderationBusy)} className="grid h-9 w-9 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]" aria-label="Close member controls"><X size={18} /></button>
                 </div>
 
                 {activeServerRole === 'owner' && (
                   <div className="mt-4">
-                    <p className="mb-2 type-meta font-bold uppercase tracking-widest text-gray-500">Role</p>
+                    <p className="mb-2 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Role</p>
                     <div className="grid grid-cols-3 gap-2">
                       {SERVER_ROLES.map(role => (
-                        <button key={role} type="button" onClick={() => runMemberAction('role', role)} disabled={Boolean(moderationBusy) || moderatingMember.role === role} className={`rounded-xl px-2 py-2 type-label font-bold capitalize transition-colors disabled:opacity-40 ${moderatingMember.role === role ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-gray-400 hover:text-[var(--text-main)]'}`}>
+                        <button key={role} type="button" onClick={() => runMemberAction('role', role)} disabled={Boolean(moderationBusy) || moderatingMember.role === role} className={`rounded-xl px-2 py-2 type-label font-bold capitalize transition-colors disabled:opacity-40 ${moderatingMember.role === role ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}>
                           {moderationBusy === 'role' ? <Loader2 size={14} className="mx-auto animate-spin" /> : role}
                         </button>
                       ))}
@@ -482,7 +485,7 @@ export default function RightSidebar({
                 )}
 
                 <label className="mt-4 block">
-                  <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-gray-500">Reason (optional)</span>
+                  <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Reason (optional)</span>
                   <textarea value={moderationReason} onChange={event => setModerationReason(event.target.value.slice(0, 500))} rows={2} placeholder="Visible in the moderation log" className="w-full resize-none rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-element)] px-3 py-2 type-body text-[var(--text-main)] outline-none focus:border-[var(--theme-base)]" />
                 </label>
 
@@ -498,7 +501,7 @@ export default function RightSidebar({
                     </button>
                   )}
                   {!canBanMember(activeServerRole, moderatingMember.role || 'member') && (
-                    <div className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--surface-section)] px-3 type-label font-bold text-gray-500">
+                    <div className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--surface-section)] px-3 type-label font-bold text-[var(--text-muted)]">
                       <ShieldCheck size={15} /> Limited moderator
                     </div>
                   )}
@@ -510,7 +513,7 @@ export default function RightSidebar({
 
         {rightTab === 'info' && activeDm && (
           <div className="flex flex-col h-full overflow-hidden relative">
-            <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-gray-500 hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-20 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
+            <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-20 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
               <X size={20} aria-hidden="true" />
             </button>
 
@@ -525,14 +528,14 @@ export default function RightSidebar({
               <div className="relative z-10 px-6 w-full flex flex-col items-center">
                 <div className="flex items-center justify-center gap-2 mb-0.5">
                   <h2 className="type-title font-bold text-[var(--text-main)]">{activeDm.profiles.username}</h2>
-                  {activeDm.profiles.pronouns && <span className="type-meta text-gray-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 shrink-0">{activeDm.profiles.pronouns}</span>}
+                  {activeDm.profiles.pronouns && <span className="type-meta text-[var(--text-muted)] bg-[var(--bg-element)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] shrink-0">{activeDm.profiles.pronouns}</span>}
                 </div>
                 <p className="type-label text-[var(--theme-base)] font-mono">{activeDm.profiles.unique_tag}</p>
-                <p className="mt-1 type-meta font-bold uppercase tracking-widest text-gray-500">{getPresenceLabel?.(activeDm.profiles.id) || 'Offline'}</p>
+                <p className="mt-1 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">{getPresenceLabel?.(activeDm.profiles.id) || 'Offline'}</p>
                 
                 {activeDm.profiles.bio && (
                   <div className="relative mt-5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-element)] px-5 py-3.5 text-left shadow-inner">
-                    <p className="relative z-10 type-label italic text-gray-300 leading-relaxed whitespace-pre-wrap">{activeDm.profiles.bio}</p>
+                    <p className="relative z-10 type-label italic text-[var(--text-main)] leading-relaxed whitespace-pre-wrap">{activeDm.profiles.bio}</p>
                   </div>
                 )}
               </div>
@@ -542,7 +545,7 @@ export default function RightSidebar({
               <AccordionSection id="dm-customization" label="Customization" open={openInfoSections.has('dm-customization')} onToggle={toggleInfoSection}>
                 <div className="space-y-5">
                   <div>
-                  <span className="type-meta font-bold text-gray-400 block mb-3">Conversation Theme</span>
+                  <span className="type-meta font-bold text-[var(--text-muted)] block mb-3">Conversation Theme</span>
                   <ConversationThemePicker
                     themes={CONVERSATION_THEMES}
                     value={currentConversationThemeId}
@@ -550,11 +553,11 @@ export default function RightSidebar({
                   />
                 </div>
                   <div>
-                    <span className="type-meta font-bold text-gray-400 block mb-1">Chat Wallpaper</span>
-                    <span className="mb-3 block type-label leading-relaxed text-gray-500">Mix any wallpaper with the conversation theme above.</span>
+                    <span className="type-meta font-bold text-[var(--text-muted)] block mb-1">Chat Wallpaper</span>
+                    <span className="mb-3 block type-label leading-relaxed text-[var(--text-muted)]">Mix any wallpaper with the conversation theme above.</span>
                     <div className="grid grid-cols-2 gap-2">
                       {WALLPAPERS.map(w => (
-                        <button key={`wall-${w.id}`} onClick={() => handleWallpaperChange(w.id)} aria-pressed={currentWallpaper === w.id} className={`group rounded-2xl border p-1.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border-[var(--theme-50)] shadow-lg shadow-black/10' : 'bg-[var(--surface-section)] text-gray-500 hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border-transparent hover:border-[var(--border-subtle)]'}`}>
+                        <button key={`wall-${w.id}`} onClick={() => handleWallpaperChange(w.id)} aria-pressed={currentWallpaper === w.id} className={`group rounded-2xl border p-1.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${currentWallpaper === w.id ? 'bg-[var(--theme-20)] text-[var(--theme-base)] border-[var(--theme-50)] shadow-lg shadow-black/10' : 'bg-[var(--surface-section)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border-transparent hover:border-[var(--border-subtle)]'}`}>
                           <span
                             className="relative block h-16 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--chat-bg-base)] shadow-inner"
                             style={{
@@ -569,7 +572,7 @@ export default function RightSidebar({
                             <span className="absolute right-2 top-2 h-3 w-12 rounded-full border border-[var(--chat-outgoing-border)] bg-[var(--chat-outgoing-bg)] shadow-sm" />
                           </span>
                           <span className="mt-2 block truncate px-1 type-meta font-bold">{w.name}</span>
-                          <span className="mb-1 block truncate px-1 type-meta text-gray-500">{w.description}</span>
+                          <span className="mb-1 block truncate px-1 type-meta text-[var(--text-muted)]">{w.description}</span>
                         </button>
                       ))}
                       <label
@@ -583,7 +586,7 @@ export default function RightSidebar({
                             event.currentTarget.querySelector('input')?.click()
                           }
                         }}
-                        className={`rounded-2xl border p-1.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${customWallpaperSelected ? 'border-[var(--theme-50)] bg-[var(--theme-20)] text-[var(--theme-base)] shadow-lg shadow-black/10' : 'cursor-pointer border-transparent bg-[var(--surface-section)] text-gray-500 hover:border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'} ${customWallpaperBusy ? 'pointer-events-none opacity-60' : ''}`}
+                        className={`rounded-2xl border p-1.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${customWallpaperSelected ? 'border-[var(--theme-50)] bg-[var(--theme-20)] text-[var(--theme-base)] shadow-lg shadow-black/10' : 'cursor-pointer border-transparent bg-[var(--surface-section)] text-[var(--text-muted)] hover:border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'} ${customWallpaperBusy ? 'pointer-events-none opacity-60' : ''}`}
                       >
                         <input
                           type="file"
@@ -600,7 +603,7 @@ export default function RightSidebar({
                           {customWallpaperBusy ? <Loader2 size={20} className="animate-spin" /> : <ImagePlus size={20} />}
                         </span>
                         <span className="mt-2 block truncate px-1 type-meta font-bold">Your photo</span>
-                        <span className="mb-1 block truncate px-1 type-meta text-gray-500">JPG, PNG, or WebP</span>
+                        <span className="mb-1 block truncate px-1 type-meta text-[var(--text-muted)]">JPG, PNG, or WebP</span>
                       </label>
                     </div>
                   </div>
@@ -610,7 +613,7 @@ export default function RightSidebar({
               <AccordionSection id="dm-pinned" label={`Pinned messages (${pinnedMessages.length})`} open={openInfoSections.has('dm-pinned')} onToggle={toggleInfoSection}>
                 <div className="space-y-2">
                   {pinnedMessages.length === 0 ? (
-                    <div className="type-label text-gray-500 px-1 py-2">No pinned messages yet.</div>
+                    <div className="type-label text-[var(--text-muted)] px-1 py-2">No pinned messages yet.</div>
                   ) : pinnedMessages.map(message => (
                     <button key={`pinned-${message.id}`} onClick={() => { scrollToMessage(message); closeRightSidebar(); }} className="w-full text-left p-3 rounded-xl bg-[var(--surface-section)] hover:bg-[var(--bg-surface)] border border-transparent hover:border-[var(--theme-50)] transition-all duration-300 ease-out transform group">
                       <div className="flex items-start gap-2">
@@ -618,11 +621,11 @@ export default function RightSidebar({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2 mb-1">
                             <span className="type-title font-bold text-[var(--text-main)] truncate">{message.profiles?.username || 'User'}</span>
-                            <span className="type-meta text-gray-500 shrink-0">{new Date(message.created_at).toLocaleDateString()}</span>
+                            <span className="type-meta text-[var(--text-muted)] shrink-0">{formatMessageTime(message.created_at)}</span>
                           </div>
-                          <p className="type-snippet text-gray-400 line-clamp-2 break-words">{formatMessagePreview(message)}</p>
+                          <p className="type-snippet text-[var(--text-muted)] line-clamp-2 break-words">{formatMessagePreview(message)}</p>
                         </div>
-                        <span onClick={(e) => { e.stopPropagation(); togglePinnedMessage?.(message); }} className="type-meta font-bold text-gray-500 group-hover:text-[var(--theme-base)] px-1 py-0.5 rounded cursor-pointer">Unpin</span>
+                        <span onClick={(e) => { e.stopPropagation(); togglePinnedMessage?.(message); }} className="type-meta font-bold text-[var(--text-muted)] group-hover:text-[var(--theme-base)] px-1 py-0.5 rounded cursor-pointer">Unpin</span>
                       </div>
                     </button>
                   ))}
@@ -631,12 +634,12 @@ export default function RightSidebar({
 
               <AccordionSection id="dm-media" label="Media & files" open={openInfoSections.has('dm-media')} onToggle={toggleInfoSection}>
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-element)] p-1">
-                  <button onClick={() => setMediaTab('images')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 type-label font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'images' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-500 hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><ImagePlus size={14} /> Images</button>
-                  <button onClick={() => setMediaTab('documents')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 type-label font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'documents' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-500 hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><FileText size={14} /> Documents</button>
+                  <button onClick={() => setMediaTab('images')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 type-label font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'images' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><ImagePlus size={14} /> Images</button>
+                  <button onClick={() => setMediaTab('documents')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 type-label font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'documents' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><FileText size={14} /> Documents</button>
                 </div>
                 <div className="pt-3">
                   {activeAttachments.length === 0 ? (
-                    <div className="type-label text-gray-500 px-1 py-4">No {mediaTab === 'images' ? 'images' : 'documents'} in this conversation.</div>
+                    <div className="type-label text-[var(--text-muted)] px-1 py-4">No {mediaTab === 'images' ? 'images' : 'documents'} in this conversation.</div>
                   ) : mediaTab === 'images' ? (
                     <div className="grid grid-cols-3 gap-2">
                       {activeAttachments.map(({ message, attachment }) => (
@@ -648,7 +651,7 @@ export default function RightSidebar({
                                 setRevealedSpoilerAttachments(previous => new Set(previous).add(attachment.id))
                                 return
                               }
-                              setSelectedImage?.({ url: safeMediaUrl(attachment.file_url), user: message.profiles?.username, time: new Date(message.created_at).toLocaleString() })
+                              setSelectedImage?.({ url: safeMediaUrl(attachment.file_url), user: message.profiles?.username, time: formatMessageTime(message.created_at) })
                             }}
                             className="relative h-full w-full overflow-hidden rounded-lg border border-current bg-[var(--surface-section)] text-[var(--theme-base)] opacity-90 transition-all duration-300 ease-out hover:scale-[1.03] cursor-pointer"
                             aria-label={attachment.is_spoiler && !revealedSpoilerAttachments.has(attachment.id) ? 'Reveal spoiler image' : `Open ${attachment.file_name || 'image'}`}
@@ -689,7 +692,7 @@ export default function RightSidebar({
                            an inert row beats a link that always toasts a failure. */
                         const documentUrl = safeDocumentUrl(attachment.file_url)
                         if (!documentUrl) return (
-                          <div key={`doc-${attachment.id || attachment.file_name}`} className="flex items-center gap-3 p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-section)] text-gray-500">
+                          <div key={`doc-${attachment.id || attachment.file_name}`} className="flex items-center gap-3 p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-section)] text-[var(--text-muted)]">
                             <FileText size={16} className="shrink-0" />
                             <span className="type-label truncate min-w-0">{attachment.file_name || 'Document'} • Unavailable</span>
                           </div>
@@ -697,7 +700,7 @@ export default function RightSidebar({
                         return (
                         <a key={`doc-${attachment.id || attachment.file_url}`} href={documentUrl} target="_blank" rel="noopener noreferrer" download={attachment.file_name || true} onClick={(event) => { event.preventDefault(); downloadFile(documentUrl, attachment.file_name).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'sidebar-document', error }); toast.error('Download failed') }) }} className="flex items-center gap-3 p-3 rounded-xl border border-current text-[var(--theme-base)] opacity-90 bg-[var(--surface-section)] hover:bg-[var(--bg-surface)] transition-all duration-300 ease-out transform">
                           <FileText size={16} className="shrink-0" />
-                          <span className="type-label text-gray-300 truncate min-w-0">{attachment.file_name || 'Document'}</span>
+                          <span className="type-label text-[var(--text-main)] truncate min-w-0">{attachment.file_name || 'Document'}</span>
                         </a>
                         )
                       })}
@@ -708,7 +711,7 @@ export default function RightSidebar({
 
               <AccordionSection id="dm-privacy" label="Privacy & support" open={openInfoSections.has('dm-privacy')} onToggle={toggleInfoSection}>
                 <button onClick={() => setConfirmAction({ type: restrictedUsersSet.has(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
-                  <EyeOff size={16} className="text-gray-400 group-hover:text-[var(--text-main)]"/><span className="type-body font-medium text-gray-300 group-hover:text-[var(--text-main)] flex-1">{restrictedUsersSet.has(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
+                  <EyeOff size={16} className="text-[var(--text-muted)] group-hover:text-[var(--text-main)]"/><span className="type-body font-medium text-[var(--text-main)] group-hover:text-[var(--text-main)] flex-1">{restrictedUsersSet.has(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
                 </button>
                 <button onClick={() => setConfirmAction({ type: blockedUsersSet.has(activeDm.profiles.id) ? 'unblock' : 'block', profile: activeDm.profiles })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
                   <Ban size={16} className="text-red-400 group-hover:text-red-300"/><span className="type-body font-bold text-red-400 group-hover:text-red-300 flex-1">{blockedUsersSet.has(activeDm.profiles.id) ? `Unblock ${activeDm.profiles.username}` : `Block ${activeDm.profiles.username}`}</span>
@@ -726,30 +729,30 @@ export default function RightSidebar({
 
         {rightTab === 'search' && (
           <div className="p-6 h-full flex flex-col overflow-hidden relative">
-            <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-gray-500 hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-10 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
+            <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-10 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
               <X size={20} aria-hidden="true" />
             </button>
 
             <div className="premium-input ghost-border rounded-xl flex items-center px-4 py-3 mt-6 md:mt-8 mb-6 transition-all shrink-0">
-              <Search size={18} className="text-gray-500 mr-2 shrink-0" aria-hidden="true" />
-              <input type="text" placeholder="Search all conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-gray-600 font-medium min-w-0" autoFocus />
+              <Search size={18} className="text-[var(--text-muted)] mr-2 shrink-0" aria-hidden="true" />
+              <input type="text" placeholder="Search all conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-[var(--text-subtle)] font-medium min-w-0" autoFocus />
             </div>
             
-            {searchLoading && <div className="text-center text-gray-500 type-body mt-8">Searching…</div>}
+            {searchLoading && <div className="text-center text-[var(--text-muted)] type-body mt-8">Searching…</div>}
 
             {/* DM history is encrypted, so it is decrypted and scanned locally
                 rather than matched by the database — the reach differs by
                 conversation and saying so beats looking broken. */}
             {!searchLoading && searchQuery && searchResults.length === 0 && (
-              <div className="text-center text-gray-500 type-body mt-8">
+              <div className="text-center text-[var(--text-muted)] type-body mt-8">
                 No messages match your query.
-                <span className="mt-2 block type-meta text-gray-600">Direct messages are searched over recent history only.</span>
+                <span className="mt-2 block type-meta text-[var(--text-subtle)]">Direct messages are searched over recent history only.</span>
               </div>
             )}
             
             {!searchLoading && searchQuery && searchResults.length > 0 && (
               <>
-                <div className="type-meta font-bold text-gray-500 uppercase tracking-widest mb-3 shrink-0">{searchResults.length} Matches Found</div>
+                <div className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3 shrink-0">{searchResults.length} Matches Found</div>
                 
                 <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 pb-4">
                   {searchResults.map((m, i) => (
@@ -760,10 +763,10 @@ export default function RightSidebar({
                     >
                       <div className="flex justify-between items-baseline mb-1">
                         <span className="type-title font-bold text-[var(--text-main)] group-hover:text-[var(--theme-base)] transition-colors truncate pr-2">{m.profiles?.username}</span>
-                        <span className="type-meta text-gray-500 shrink-0">{new Date(m.created_at).toLocaleDateString()}</span>
+                        <span className="type-meta text-[var(--text-muted)] shrink-0">{formatMessageTime(m.created_at)}</span>
                       </div>
-                      {m.__search?.label && <div className="type-meta text-gray-500 truncate mb-1">{m.__search.label}</div>}
-                      <p className="type-snippet text-gray-300 line-clamp-3 break-words">{m.is_spoiler ? 'Spoiler' : m.content}</p>
+                      {m.__search?.label && <div className="type-meta text-[var(--text-muted)] truncate mb-1">{m.__search.label}</div>}
+                      <p className="type-snippet text-[var(--text-main)] line-clamp-3 break-words">{m.is_spoiler ? 'Spoiler' : m.content}</p>
                     </button>
                   ))}
                 </div>
