@@ -11,11 +11,16 @@ import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../lib/voiceAudioProcessing';
 import { acquireAlternateCamera, CallAudio } from '../lib/mediaDevices';
-import { getIceServers } from '../lib/iceServers';
+import { getIceServers, hasTurnRelay } from '../lib/iceServers';
+import { isPolite, shouldIgnoreOffer } from '../lib/negotiation';
 
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
-const RINGING_STATES = new Set(['incoming', 'outgoing', 'ringing']);
-const ACTIVE_MEDIA_STATES = new Set(['connecting', 'connected']);
+// A peer connection reports `disconnected` for ordinary network blips and
+// usually recovers on its own, so an ICE restart waits this long first.
+const ICE_RECOVERY_DELAY_MS = 5000;
+// Bounds the buffer a peer that never answers can grow.
+const MAX_PENDING_ICE_CANDIDATES = 100;
+const NO_TURN_HINT = 'No TURN relay is configured, so calls only connect when both devices can reach each other directly.';
 
 const isNativeAndroidCallAudioAvailable = () =>
   Capacitor.isNativePlatform() &&
@@ -78,13 +83,21 @@ export function useWebRTC(session, activeDm) {
   const activeCallTargetRef = useRef(null);
   const incomingVideoRef = useRef(false);
   const outgoingTimeoutRef = useRef(null);
-  const cleanupTimerRef = useRef(null);
   const callDirectionRef = useRef(null);
   const endingCallRef = useRef(false);
   const mountedRef = useRef(true);
   const nativeAudioActiveRef = useRef(false);
   const callLifecycleIdRef = useRef(0);
   const cameraFacingModeRef = useRef('user');
+  // Perfect negotiation. Without these, two renegotiations crossing in flight
+  // (both sides toggling screen share, say) left both peer connections stuck in
+  // have-local-offer, and no further renegotiation ever succeeded on that call.
+  const politeRef = useRef(false);
+  const makingOfferRef = useRef(false);
+  const ignoreOfferRef = useRef(false);
+  const settingRemoteAnswerRef = useRef(false);
+  const iceRestartedRef = useRef(false);
+  const iceRecoveryTimerRef = useRef(null);
 
   // Using refs to keep signaling callback readouts up to date without cycling subscriptions
   const callActiveRef = useRef(callActive);
@@ -214,7 +227,13 @@ export function useWebRTC(session, activeDm) {
     const queued = pendingIceCandidatesRef.current;
     pendingIceCandidatesRef.current = [];
     for (const candidate of queued) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_err) {}
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        // A candidate from an offer that was ignored or rolled back no longer
+        // matches the applied description; the rest still have to be applied.
+        debug.warn('WEBRTC_ERROR', { operation: 'flush-ice-candidate', error: serializeCallError(err) });
+      }
     }
   };
 
@@ -222,10 +241,53 @@ export function useWebRTC(session, activeDm) {
     if (!candidate) return;
     const pc = pcRef.current;
     if (!pc || !pc.remoteDescription) {
-      pendingIceCandidatesRef.current.push(candidate);
+      if (pendingIceCandidatesRef.current.length < MAX_PENDING_ICE_CANDIDATES) {
+        pendingIceCandidatesRef.current.push(candidate);
+      }
       return;
     }
-    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_err) {}
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      if (ignoreOfferRef.current) return;
+      debug.warn('WEBRTC_ERROR', { operation: 'add-ice-candidate', error: serializeCallError(err) });
+    }
+  };
+
+  const clearIceRecoveryTimer = () => {
+    if (iceRecoveryTimerRef.current) {
+      clearTimeout(iceRecoveryTimerRef.current);
+      iceRecoveryTimerRef.current = null;
+    }
+  };
+
+  const failCall = () => {
+    audioSys.playCallFailed();
+    endCallLocal('failed');
+    toast.error(hasTurnRelay() ? 'Call failed.' : `Call failed. ${NO_TURN_HINT}`);
+  };
+
+  // A connection that drops (a Wi-Fi to mobile handover, say) used to sit in
+  // "Connecting…" until the browser gave up. One ICE restart recovers it. Only
+  // the impolite peer offers the restart so the two sides cannot collide.
+  const handleConnectionFailure = () => {
+    if (endingCallRef.current || !pcRef.current) return;
+    if (iceRestartedRef.current) {
+      failCall();
+      return;
+    }
+    iceRestartedRef.current = true;
+    if (politeRef.current) {
+      // The other side drives the restart; give it one window to arrive.
+      clearIceRecoveryTimer();
+      iceRecoveryTimerRef.current = setTimeout(() => {
+        iceRecoveryTimerRef.current = null;
+        if (!endingCallRef.current && pcRef.current?.connectionState !== 'connected') failCall();
+      }, ICE_RECOVERY_DELAY_MS);
+      return;
+    }
+    debug.warn('WEBRTC_ERROR', { operation: 'ice-restart', connectionState: pcRef.current.connectionState });
+    void negotiateLocal('renegotiate-offer', {}, { iceRestart: true });
   };
 
   const createPeerConnection = async () => {
@@ -234,7 +296,7 @@ export function useWebRTC(session, activeDm) {
     const pc = new RTCPeerConnection({ iceServers });
     pc.onicecandidate = (e) => {
       if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
-      if (e.candidate) sendSignal(activeCallTargetRef.current, 'ice-candidate', { candidate: e.candidate });
+      if (e.candidate) void sendSignal(activeCallTargetRef.current, 'ice-candidate', { candidate: e.candidate });
     };
     pc.ontrack = (e) => {
       if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
@@ -270,64 +332,172 @@ export function useWebRTC(session, activeDm) {
       if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
       if (pc.connectionState === 'connected') {
         clearOutgoingTimeout();
+        clearIceRecoveryTimer();
+        iceRestartedRef.current = false;
         if (callDirectionRef.current !== 'connected') audioSys.playCallConnected();
         setCallDirection('connected');
       }
-      if (pc.connectionState === 'disconnected' && callDirectionRef.current === 'connected') {
-        setCallDirection('connecting');
+      if (pc.connectionState === 'disconnected') {
+        if (callDirectionRef.current === 'connected') setCallDirection('connecting');
+        if (!iceRecoveryTimerRef.current) {
+          iceRecoveryTimerRef.current = setTimeout(() => {
+            iceRecoveryTimerRef.current = null;
+            if (pc.connectionState === 'disconnected') handleConnectionFailure();
+          }, ICE_RECOVERY_DELAY_MS);
+        }
       }
       if (pc.connectionState === 'failed') {
-        audioSys.playCallFailed();
-        endCallLocal('failed');
-        toast.error('Call failed.');
+        // The `disconnected` branch above may already have armed a timer that
+        // would fire into a second failure after this one has run.
+        clearIceRecoveryTimer();
+        handleConnectionFailure();
       }
     };
     return pc;
+  };
+
+  /**
+   * The single place an offer is created. Every renegotiation (video upgrade,
+   * screen share, ICE restart) goes through here so a crossing offer is caught
+   * by the signaling-state guard instead of wedging the connection.
+   */
+  const negotiateLocal = async (signalType, extra = {}, { iceRestart = false } = {}) => {
+    const pc = pcRef.current;
+    if (!pc) return false;
+    const lifecycleId = callLifecycleIdRef.current;
+    if (makingOfferRef.current || pc.signalingState !== 'stable') {
+      debug.warn('WEBRTC_ERROR', { operation: 'negotiate-skipped', signalType, signalingState: pc.signalingState });
+      return false;
+    }
+    try {
+      makingOfferRef.current = true;
+      const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+      if (!isCurrentCallLifecycle(lifecycleId)) return false;
+      await pc.setLocalDescription(offer);
+      if (!isCurrentCallLifecycle(lifecycleId)) return false;
+      return await sendSignal(activeCallTargetRef.current, signalType, { offer, ...extra });
+    } catch (err) {
+      debug.error('WEBRTC_ERROR', { operation: 'negotiate', signalType, error: serializeCallError(err) });
+      return false;
+    } finally {
+      makingOfferRef.current = false;
+    }
+  };
+
+  /** The single place a remote offer or answer is applied, with collision handling. */
+  const applyRemoteDescription = async (description, type) => {
+    const pc = pcRef.current;
+    if (!pc || !description) return false;
+    const lifecycleId = callLifecycleIdRef.current;
+
+    // A stale answer (the offer it replies to was already superseded) has
+    // nowhere to go; applying it would throw.
+    if (type === 'answer' && pc.signalingState !== 'have-local-offer') return false;
+
+    ignoreOfferRef.current = shouldIgnoreOffer({
+      polite: politeRef.current,
+      makingOffer: makingOfferRef.current,
+      signalingState: pc.signalingState,
+      settingRemoteAnswer: settingRemoteAnswerRef.current,
+      type
+    });
+    if (ignoreOfferRef.current) {
+      // Candidates gathered for the ignored offer belong to an ICE generation
+      // that will never be applied.
+      pendingIceCandidatesRef.current = [];
+      return false;
+    }
+
+    try {
+      settingRemoteAnswerRef.current = type === 'answer';
+      // The polite peer withdraws its own offer rather than throwing on the
+      // remote one.
+      if (type === 'offer' && pc.signalingState !== 'stable') {
+        await pc.setLocalDescription({ type: 'rollback' });
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(description));
+    } catch (err) {
+      debug.error('WEBRTC_ERROR', { operation: 'apply-remote-description', type, error: serializeCallError(err) });
+      return false;
+    } finally {
+      settingRemoteAnswerRef.current = false;
+    }
+
+    if (!isCurrentCallLifecycle(lifecycleId)) return false;
+    await flushPendingIceCandidates();
+    return true;
+  };
+
+  /** Answers an offer that `applyRemoteDescription` has already applied. */
+  const answerRemote = async (signalType, extra = {}) => {
+    const pc = pcRef.current;
+    if (!pc || pc.signalingState !== 'have-remote-offer') return false;
+    const lifecycleId = callLifecycleIdRef.current;
+    try {
+      const answer = await pc.createAnswer();
+      if (!isCurrentCallLifecycle(lifecycleId)) return false;
+      await pc.setLocalDescription(answer);
+      if (!isCurrentCallLifecycle(lifecycleId)) return false;
+      return await sendSignal(activeCallTargetRef.current, signalType, { answer, ...extra });
+    } catch (err) {
+      debug.error('WEBRTC_ERROR', { operation: 'answer-remote', signalType, error: serializeCallError(err) });
+      return false;
+    }
   };
 
   useEffect(() => {
     if (!session?.user?.id) return;
     const sigChannel = supabase.channel('global-signaling');
     
-    sigChannel.on('broadcast', { event: 'webrtc-signal' }, async ({ payload }) => {
-      if (payload.targetId !== session.user.id) return;
-      if (endingCallRef.current && !['end', 'reject', 'timeout'].includes(payload.type)) {
-        return;
-      }
-
+    const handleSignalPayload = async (payload) => {
       if (payload.type === 'offer') {
         if (callActiveRef.current) {
-          sendSignal(payload.callerId, 'busy', {});
+          await sendSignal(payload.callerId, 'busy', {});
           return;
         }
+        // Set synchronously: the effect that mirrors callActive into this ref is
+        // a render behind, and two simultaneous calls used to slip past the busy
+        // check and deadlock both peers.
+        callActiveRef.current = true;
         const lifecycleId = beginCallLifecycle();
-        endingCallRef.current = false;
-        setRemoteCaller(payload.caller);
         activeCallTargetRef.current = payload.callerId;
-        setCallDirection('incoming');
-        setCallActive(true);
-        setCallMinimized(false);
+        politeRef.current = isPolite(session.user.id, payload.callerId);
+        iceRestartedRef.current = false;
         incomingVideoRef.current = Boolean(payload.isVideo);
-        setRemoteVideoEnabled(false);
-        setVideoEnabled(Boolean(payload.isVideo));
-        
+
         if (!pcRef.current) {
           pcRef.current = await createPeerConnection();
           if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) {
+            callActiveRef.current = false;
             closePeerConnection();
             return;
           }
         }
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.offer));
-        if (endingCallRef.current || lifecycleId !== callLifecycleIdRef.current) return;
-        await flushPendingIceCandidates();
+        const applied = await applyRemoteDescription(payload.offer, 'offer');
+        if (!applied || !isCurrentCallLifecycle(lifecycleId)) {
+          callActiveRef.current = false;
+          closePeerConnection();
+          return;
+        }
+
+        // Ring only once the call can actually be answered. The UI used to go
+        // live before the peer connection existed, and accepting inside that
+        // window failed the call for both sides.
+        setRemoteCaller(payload.caller);
+        setRemoteVideoEnabled(false);
+        setVideoEnabled(Boolean(payload.isVideo));
+        setCallDirection('incoming');
+        setCallActive(true);
+        setCallMinimized(false);
+        // The caller's tab can disappear without sending anything, which used to
+        // leave the callee ringing forever.
+        scheduleCallTimeout('missed');
+        return;
       }
 
       if (payload.type === 'answer') {
         if (endingCallRef.current) return;
-        if (pcRef.current && pcRef.current.signalingState !== 'stable') {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          await flushPendingIceCandidates();
+        if (await applyRemoteDescription(payload.answer, 'answer')) {
           clearOutgoingTimeout();
           setCallDirection('connecting');
         }
@@ -336,6 +506,16 @@ export function useWebRTC(session, activeDm) {
       if (payload.type === 'ice-candidate') {
         if (endingCallRef.current) return;
         await acceptRemoteIceCandidate(payload.candidate);
+      }
+
+      // An ICE restart after a network change: the same SDP exchange, kept
+      // separate from `offer` so it never looks like a new incoming call.
+      if (payload.type === 'renegotiate-offer' && !endingCallRef.current && callActiveRef.current) {
+        if (await applyRemoteDescription(payload.offer, 'offer')) await answerRemote('renegotiate-answer');
+      }
+
+      if (payload.type === 'renegotiate-answer' && !endingCallRef.current && callActiveRef.current) {
+        await applyRemoteDescription(payload.answer, 'answer');
       }
 
       if (payload.type === 'end') {
@@ -383,26 +563,20 @@ export function useWebRTC(session, activeDm) {
         initiateVideoUpgrade(); 
       }
       
-      if (payload.type === 'video-upgrade-offer' && !endingCallRef.current && callActiveRef.current) handleVideoUpgradeOffer(payload.offer);
+      if (payload.type === 'video-upgrade-offer' && !endingCallRef.current && callActiveRef.current) await handleVideoUpgradeOffer(payload.offer);
       
       if (payload.type === 'video-upgrade-answer') {
         if (endingCallRef.current || !callActiveRef.current) return;
-        if (pcRef.current && pcRef.current.signalingState !== 'stable') {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          await flushPendingIceCandidates();
-        }
+        await applyRemoteDescription(payload.answer, 'answer');
       }
 
       if (payload.type === 'screen-share-offer' && !endingCallRef.current && callActiveRef.current) {
-        handleScreenShareOffer(payload.offer, payload.trackId);
+        await handleScreenShareOffer(payload.offer, payload.trackId);
       }
 
       if (payload.type === 'screen-share-answer') {
         if (endingCallRef.current || !callActiveRef.current) return;
-        if (pcRef.current && pcRef.current.signalingState !== 'stable') {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          await flushPendingIceCandidates();
-        }
+        await applyRemoteDescription(payload.answer, 'answer');
       }
 
       if (payload.type === 'screen-share-ended') {
@@ -410,16 +584,53 @@ export function useWebRTC(session, activeDm) {
         setRemoteScreenSharing(false);
         detachMediaElement(remoteScreenVideoRef);
       }
+    };
+
+    sigChannel.on('broadcast', { event: 'webrtc-signal' }, async ({ payload }) => {
+      if (!payload || payload.targetId !== session.user.id) return;
+      // `global-signaling` is shared by every signed-in user, so a message only
+      // counts if it came from the peer this call is with. Without this, anyone
+      // could end someone else's call or inject SDP into it.
+      if (payload.type !== 'offer' && payload.callerId !== activeCallTargetRef.current) return;
+      // A fresh offer is allowed through the brief post-hangup window; calling
+      // someone straight back used to be silently dropped.
+      if (endingCallRef.current && !['end', 'reject', 'timeout', 'offer'].includes(payload.type)) return;
+
+      try {
+        await handleSignalPayload(payload);
+      } catch (err) {
+        // Every SDP path below can throw; unhandled, they left the call frozen
+        // with no state change and nothing in the console.
+        debug.error('WEBRTC_ERROR', { operation: 'handle-signal', type: payload.type, error: serializeCallError(err) });
+      }
     });
 
+    // Our own cleanup closes the channel; that CLOSED is not a failure.
+    let closedByTeardown = false;
     sigChannel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') callChannelRef.current = sigChannel;
+      if (status === 'SUBSCRIBED') {
+        callChannelRef.current = sigChannel;
+        return;
+      }
+      if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+        if (status === 'CLOSED' && closedByTeardown) return;
+        // Signaling is down. Dropping the reference makes sendSignal report the
+        // failure instead of silently posting into a dead channel.
+        callChannelRef.current = null;
+        debug.warn('WEBRTC_ERROR', { operation: 'signaling-channel', status });
+      }
     });
 
     return () => {
       clearOutgoingTimeout();
-      clearCleanupTimer();
+      clearIceRecoveryTimer();
+      // Tell the peer before going away; unmounting used to leave them ringing
+      // or sitting in a connected call with nobody on the other end.
+      if (callActiveRef.current && activeCallTargetRef.current && !endingCallRef.current) {
+        void sendSignal(activeCallTargetRef.current, callDirectionRef.current === 'incoming' ? 'reject' : 'end', {});
+      }
       endingCallRef.current = true;
+      callActiveRef.current = false;
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
@@ -441,18 +652,30 @@ export function useWebRTC(session, activeDm) {
       }
       audioSys.stopRing();
       restoreNativeCallAudio();
+      closedByTeardown = true;
+      callChannelRef.current = null;
       supabase.removeChannel(sigChannel);
     };
 
   }, [session?.user?.id]);
 
-  const sendSignal = (targetId, type, data) => {
-    if (callChannelRef.current && targetId) {
-      callChannelRef.current.send({
+  /** Returns whether the signal actually reached the channel. */
+  const sendSignal = async (targetId, type, data) => {
+    const channel = callChannelRef.current;
+    if (!channel || !targetId) {
+      debug.warn('WEBRTC_ERROR', { operation: 'send-signal-unavailable', type });
+      return false;
+    }
+    try {
+      const result = await channel.send({
         type: 'broadcast',
         event: 'webrtc-signal',
         payload: { targetId, type, callerId: session.user.id, ...data }
-      }).catch(()=>{});
+      });
+      return result === 'ok' || result === undefined;
+    } catch (err) {
+      debug.warn('WEBRTC_ERROR', { operation: 'send-signal', type, error: serializeCallError(err) });
+      return false;
     }
   };
 
@@ -471,13 +694,6 @@ export function useWebRTC(session, activeDm) {
     }
   };
 
-  const clearCleanupTimer = () => {
-    if (cleanupTimerRef.current) {
-      clearTimeout(cleanupTimerRef.current);
-      cleanupTimerRef.current = null;
-    }
-  };
-
   const beginCallLifecycle = () => {
     callLifecycleIdRef.current += 1;
     endingCallRef.current = false;
@@ -487,15 +703,17 @@ export function useWebRTC(session, activeDm) {
   const isCurrentCallLifecycle = (lifecycleId) =>
     !endingCallRef.current && lifecycleId === callLifecycleIdRef.current;
 
-  const scheduleOutgoingTimeout = () => {
+  /** Ends a call that never gets answered — used by both the caller and the callee. */
+  const scheduleCallTimeout = (finalState = 'timed_out') => {
     clearOutgoingTimeout();
     outgoingTimeoutRef.current = setTimeout(() => {
       const targetId = activeCallTargetRef.current;
       if (!targetId || !callActiveRef.current || callDirectionRef.current === 'connected') return;
-      sendSignal(targetId, 'timeout', {});
+      void sendSignal(targetId, 'timeout', {});
       audioSys.playCallFailed();
-      endCallLocal('timed_out');
-      toast.error('Call timed out.');
+      endCallLocal(finalState);
+      if (finalState === 'missed') toast('Missed call.');
+      else toast.error(hasTurnRelay() ? 'Call timed out.' : `Call timed out. ${NO_TURN_HINT}`);
     }, OUTGOING_CALL_TIMEOUT_MS);
   };
 
@@ -544,6 +762,11 @@ export function useWebRTC(session, activeDm) {
     endingCallRef.current = false
     setRemoteCaller(activeDm.profiles);
     activeCallTargetRef.current = activeDm.profiles.id;
+    politeRef.current = isPolite(session.user.id, activeDm.profiles.id);
+    iceRestartedRef.current = false;
+    // Synchronous so a simultaneous inbound offer is answered `busy` instead of
+    // racing this call's own setup.
+    callActiveRef.current = true;
     setCallDirection('outgoing');
     setCallActive(true);
     setCallMinimized(false);
@@ -581,16 +804,26 @@ export function useWebRTC(session, activeDm) {
       }
       stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
 
-      const offer = await pcRef.current.createOffer();
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-      await pcRef.current.setLocalDescription(offer);
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-
-      sendSignal(activeCallTargetRef.current, 'offer', {
-        offer, caller: { id: session.user.id, username: myUsername, avatar_url: myAvatar }, isVideo: withVideo
+      const sent = await negotiateLocal('offer', {
+        caller: { id: session.user.id, username: myUsername, avatar_url: myAvatar },
+        isVideo: withVideo
       });
+      if (!isCurrentCallLifecycle(lifecycleId)) {
+        closePeerConnection();
+        stopStream(localStreamRef);
+        restoreNativeCallAudio();
+        return;
+      }
+      if (!sent) {
+        // The offer never left the device, so nothing would ever ring. This used
+        // to sit on "Ringing…" for the full 30s timeout instead.
+        audioSys.playCallFailed();
+        endCallLocal('failed');
+        toast.error('Could not reach the call service. Check your connection and try again.');
+        return;
+      }
       setCallDirection('ringing');
-      scheduleOutgoingTimeout();
+      scheduleCallTimeout('timed_out');
     } catch (err) {
       debug.error('WEBRTC_ERROR', { operation: 'initiate-call', error: serializeCallError(err), dmRoomId: activeDm?.dm_room_id, callState: callDirection });
       audioSys.playCallFailed();
@@ -605,8 +838,13 @@ export function useWebRTC(session, activeDm) {
 
   const acceptCall = async () => {
     if (!checkMediaAccess()) { endCallNetwork('rejected'); return; }
+    if (pcRef.current?.signalingState !== 'have-remote-offer') {
+      debug.warn('WEBRTC_ERROR', { operation: 'accept-too-early', signalingState: pcRef.current?.signalingState });
+      return;
+    }
     const lifecycleId = callLifecycleIdRef.current;
     endingCallRef.current = false;
+    clearOutgoingTimeout();
     setCallDirection('connecting');
     try {
       const stream = await getVoiceMediaStream({
@@ -632,21 +870,19 @@ export function useWebRTC(session, activeDm) {
       bindMediaElements();
       
       stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
-      
-      const answer = await pcRef.current.createAnswer();
+
+      const sent = await answerRemote('answer', { isVideo: stream.getVideoTracks().length > 0 });
       if (!isCurrentCallLifecycle(lifecycleId)) return;
-      await pcRef.current.setLocalDescription(answer);
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-      
-      sendSignal(activeCallTargetRef.current, 'answer', { answer, isVideo: stream.getVideoTracks().length > 0 });
-      setCallDirection('connected');
-      audioSys.playCallConnected();
+      if (!sent) throw new Error('The answer could not be sent');
+      // Stay on "Connecting…" until ICE actually reports a connection;
+      // onconnectionstatechange promotes it and plays the tone.
+      setCallDirection('connecting');
     } catch (err) {
       debug.error('WEBRTC_ERROR', { operation: 'answer-call', error: serializeCallError(err), dmRoomId: activeDm?.dm_room_id, callState: callDirection });
       audioSys.playCallFailed();
       const targetId = activeCallTargetRef.current;
       endCallLocal('failed');
-      sendSignal(targetId, 'end', {});
+      void sendSignal(targetId, 'end', {});
       if (err.name === 'NotAllowedError') {
         toast.error("Camera or Microphone permission denied");
       } else {
@@ -661,7 +897,7 @@ export function useWebRTC(session, activeDm) {
     const currentState = callDirectionRef.current;
     const nextReason = reason || (currentState === 'incoming' ? 'rejected' : currentState === 'connected' ? 'ended' : 'cancelled');
     if (!endingCallRef.current && targetId) {
-      sendSignal(targetId, nextReason === 'rejected' ? 'reject' : 'end', {});
+      void sendSignal(targetId, nextReason === 'rejected' ? 'reject' : 'end', {});
       logCallEndDebug('signal sent', { targetId, type: nextReason === 'rejected' ? 'reject' : 'end', reason: nextReason });
     }
     if (nextReason === 'ended') audioSys.playCallEnded();
@@ -704,7 +940,11 @@ export function useWebRTC(session, activeDm) {
     callLifecycleIdRef.current += 1;
 
     clearOutgoingTimeout();
-    clearCleanupTimer();
+    clearIceRecoveryTimer();
+    makingOfferRef.current = false;
+    ignoreOfferRef.current = false;
+    settingRemoteAnswerRef.current = false;
+    iceRestartedRef.current = false;
 
     closePeerConnection();
     stopStream(localStreamRef);
@@ -757,7 +997,7 @@ export function useWebRTC(session, activeDm) {
     } else {
       if (!checkMediaAccess()) return;
       toast('Asking recipient to turn on video...', { icon: '⏳', id: 'vid-req', duration: 10000 });
-      sendSignal(activeCallTargetRef.current, 'video-request-intent', {});
+      void sendSignal(activeCallTargetRef.current, 'video-request-intent', {});
     }
   };
 
@@ -824,27 +1064,17 @@ export function useWebRTC(session, activeDm) {
 
       if (pcRef.current) {
         pcRef.current.addTrack(newVidTrack, localStreamRef.current);
-        const offer = await pcRef.current.createOffer();
-        await pcRef.current.setLocalDescription(offer);
-        sendSignal(activeCallTargetRef.current, 'video-upgrade-offer', { offer });
+        await negotiateLocal('video-upgrade-offer');
       }
-    } catch(e) { 
-      console.error(serializeCallError(e));
-      toast.error("Camera access failed during upgrade"); 
+    } catch(e) {
+      debug.error('WEBRTC_ERROR', { operation: 'video-upgrade', error: serializeCallError(e) });
+      toast.error("Camera access failed during upgrade");
     }
   };
 
   const handleVideoUpgradeOffer = async (offer) => {
     if (!pcRef.current) return;
-    const lifecycleId = callLifecycleIdRef.current;
-    await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-    if (!isCurrentCallLifecycle(lifecycleId)) return;
-    await flushPendingIceCandidates();
-    const answer = await pcRef.current.createAnswer();
-    if (!isCurrentCallLifecycle(lifecycleId)) return;
-    await pcRef.current.setLocalDescription(answer);
-    if (!isCurrentCallLifecycle(lifecycleId)) return;
-    sendSignal(activeCallTargetRef.current, 'video-upgrade-answer', { answer });
+    if (await applyRemoteDescription(offer, 'offer')) await answerRemote('video-upgrade-answer');
   };
 
   const acceptVideoRequest = async () => {
@@ -873,7 +1103,7 @@ export function useWebRTC(session, activeDm) {
         pcRef.current.addTrack(newVidTrack, localStreamRef.current);
       }
       setPendingVideoRequest(false);
-      sendSignal(activeCallTargetRef.current, 'video-request-accepted', {});
+      void sendSignal(activeCallTargetRef.current, 'video-request-accepted', {});
     } catch(e) {
       console.error(serializeCallError(e));
       toast.error("Could not access camera");
@@ -883,25 +1113,13 @@ export function useWebRTC(session, activeDm) {
 
   const declineVideoRequest = () => {
     setPendingVideoRequest(false);
-    sendSignal(activeCallTargetRef.current, 'video-request-declined', { caller: { username: myUsername } });
+    void sendSignal(activeCallTargetRef.current, 'video-request-declined', { caller: { username: myUsername } });
   };
 
   const handleScreenShareOffer = async (offer, trackId) => {
     if (!pcRef.current) return;
-    const lifecycleId = callLifecycleIdRef.current;
     pendingScreenTrackIdRef.current = trackId || null;
-    try {
-      await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-      await flushPendingIceCandidates();
-      const answer = await pcRef.current.createAnswer();
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-      await pcRef.current.setLocalDescription(answer);
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-      sendSignal(activeCallTargetRef.current, 'screen-share-answer', { answer });
-    } catch (e) {
-      console.error(serializeCallError(e));
-    }
+    if (await applyRemoteDescription(offer, 'offer')) await answerRemote('screen-share-answer');
   };
 
   const startScreenShare = async () => {
@@ -922,12 +1140,14 @@ export function useWebRTC(session, activeDm) {
       screenTrack.onended = () => { void stopScreenShare(); };
 
       pcRef.current.addTrack(screenTrack, screenStream);
-      const offer = await pcRef.current.createOffer();
+      const sent = await negotiateLocal('screen-share-offer', { trackId: screenTrack.id });
       if (!isCurrentCallLifecycle(lifecycleId)) return;
-      await pcRef.current.setLocalDescription(offer);
-      if (!isCurrentCallLifecycle(lifecycleId)) return;
-
-      sendSignal(activeCallTargetRef.current, 'screen-share-offer', { offer, trackId: screenTrack.id });
+      if (!sent) {
+        screenStreamRef.current = null;
+        screenStream.getTracks().forEach(track => { track.onended = null; track.stop(); });
+        toast.error('Could not start screen sharing.');
+        return;
+      }
       setScreenShareActive(true);
       bindMediaElements();
     } catch (err) {
@@ -951,15 +1171,11 @@ export function useWebRTC(session, activeDm) {
     });
     detachMediaElement(localScreenVideoRef);
     setScreenShareActive(false);
-    sendSignal(activeCallTargetRef.current, 'screen-share-ended', {});
+    void sendSignal(activeCallTargetRef.current, 'screen-share-ended', {});
 
     if (sender && pcRef.current) {
-      try {
-        pcRef.current.removeTrack(sender);
-        const offer = await pcRef.current.createOffer();
-        await pcRef.current.setLocalDescription(offer);
-        sendSignal(activeCallTargetRef.current, 'screen-share-offer', { offer, trackId: null });
-      } catch (_err) {}
+      pcRef.current.removeTrack(sender);
+      await negotiateLocal('screen-share-offer', { trackId: null });
     }
   };
 

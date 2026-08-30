@@ -37,6 +37,7 @@ import { audioSys } from '../../lib/SoundEngine'
 import { supabase } from '../../supabaseClient'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
 import useAutoHideCallChrome from '../../hooks/useAutoHideCallChrome'
+import useVideoAspectRatio, { DEFAULT_ASPECT_RATIO } from '../../hooks/useVideoAspectRatio'
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
 import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../../lib/screenCapture'
 import { acquireAlternateCamera } from '../../lib/mediaDevices'
@@ -113,7 +114,7 @@ function normalizeStreamType(participant, fallback = 'screen') {
   return rawType === 'camera' || rawType === 'video' ? 'camera' : fallback
 }
 
-function StreamVideo({ stream, muted = false, volume = 1, className = '' }) {
+function StreamVideo({ stream, muted = false, volume = 1, className = '', videoAspectProps = {} }) {
   const videoRef = useRef(null)
 
   useEffect(() => {
@@ -134,6 +135,7 @@ function StreamVideo({ stream, muted = false, volume = 1, className = '' }) {
       autoPlay
       playsInline
       muted={muted}
+      {...videoAspectProps}
       className={`voice-stage-video block h-full max-h-full min-h-0 w-full max-w-full min-w-0 bg-black object-contain ${className}`}
       style={{ objectFit: 'contain' }}
     />
@@ -189,14 +191,16 @@ function ParticipantBadge({ participant, streamSummary = '', compact = false }) 
   )
 }
 
-function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, cameraVolume = 1, isPinned = false, onPin, onStopWatching }) {
+/** `bare` strips the name plate and hover buttons: the mini player is the
+    picture, and its own floating chrome already carries the controls. */
+function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, cameraVolume = 1, isPinned = false, onPin, onStopWatching, bare = false, videoAspectProps }) {
   const summary = streamItem.type === 'screen' && cameraOverlay ? 'Screen + camera' : streamItem.type === 'camera' ? 'Camera' : 'Screen'
   const hasLiveStream = mediaTracksAreLive(streamItem.stream)
 
   return (
-    <div className={`voice-stage-card group relative flex h-full max-h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden rounded-2xl border bg-black shadow-xl ${participant?.speaking ? 'is-speaking border-green-300/80' : 'border-[var(--border-subtle)]'}`}>
+    <div className={`voice-stage-card group relative flex h-full max-h-full min-h-0 w-full max-w-full min-w-0 overflow-hidden bg-black ${bare ? '' : 'rounded-2xl border shadow-xl'} ${bare ? '' : participant?.speaking ? 'is-speaking border-green-300/80' : 'border-[var(--border-subtle)]'}`}>
       {hasLiveStream ? (
-        <StreamVideo stream={streamItem.stream} muted={streamItem.local} volume={volume} />
+        <StreamVideo stream={streamItem.stream} muted={streamItem.local} volume={volume} videoAspectProps={videoAspectProps} />
       ) : (
         <StreamFallback participant={participant} type={streamItem.type} />
       )}
@@ -217,14 +221,16 @@ function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, camera
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-2 pt-10 sm:p-3 sm:pt-12">
-        <div className="flex items-end justify-between gap-3">
-          <ParticipantBadge participant={participant} streamSummary={summary} compact />
-          <span className="shrink-0 rounded-full border border-white/10 bg-black/70 px-2 py-1 type-meta font-black uppercase tracking-widest text-white backdrop-blur-md">{summary}</span>
+      {!bare && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-2 pt-10 sm:p-3 sm:pt-12">
+          <div className="flex items-end justify-between gap-3">
+            <ParticipantBadge participant={participant} streamSummary={summary} compact />
+            <span className="shrink-0 rounded-full border border-white/10 bg-black/70 px-2 py-1 type-meta font-black uppercase tracking-widest text-white backdrop-blur-md">{summary}</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="absolute right-2 top-2 flex gap-1 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
+      <div className={`absolute right-2 top-2 flex gap-1 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 ${bare ? 'hidden' : ''}`}>
         {onPin && (
           <button
             type="button"
@@ -809,6 +815,17 @@ export default function SfuScreenShare({
           setRemoteStreams(current => current.filter(item => item.id !== id))
         }, { once: true })
       })
+    }, removedStreamId => {
+      // A stopped screen share leaves its track muted rather than ended, so the
+      // client reports the removal from the sender's publication list instead.
+      if (!active) return
+      setRemoteStreams(current => current.filter(item => item.stream?.id !== removedStreamId))
+    })
+
+    // Signaling can die after a healthy join; without this the tile kept saying
+    // "Connected" on a channel that no longer existed.
+    const unwatchStatus = nextClient.onStatus?.(nextStatus => {
+      if (active) setStatus(nextStatus)
     })
 
     return () => {
@@ -827,6 +844,7 @@ export default function SfuScreenShare({
       localScreenRef.current = null
       localCameraRef.current = null
       if (typeof unsubscribe === 'function') unsubscribe()
+      if (typeof unwatchStatus === 'function') unwatchStatus()
       nextClient.disconnect?.()
     }
   }, [roomId, createClient])
@@ -1289,11 +1307,15 @@ export default function SfuScreenShare({
   // The stage only goes immersive once there is shared media to fill it; an
   // avatar-only channel keeps its header and dock in the layout.
   const immersiveStage = variant === 'full' && displayStreams.length > 0
+  // The mini player earns the same treatment: showing a stream, its chrome is
+  // the only thing between the viewer and the picture.
+  const miniStage = variant === 'mini' && displayStreams.length > 0
   const { chromeVisible, stageActivityProps, chromeHoldProps } = useAutoHideCallChrome({
-    hasVisualMedia: immersiveStage,
+    hasVisualMedia: immersiveStage || miniStage,
     overlayOpen: stageControlsOpen || micTestOpen || volumeMixerOpen
   })
-  const chromeHidden = immersiveStage && !chromeVisible
+  const chromeHidden = (immersiveStage || miniStage) && !chromeVisible
+  const { aspectRatio: miniAspectRatio, videoAspectProps } = useVideoAspectRatio()
 
   const pinnedStream = streamsById.get(viewMode === VIEW_MODES.CAROUSEL ? carouselStreamId : pinnedStreamId) || displayStreams[0] || null
   const secondaryStreams = displayStreams.filter(item => item.id !== pinnedStream?.id)
@@ -1388,13 +1410,60 @@ export default function SfuScreenShare({
   )
 
   if (variant === 'mini') {
+    /* Showing a stream, the card is the picture: no title block, no roster, and
+       chrome that floats over the video and fades out. The shape follows the
+       sender so a portrait phone share is not letterboxed into 16:9. */
     return (
       <section
         ref={miniPlayerRef}
         style={miniPlayerStyle}
-        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[#0b0b0c] p-1.5 md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:overflow-y-auto md:rounded-2xl md:p-2.5 ${className}`}
+        {...(miniStage ? stageActivityProps : {})}
+        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[#0b0b0c] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:rounded-2xl ${miniStage ? '' : 'p-1.5 md:overflow-y-auto md:p-2.5'} ${className}`}
       >
         {remoteAudioPlayers}
+        {miniStage && pinnedStream ? (
+          <div className="relative w-full overflow-hidden bg-black" style={{ aspectRatio: miniAspectRatio || DEFAULT_ASPECT_RATIO }}>
+            <div className="absolute inset-0">
+              <StreamTile
+                bare
+                videoAspectProps={videoAspectProps}
+                streamItem={pinnedStream}
+                participant={pinnedStream.participant}
+                cameraOverlay={pinnedStream.type === 'screen' ? cameraByOwner.get(pinnedStream.participant.id) : null}
+                volume={effectiveStreamVolume(pinnedStream)}
+                cameraVolume={effectiveStreamVolume(cameraByOwner.get(pinnedStream.participant.id))}
+              />
+            </div>
+            <div
+              {...chromeHoldProps}
+              data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+              className="call-chrome call-chrome-top absolute inset-x-0 top-0 z-10 flex items-center gap-1 bg-gradient-to-b from-black/70 to-transparent px-1.5 py-1.5"
+            >
+              <button
+                type="button"
+                {...miniPlayerDragHandleProps}
+                className="mini-player-drag-handle flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1 py-1 text-white/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
+                aria-grabbed="false"
+                aria-label="Move voice channel mini player"
+                title="Drag to move. Use arrow keys to move, or double-click to reset."
+              >
+                <GripHorizontal size={16} aria-hidden="true" />
+                <span className={`h-2 w-2 shrink-0 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} aria-label={connectionLabel} />
+              </button>
+              <button type="button" onClick={onOpen} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-white/80 hover:text-white md:h-8 md:w-8" aria-label={`Return to ${title}`} title={`Return to ${title}`}>
+                <Maximize2 size={14} aria-hidden="true" />
+              </button>
+            </div>
+            <div
+              {...chromeHoldProps}
+              data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+              className="call-chrome call-chrome-bottom absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1.5"
+            >
+              {renderControls(true)}
+            </div>
+          </div>
+        ) : (
+          <>
         <button
           type="button"
           {...miniPlayerDragHandleProps}
@@ -1416,18 +1485,7 @@ export default function SfuScreenShare({
             </span>
           </span>
         </button>
-        {pinnedStream && (
-          <div className="mb-2 h-[7.5rem] max-h-[24dvh] w-full overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-black md:mb-3 md:h-auto md:aspect-video md:max-h-none md:rounded-xl">
-            <StreamTile
-              streamItem={pinnedStream}
-              participant={pinnedStream.participant}
-              cameraOverlay={pinnedStream.type === 'screen' ? cameraByOwner.get(pinnedStream.participant.id) : null}
-              volume={effectiveStreamVolume(pinnedStream)}
-              cameraVolume={effectiveStreamVolume(cameraByOwner.get(pinnedStream.participant.id))}
-            />
-          </div>
-        )}
-        {!pinnedStream && (
+        {(
           <div className="mb-2 space-y-1 rounded-lg border border-[var(--border-subtle)] bg-white/[0.03] p-1.5 md:mb-3 md:space-y-1.5 md:rounded-xl md:p-2">
             {participants.slice(0, 2).map(participant => (
               <div key={participant.id} className="flex min-w-0 items-center gap-2 rounded-lg bg-black/15 px-1.5 py-1 md:gap-2.5 md:px-2 md:py-1.5">
@@ -1459,6 +1517,8 @@ export default function SfuScreenShare({
           </div>
         )}
         {renderControls(true)}
+          </>
+        )}
       </section>
     )
   }
