@@ -107,9 +107,9 @@ Follow these steps to set up the development environment on your local machine.
    ```
     *(Note: Never commit local `.env` files to version control.)*
 
-   Push delivery has additional Firebase/APNs and Supabase Edge Function setup.
-   Follow [PUSH_NOTIFICATIONS.md](./PUSH_NOTIFICATIONS.md) without committing
-   provider credentials or device tokens.
+   Push delivery needs separate Firebase/APNs and Supabase Edge Function setup.
+   That runbook is operator-only and lives outside this repository; provider
+   credentials and device tokens are never committed.
 
 4. **Start the Development Server:**
    ```bash
@@ -126,7 +126,7 @@ The application is highly modularized to handle complex state and real-time even
 * **Dashboard Interface:** The primary command center driving the chat UI, real-time subscriptions, and message history (`Dashboard.jsx`).
 * **Modular Interface System:** Dedicated modal components for managing Server creation, Channel configurations, and User preferences.
 
-For a deeper dive into the data flow, database schema blueprint, and development architecture, please refer to our [System Documentation](./SYSTEM_DOCUMENTATION.md).
+For a deeper dive into the data flow, database schema blueprint, and development architecture, read the **[System Documentation](https://shaiyon69.github.io/MessApp/)** — published from [`docs/index.html`](./docs/index.html) in this repo.
 
 ---
 

@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MessApp System Documentation</title>
+<meta name="description" content="Architecture reference for MessApp: a React/Vite messaging client on Supabase, shipped to web, Capacitor mobile, and Tauri desktop.">
+<style>
+/* Palette mirrors src/style/index.css. Light is the default; dark is the OLED
+   palette the app ships — a black ground and hairline separation, no glow. */
+:root {
+  color-scheme: light;
+  --bg-base: #fbfcfe;
+  --bg-surface: #ffffff;
+  --bg-element: #f1f4f9;
+  --border-subtle: #d8dee8;
+  --text-main: #1b1f27;
+  --text-muted: #5c6472;
+  --accent: #2563eb;
+  --accent-bright: #1d4ed8;
+  --accent-wash: #2563eb1a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg-base: #000000;
+    --bg-surface: #08090c;
+    --bg-element: #101218;
+    --border-subtle: #20242e;
+    --text-main: #eef0f4;
+    --text-muted: #838b9a;
+    --accent: #3b82f6;
+    --accent-bright: #60a5fa;
+    --accent-wash: #3b82f61a;
+  }
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-main);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 1rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+  -webkit-text-size-adjust: 100%;
+}
+
+.page {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 5rem;
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 3rem;
+  align-items: start;
+}
+
+.masthead {
+  grid-column: 1 / -1;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 1.75rem;
+}
+.wordmark {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  font-size: 2.25rem;
+  margin: 0;
+}
+.masthead p { color: var(--text-muted); margin: 0.4rem 0 0; max-width: 44rem; }
+.masthead .links {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  font-size: 0.9375rem;
+}
+
+nav.toc { position: sticky; top: 1.5rem; font-size: 0.9375rem; }
+nav.toc h2 {
+  font-family: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+  border: 0;
+  padding: 0;
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+nav.toc li { counter-increment: toc; margin: 0; }
+nav.toc a {
+  display: block;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+nav.toc a::before { content: counter(toc) ". "; opacity: 0.6; }
+nav.toc a:hover { background: var(--bg-element); color: var(--text-main); }
+
+article { max-width: 46rem; }
+article > section { padding-top: 2.5rem; }
+h2 {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+h3 { font-size: 1.0625rem; margin: 1.75rem 0 0.5rem; }
+p, ul, ol { margin: 0 0 1rem; }
+ul, ol { padding-left: 1.25rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-color: var(--accent-wash); text-underline-offset: 2px; }
+a:hover { color: var(--accent-bright); }
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+  font-size: 0.875em;
+  background: var(--bg-element);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+  overflow-wrap: anywhere;
+}
+pre {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0 0 1rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: 0.875rem; }
+
+.note {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+  margin: 0 0 1rem;
+}
+
+.scroll { overflow-x: auto; margin: 0 0 1rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+tbody tr:hover { background: var(--bg-element); }
+
+footer {
+  grid-column: 1 / -1;
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 900px) {
+  .page { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  nav.toc {
+    position: static;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1rem;
+  }
+  nav.toc ol { columns: 2; column-gap: 1.5rem; }
+}
+@media (max-width: 540px) {
+  .page { padding: 1.75rem 1rem 3rem; }
+  nav.toc ol { columns: 1; }
+  .wordmark { font-size: 1.875rem; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <h1 class="wordmark">messapp</h1>
+  <p>System documentation — the architecture reference for MessApp, a React/Vite messaging
+  client on Supabase, shipped to the web, to Android and iOS through Capacitor, and to Linux
+  and Windows through Tauri.</p>
+  <div class="links">
+    <a href="https://github.com/Shaiyon69/MessApp">Repository</a>
+    <a href="https://github.com/Shaiyon69/MessApp/blob/main/README.md">README</a>
+    <a href="https://github.com/Shaiyon69/MessApp/blob/main/LICENSE">MIT License</a>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#frontend">Frontend architecture</a></li>
+    <li><a href="#supabase">Supabase architecture</a></li>
+    <li><a href="#auth">Authentication and session</a></li>
+    <li><a href="#messaging">Messaging</a></li>
+    <li><a href="#push">Push delivery</a></li>
+    <li><a href="#attachments">Attachments and links</a></li>
+    <li><a href="#reactions">Reactions</a></li>
+    <li><a href="#servers">Servers and channels</a></li>
+    <li><a href="#voice">Voice and WebRTC</a></li>
+    <li><a href="#screen-share">Screen sharing</a></li>
+    <li><a href="#native">Native shells</a></li>
+    <li><a href="#data-models">Data models</a></li>
+    <li><a href="#security">Security boundaries</a></li>
+    <li><a href="#hygiene">Repository hygiene</a></li>
+    <li><a href="#debug">Debug labels</a></li>
+    <li><a href="#start">Where to start</a></li>
+  </ol>
+</nav>
+
+<article>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p>MessApp is a React/Vite messaging client packaged for the web, Capacitor mobile, and
+  Tauri desktop from one build. Supabase supplies authentication, Postgres access, Realtime
+  signaling and presence, and Storage.</p>
+  <p>The browser owns UI state, optimistic message state, Web Crypto operations, and WebRTC
+  media. Server authorization is enforced by deployed Row Level Security policies, Storage
+  policies, and RPC grants.</p>
+  <div class="note"><strong>Frontend visibility checks are never an authorization
+  boundary.</strong> Role and permission checks in the UI exist to keep the interface honest;
+  every operation must also be authorized by the deployed backend.</div>
+</section>
+
+<section id="frontend">
+  <h2>Frontend architecture</h2>
+  <ul>
+    <li><code>src/App.jsx</code> initializes theme and native keyboard behavior, tracks the
+    Supabase session, handles recovery and deep-link routing, and chooses between the auth
+    screens and <code>Dashboard</code>.</li>
+    <li><code>src/components/Dashboard.jsx</code> is the authenticated coordinator. It loads
+    profile, DM and server navigation, presence, permission, modal, and voice-channel
+    state.</li>
+    <li><code>src/hooks/useChatManager.js</code> owns the active conversation's messages,
+    pagination, optimistic sends, Realtime reconciliation, reactions, typing, attachments,
+    and the encryption boundary.</li>
+    <li><code>src/hooks/useWebRTC.js</code> owns one-to-one call signaling, peer and media
+    state, and Android audio routing.</li>
+    <li>Layout components render parent-owned state. Modal components must not become
+    alternative data authorities.</li>
+  </ul>
+  <p>Styling is Tailwind v4 through the <code>@tailwindcss/vite</code> plugin: there is no
+  <code>tailwind.config.js</code> and no <code>postcss.config.js</code>. The design system
+  lives in <code>src/style/index.css</code> as an <code>@theme</code> block plus CSS custom
+  properties redefined per theme and per surface tint.</p>
+  <p><code>vite.config.js</code> sets <code>base: './'</code> so the same <code>dist/</code>
+  loads from Capacitor and Tauri <code>file://</code> shells, and in production drops
+  <code>console</code> and <code>debugger</code> through esbuild. Raw <code>console.*</code>
+  calls therefore vanish from production builds; diagnostics route through
+  <code>src/lib/debug.js</code> instead.</p>
+</section>
+
+<section id="supabase">
+  <h2>Supabase architecture</h2>
+  <p><code>src/supabaseClient.js</code> creates one browser client from
+  <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>. The app reaches
+  profiles, DMs, servers, channels, messages, reactions, reads, friendships, call state, and
+  Storage through table queries and RPCs.</p>
+  <p>The migration chain starts from the pre-hardening Supabase baseline: extension helpers,
+  the remote schema snapshot, Realtime publication membership, the Storage baseline, and the
+  <code>leave_server</code> lint correction. Later migrations depend on that baseline and
+  must stay in timestamp order. Rebuild only the disposable local stack with
+  <code>npx supabase db reset --local</code>; never run <code>db reset --linked</code>,
+  which targets hosted state.</p>
+  <p>The conversation-security delta removes permissive legacy policies, restricts direct
+  membership and room creation, corrects channel membership checks, makes the
+  <code>chat-attachments</code> bucket private, and scopes attachment access to authenticated
+  conversation participants. Normal DM creation must use
+  <code>create_or_get_dm(peer_id)</code> and server joins must use
+  <code>join_server_by_code</code> rather than direct client inserts. A matching
+  transactional isolation test verifies that participants reach their own conversation while
+  an unrelated user cannot read, send, join, view attachments, or upload into it.</p>
+  <div class="note"><strong>A passing frontend build is not proof that remote RLS is
+  current.</strong> Authored migrations and deployed policies can drift. Database and Edge
+  Function deployment is a separate, explicit, reviewed operation — never a side effect of
+  unrelated work.</div>
+  <p>The whole <code>supabase/</code> workspace — configuration, Edge Functions, migrations,
+  tests, reference exports, and generated schema snapshots — is intentionally local-only and
+  excluded from Git.</p>
+</section>
+
+<section id="auth">
+  <h2>Authentication and session</h2>
+  <ol>
+    <li><code>App</code> asks Supabase Auth for the persisted session and subscribes to auth
+    changes.</li>
+    <li>Login, register, and recovery components call Supabase Auth and leave session
+    ownership with <code>App</code>.</li>
+    <li><code>Dashboard</code> loads the authenticated profile and its dependent navigation
+    data.</li>
+    <li>Capacitor deep links return recovery and login callbacks to the browser route.</li>
+    <li>Logout clears the Supabase session. Local privacy and key settings stay under
+    explicit control of the settings flows.</li>
+  </ol>
+  <p>Never log auth tokens, recovery fragments, passwords, push tokens, or private key
+  material.</p>
+</section>
+
+<section id="messaging">
+  <h2>Messaging</h2>
+  <p><code>useChatManager</code> derives one active target from a DM room or a server
+  channel. It loads cached and recent rows, decrypts content where applicable, and subscribes
+  to target-scoped Realtime changes. Each open conversation subscribes to a
+  <code>room:&lt;targetId&gt;</code> channel carrying both <code>postgres_changes</code>
+  (messages, attachments, reactions, reads) and presence for typing.</p>
+  <p>Sends create a local optimistic row, perform the encryption, upload, and database work,
+  then reconcile that local row with the matching server insert. A room switch must
+  invalidate stale asynchronous work, reject results belonging to another target, and remove
+  the old Realtime and presence channels before their results can touch the new room.</p>
+  <p>Pagination prepends older rows without disturbing newer optimistic or Realtime entries.
+  The bounded local cache is an availability optimization, not authoritative state. Delivery
+  and read markers derive from backend timestamps and current visibility.</p>
+  <h3>Encryption</h3>
+  <p>Direct messages are end-to-end encrypted with Web Crypto: ECDH-derived AES-GCM keys,
+  private keys held in <code>localStorage</code>. Server channels are not encrypted. This is
+  real cryptography but not a full ratcheting protocol — see
+  <a href="#security">Security boundaries</a>.</p>
+  <h3>Disappearing messages</h3>
+  <p>Expiry rides on <code>messages.expires_at</code>, chosen per conversation from the
+  composer's hold-to-open send options (<code>src/lib/messageExpiry.js</code>). The
+  <code>messages_read_participant</code> policy is the enforcement point: an expired row
+  stops being returned to anyone. The client-side sweep and cache filter only keep an
+  already-open conversation from showing a row the server would no longer hand out. Rows are
+  hidden, not reclaimed — <code>public.delete_expired_messages()</code> is a
+  <code>service_role</code> entry point with no scheduler wired to it yet.</p>
+</section>
+
+<section id="push">
+  <h2>Push delivery</h2>
+  <p>The push path is deliberately content-blind: providers receive conversation routing
+  identifiers and a generic notice, never message plaintext, encrypted payloads, or
+  attachment URLs.</p>
+  <ol>
+    <li>A signed-in installation opts in from user settings and registers its FCM or APNs
+    token into <code>push_devices</code> under RLS.</li>
+    <li>A database trigger calls the <code>send-message-push</code> Edge Function after a
+    message insert, and after a pending friend-request insert.</li>
+    <li>The function reloads the message and membership data with the service role, derives
+    recipients from DM or server membership, excludes the sender, blocked users, and muted
+    server members, and claims an idempotent delivery event.</li>
+    <li>Devices that reported this conversation on screen within the last 90 seconds are
+    dropped from the send, so a message you are already reading raises no notification. That
+    report is written only while the app is visible and it expires, so a force-quit app
+    cannot silence a chat.</li>
+    <li>One bounded scan of the conversation plus the reader's own read marker becomes a
+    per-recipient unread count, so a burst reads as "4 new messages" rather than four
+    notifications. Providers collapse by conversation, so the newest notification replaces
+    the visible one instead of stacking.</li>
+    <li>Tapping a notification opens the target DM, server channel, or notifications tab
+    after access is revalidated through the signed-in user's normal queries.</li>
+  </ol>
+  <p>The webhook record supplies only the message identifier as trust input, and the function
+  authenticates with a shared webhook secret rather than a user JWT, because database
+  webhooks carry no session. Hosted setup — provider credentials, function secrets, webhook
+  configuration, and credential rotation — is an operator task kept outside this
+  repository.</p>
+</section>
+
+<section id="attachments">
+  <h2>Attachments and links</h2>
+  <p>The chat hook maintains one composer attachment queue capped at 10 items. Images, GIFs,
+  videos, and general files may be mixed in one outgoing message with one optional caption.
+  Selection, paste, Android keyboard media, and GIF search all feed that same queue, and each
+  item is validated before it enters. Images and videos get local previews, files show name,
+  type, and size, and removing one item does not clear the rest.</p>
+  <p>On send, the hook validates type and size, encrypts DM attachment bytes where
+  configured, uploads every item to the private <code>chat-attachments</code> bucket, creates
+  one message, and inserts the matching <code>message_attachments</code> rows. Receiving
+  clients resolve and decrypt each attachment independently, so one unavailable object does
+  not hide the rest of the media.</p>
+  <p>Object paths use the uploader and conversation identifier as authorization inputs. Read
+  paths resolve stored object paths to temporary signed URLs and decrypt bytes at the client
+  boundary. Signed URLs, file contents, plaintext, and encrypted key material must never be
+  persisted in diagnostics. The frontend may cache resolved media for performance, but access
+  is ultimately controlled by deployed Storage policies and conversation membership.</p>
+  <p>Plain HTTP(S) links stay message content rather than Storage attachments. A message
+  renders up to 10 distinct safe link previews; YouTube links use privacy-enhanced embeds and
+  other URLs fall back to a safe clickable card when metadata lookup fails.</p>
+</section>
+
+<section id="reactions">
+  <h2>Reactions</h2>
+  <p>Reaction replacement removes the current user's prior reaction before inserting the
+  normalized new emoji. UI state updates only after the write succeeds, and the cache is
+  updated consistently with it. Realtime message and reaction changes remain the cross-client
+  source of convergence.</p>
+</section>
+
+<section id="servers">
+  <h2>Servers and channels</h2>
+  <p><code>Dashboard</code> owns selected server and channel state and passes permission
+  decisions down to the sidebar and settings modals. One-to-one rooms are created only
+  through <code>create_or_get_dm(peer_id)</code>, which derives the caller from
+  <code>auth.uid()</code>, checks friendship, block, and privacy rules, serializes the user
+  pair, and inserts both memberships atomically; the frontend navigates with the returned
+  <code>dm_rooms</code> row.</p>
+  <p>Server creation, joining, and invites depend on backend RPCs. Categories, channels, and
+  membership depend on RLS-protected writes. UI checks for owner, admin, and member roles are
+  not substitutes for backend enforcement. Voice-channel switching must leave the previous
+  media session before joining another.</p>
+</section>
+
+<section id="voice">
+  <h2>Voice and WebRTC</h2>
+  <p><code>useWebRTC</code> implements DM call states from ringing through connecting and
+  connected to terminal outcomes. It owns the peer connection, offer/answer and ICE exchange,
+  local camera and microphone tracks, remote streams, timeout handling, and teardown. Tracks
+  and senders must stop exactly once, signaling subscriptions must be removed, and late ICE
+  or signaling must not revive an ended call. Call signaling travels on a separate
+  <code>global-signaling</code> broadcast channel, unrelated to the per-room channel.</p>
+  <p>Group voice is a WebRTC <strong>mesh</strong>, not an SFU despite the
+  <code>SfuScreenShare</code> component name: every participant holds a direct peer
+  connection to every other participant. Dashboard and media-session state supply
+  participants and streams; the component owns only view state — pin, grid, carousel, page,
+  and watch selection. Stream identity should use stable participant and track identifiers
+  rather than array position.</p>
+  <p>TURN credentials are minted short-lived by a Supabase Edge Function using coturn's HMAC
+  time-limited REST scheme, and consumed through <code>src/lib/iceServers.js</code>. There is
+  no built-in default relay. Without a configured TURN host and shared secret the function
+  returns 503 and every call degrades to STUN-only, which connects only when both peers are
+  directly reachable.</p>
+</section>
+
+<section id="screen-share">
+  <h2>Screen sharing</h2>
+  <p>Screen and camera tracks are upstream-owned media resources.
+  <code>SfuScreenShare</code> binds them to video elements, chooses responsive layouts, and
+  reports user actions upward. Pinning and stopping a watch change presentation and
+  subscription intent; they do not transfer track ownership. Cleanup detaches element streams
+  and leaves track shutdown to the layer that created them.</p>
+</section>
+
+<section id="native">
+  <h2>Native shells</h2>
+  <h3>Mobile and Capacitor</h3>
+  <p><code>App</code> configures body-resize keyboard behavior and the Android back and
+  deep-link lifecycle. CSS safe-area and viewport variables keep composer trays, call
+  overlays, and long-press portals above the keyboard and system UI.</p>
+  <p>Two authored Android bridges exist:</p>
+  <ul>
+    <li><code>MessAppWebView</code> and <code>KeyboardImagePlugin</code> accept images
+    committed by Android keyboards, copy temporary URI content into app-private storage, and
+    notify JavaScript.</li>
+    <li><code>CallAudioPlugin</code> enters Android communication audio mode, switches
+    speaker routing, and restores the pre-call audio state.</li>
+  </ul>
+  <p>Temporary URI permissions, streams, plugin listeners, and audio routing all require
+  cleanup. Generated Capacitor assets are not authored source.</p>
+  <h3>Desktop and Tauri</h3>
+  <p><code>src-tauri/src/main.rs</code> starts the desktop shell and suppresses the extra
+  Windows release console. <code>src-tauri/src/lib.rs</code> owns the Tauri lifecycle and
+  enables native informational logging only in debug builds. The React application and the
+  Supabase client stay shared with web and mobile.</p>
+</section>
+
+<section id="data-models">
+  <h2>Data models</h2>
+  <p>The names below are client-observed dependencies, not a schema declaration:</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Group</th><th>Carries</th></tr></thead>
+    <tbody>
+      <tr><td><code>profiles</code></td><td>Display identity, presence and settings fields, public key, push registration</td></tr>
+      <tr><td><code>dm_rooms</code> and DM membership</td><td>Direct-conversation identity and participants</td></tr>
+      <tr><td><code>servers</code>, <code>server_members</code>, <code>categories</code>, <code>channels</code></td><td>Community hierarchy and roles</td></tr>
+      <tr><td><code>messages</code>, <code>message_attachments</code>, <code>message_reactions</code></td><td>Conversation content and related state</td></tr>
+      <tr><td>Read and receipt records</td><td>Per-user channel or DM visibility progress</td></tr>
+      <tr><td>Call and voice data, Realtime channels</td><td>Signaling and voice-session coordination</td></tr>
+      <tr><td><code>push_devices</code> and delivery events</td><td>Opted-in installations and idempotent notification delivery</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Confirm exact columns, constraints, RPC contracts, and policy behavior against both the
+  authored migrations and the deployed backend before changing queries. A generated
+  linked-schema snapshot is evidence of current remote state, not an authored source of
+  truth.</p>
+</section>
+
+<section id="security">
+  <h2>Security boundaries</h2>
+  <ul>
+    <li>Supabase Auth establishes identity. RLS, RPC grants, and Storage policies establish
+    authorization.</li>
+    <li>Web Crypto helpers handle ECDH, AES-GCM, fingerprints, randomness, and PIN wrapping.
+    They do not provide a full ratcheting protocol and do not independently prove peer
+    identity.</li>
+    <li>Rendering routes untrusted links and media through <code>src/lib/security.js</code>.
+    Markdown must not bypass those checks.</li>
+    <li>Local caches and <code>localStorage</code> are device-local convenience state, not
+    trusted backend truth.</li>
+    <li>Diagnostics must exclude tokens, passwords, private or encrypted keys, full message
+    content, signed URLs, service-role keys, and attachment contents.</li>
+  </ul>
+</section>
+
+<section id="hygiene">
+  <h2>Repository hygiene</h2>
+  <ul>
+    <li>This page (<code>docs/index.html</code>) is the project-level system reference. It is
+    the only documentation the repository publishes besides <code>README.md</code>; other
+    markdown is ignored by Git and stays local.</li>
+    <li>Keep the entire <code>supabase/</code> directory local-only. Its configuration, Edge
+    Functions, migrations, tests, reference exports, generated schemas, and local state must
+    never be staged or committed.</li>
+    <li>Keep database dumps, environment files, service-account material, signing keys, and
+    local credential files out of Git. <code>.env.example</code> holds variable names and
+    safe placeholders only.</li>
+    <li>Do not edit generated build directories. Android, iOS, and Tauri source projects are
+    tracked; their build caches, local SDK paths, signing files, and platform service
+    credentials are ignored.</li>
+    <li>Database deployment is a separate, explicit operation. Review the migration diff and
+    run the local isolation checks before applying anything to a remote project.</li>
+    <li>Never commit, deploy, or push as a side effect of documentation or local validation
+    work.</li>
+  </ul>
+  <h3>Checks before a pull request</h3>
+  <pre><code>npm test
+npm run lint
+npm run build</code></pre>
+  <p>Tests are <code>*.test.js</code> files colocated with the source they cover, run by
+  Node's built-in test runner — no Vitest, no Jest.</p>
+</section>
+
+<section id="debug">
+  <h2>Debug labels</h2>
+  <p><code>src/lib/debug.js</code> accepts stable labels with structured metadata.
+  <code>debug</code> and <code>info</code> are disabled in production unless
+  <code>localStorage.messappDebug</code> is <code>'true'</code>; warnings and errors stay
+  available and metadata is sanitized. Do not emit events during render loops, scrolling,
+  presence heartbeats, or video frames.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Label</th><th>Boundary</th></tr></thead>
+    <tbody>
+      <tr><td><code>APP_SESSION</code></td><td>Initial session lookup and auth transitions</td></tr>
+      <tr><td><code>PROFILE_LOAD</code></td><td>Profile retrieval and provisioning</td></tr>
+      <tr><td><code>DM_LIST</code></td><td>DM navigation loading</td></tr>
+      <tr><td><code>CHAT_LOAD</code></td><td>Conversation load and pagination</td></tr>
+      <tr><td><code>MESSAGE_SEND</code>, <code>MESSAGE_SEND_ERROR</code></td><td>Optimistic send and persistence</td></tr>
+      <tr><td><code>MESSAGE_REALTIME</code></td><td>Target-scoped message reconciliation</td></tr>
+      <tr><td><code>REACTION</code>, <code>REACTION_ERROR</code></td><td>Reaction replacement and write</td></tr>
+      <tr><td><code>ATTACHMENT_UPLOAD</code>, <code>ATTACHMENT_RESOLVE</code></td><td>Storage and temporary URL lifecycle</td></tr>
+      <tr><td><code>VOICE_JOIN</code>, <code>VOICE_LEAVE</code>, <code>VOICE_STATE</code></td><td>Voice-channel lifecycle</td></tr>
+      <tr><td><code>MEDIA_CAMERA</code>, <code>MEDIA_SCREEN</code></td><td>Local track lifecycle</td></tr>
+      <tr><td><code>STREAM_WATCH</code>, <code>STREAM_PIN</code></td><td>Remote presentation and subscription intent</td></tr>
+      <tr><td><code>WEBRTC_SIGNAL</code>, <code>WEBRTC_ERROR</code></td><td>DM call signaling and failures</td></tr>
+      <tr><td><code>SUPABASE_ERROR</code></td><td>Safe database and RPC failure context</td></tr>
+      <tr><td><code>MOBILE_WEBVIEW</code></td><td>Capacitor and WebView workarounds</td></tr>
+      <tr><td><code>COMPOSER</code></td><td>Message-composer focus and value lifecycle</td></tr>
+      <tr><td><code>LINK_PREVIEW</code></td><td>Link unfurl fetches against the external metadata service</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="start">
+  <h2>Where to start</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Task</th><th>Primary files</th></tr></thead>
+    <tbody>
+      <tr><td>Message sending</td><td><code>src/hooks/useChatManager.js</code>, <code>src/components/chat/MessageElements.jsx</code></td></tr>
+      <tr><td>Reactions</td><td><code>src/components/chat/MessageElements.jsx</code>, <code>src/lib/reactions.js</code></td></tr>
+      <tr><td>Voice calls</td><td><code>src/hooks/useWebRTC.js</code>, <code>src/components/chat/CallOverlay.jsx</code></td></tr>
+      <tr><td>Voice channels</td><td><code>src/lib/voiceChannelClient.js</code>, <code>src/components/screen-share/SfuScreenShare.jsx</code></td></tr>
+      <tr><td>Server UI</td><td><code>src/components/layout/LeftSidebar.jsx</code>, <code>src/components/modals/ServerSettings.jsx</code></td></tr>
+      <tr><td>Design tokens</td><td><code>src/style/index.css</code></td></tr>
+      <tr><td>Android WebView</td><td><code>MessAppWebView.java</code>, <code>KeyboardImagePlugin.java</code>, <code>MainActivity.java</code></td></tr>
+      <tr><td>Android call audio</td><td><code>CallAudioPlugin.java</code>, <code>src/hooks/useWebRTC.js</code></td></tr>
+      <tr><td>Desktop shell</td><td><code>src-tauri/src/lib.rs</code>, <code>src-tauri/src/main.rs</code></td></tr>
+      <tr><td>Safe diagnostics</td><td><code>src/lib/debug.js</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</article>
+
+<footer>
+  © 2026 Shaiyon (Skibidevs) — MIT Licensed. Source for this page:
+  <code>docs/index.html</code>.
+</footer>
+
+</div>
+</body>
+</html>
