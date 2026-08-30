@@ -3,7 +3,7 @@
  * selection, presence, permissions, voice-channel state, and modal ownership.
  * Supabase/RPCs remain authoritative; switches must retire obsolete async work.
  */
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import imageCompression from 'browser-image-compression'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -17,14 +17,15 @@ import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
 
-import CallOverlay from './chat/CallOverlay'
-import RightSidebar from './layout/RightSidebar'
 import ChatArea from './layout/ChatArea'
 
-// import ChannelCreationModal from './modals/ChannelCreation'
-import ChannelSettingsModal from './modals/ChannelSettings'
-import UserSettingsModal from './modals/UserSettings'
-import ReportContentModal from './modals/ReportContentModal'
+// Kept out of the boot bundle — each mounts only behind a user action
+// (starting a call, opening the details pane, opening a modal).
+const CallOverlay = lazy(() => import('./chat/CallOverlay'))
+const RightSidebar = lazy(() => import('./layout/RightSidebar'))
+const ChannelSettingsModal = lazy(() => import('./modals/ChannelSettings'))
+const UserSettingsModal = lazy(() => import('./modals/UserSettings'))
+const ReportContentModal = lazy(() => import('./modals/ReportContentModal'))
 
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
 import { normalizeProfileBaseName } from '../lib/security'
@@ -315,15 +316,20 @@ export default function Dashboard({ session }) {
   const imagePanRef = useRef({ x: 0, y: 0 })
   const imagePointersRef = useRef(new Map())
   const imageGestureRef = useRef({ pinchDistance: 0, pinchZoom: 1, dragStart: null })
+  // Name and avatar only decorate presence, so they are read through a ref: a
+  // profile edit mid-call used to rebuild the factory and re-handshake the
+  // entire voice mesh.
+  const voiceIdentityRef = useRef({ displayName: myUsername, avatarUrl: myAvatar })
+  voiceIdentityRef.current = { displayName: myUsername, avatarUrl: myAvatar }
   const screenShareClientFactory = useMemo(() => roomId => createVoiceChannelClient({
     roomId,
     participant: {
       id: session.user.id,
-      displayName: myUsername,
-      avatarUrl: myAvatar
+      displayName: voiceIdentityRef.current.displayName,
+      avatarUrl: voiceIdentityRef.current.avatarUrl
     },
     iceServers: getIceServers()
-  }), [myAvatar, myUsername, session.user.id])
+  }), [session.user.id])
   const hasConfirmAction = Boolean(confirmAction)
   const hasSelectedImage = Boolean(chatManagerProps.selectedImage)
   const selectedImageItems = chatManagerProps.selectedImage?.items?.length
@@ -865,42 +871,61 @@ export default function Dashboard({ session }) {
          fetchDms();
     }).subscribe();
 
-    const relationshipsSub = supabase.channel('public:user_relationships').on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships' }, (payload) => {
-      const row = payload.new?.id ? payload.new : payload.old;
-      if (row?.blocker_id === session.user.id || row?.blocked_id === session.user.id) fetchRelationships();
-    }).subscribe();
+    /* A postgres_changes filter takes one condition, so blocker and blocked are
+       two listeners on one channel rather than an unfiltered firehose. */
+    const relationshipsSub = supabase.channel('public:user_relationships')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships', filter: `blocker_id=eq.${session.user.id}` }, fetchRelationships)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships', filter: `blocked_id=eq.${session.user.id}` }, fetchRelationships)
+      .subscribe();
 
-    const dmMessagesSub = supabase.channel('public:dm-messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-      const roomId = payload.new?.dm_room_id;
-      if (!roomId) return;
-      const messageAt = payload.new.created_at || new Date().toISOString();
-      const isOwnMessage = payload.new.profile_id === session.user.id;
-      const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
-      if (!isOwnMessage && !isOpenRoom) {
-        audioSys.playMessageReceived()
-        triggerInteractionFeedback('message-received')
-      }
-      setDms(current => {
-        const next = current.map(dm => dm.dm_room_id === roomId ? {
-          ...dm,
-          last_message_at: messageAt,
-          last_message_profile_id: payload.new.profile_id,
-          last_read_at: dm.last_read_at,
-          is_unread: !isOwnMessage && !isOpenRoom
-        } : dm)
-        return sortDmsByLastMessage(next)
-      })
-    }).subscribe();
-
-    return () => { 
+    return () => {
       presenceChannelRef.current = null;
-      supabase.removeChannel(presenceChannel); 
+      supabase.removeChannel(presenceChannel);
       supabase.removeChannel(requestsSub);
       supabase.removeChannel(dmMembersSub);
       supabase.removeChannel(relationshipsSub);
-      supabase.removeChannel(dmMessagesSub);
     }
-  }, [session]) 
+  }, [session])
+
+  /* Sidebar ordering and unread dots for DMs that are not open. This used to be
+     one unfiltered subscription on `messages`, which delivered every message
+     inserted anywhere in the product to every connected client. The handler only
+     ever updates rooms already in `dms`, so one filtered listener per known room
+     carries exactly the same information.
+     ponytail: one listener per room. Fine for a normal DM list; if someone
+     accumulates hundreds of rooms, move this to a server-side fan-out. */
+  const dmRoomIdsKey = useMemo(
+    () => dms.map(dm => dm.dm_room_id).filter(Boolean).sort().join(','),
+    [dms]
+  )
+
+  useEffect(() => {
+    if (!dmRoomIdsKey) return
+    const channel = supabase.channel('dm-message-activity')
+    for (const roomId of dmRoomIdsKey.split(',')) {
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `dm_room_id=eq.${roomId}` }, (payload) => {
+        const messageAt = payload.new.created_at || new Date().toISOString();
+        const isOwnMessage = payload.new.profile_id === session.user.id;
+        const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
+        if (!isOwnMessage && !isOpenRoom) {
+          audioSys.playMessageReceived()
+          triggerInteractionFeedback('message-received')
+        }
+        setDms(current => {
+          const next = current.map(dm => dm.dm_room_id === roomId ? {
+            ...dm,
+            last_message_at: messageAt,
+            last_message_profile_id: payload.new.profile_id,
+            last_read_at: dm.last_read_at,
+            is_unread: !isOwnMessage && !isOpenRoom
+          } : dm)
+          return sortDmsByLastMessage(next)
+        })
+      })
+    }
+    channel.subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [dmRoomIdsKey, session.user.id])
 
   useEffect(() => {
     if (!presenceChannelRef.current) return
@@ -1965,17 +1990,23 @@ export default function Dashboard({ session }) {
   return (
     <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
       <a href="#messapp-main" className="skip-link">Skip to conversation</a>
-      <CallOverlay 
-        {...webRTCProps}
-        acceptCall={webRTCProps.acceptCall}
-        endCallNetwork={webRTCProps.endCallNetwork}
-        toggleMic={webRTCProps.toggleMic}
-        toggleVideo={webRTCProps.toggleVideo}
-        toggleNoiseCancellation={webRTCProps.toggleNoiseCancellation}
-        acceptVideoRequest={webRTCProps.acceptVideoRequest}
-        declineVideoRequest={webRTCProps.declineVideoRequest}
-        composerTrayOpen={composerTrayOpen}
-      />
+      {/* CallOverlay already self-guards on callActive; gating here as well keeps
+          its lazy chunk out of the boot path. */}
+      {webRTCProps.callActive && (
+        <Suspense fallback={null}>
+          <CallOverlay
+            {...webRTCProps}
+            acceptCall={webRTCProps.acceptCall}
+            endCallNetwork={webRTCProps.endCallNetwork}
+            toggleMic={webRTCProps.toggleMic}
+            toggleVideo={webRTCProps.toggleVideo}
+            toggleNoiseCancellation={webRTCProps.toggleNoiseCancellation}
+            acceptVideoRequest={webRTCProps.acceptVideoRequest}
+            declineVideoRequest={webRTCProps.declineVideoRequest}
+            composerTrayOpen={composerTrayOpen}
+          />
+        </Suspense>
+      )}
 
       <Toaster
         position="top-center"
@@ -2081,7 +2112,8 @@ export default function Dashboard({ session }) {
       />
 
       {showRightSidebar && isChatActive && (
-        <RightSidebar 
+        <Suspense fallback={null}>
+        <RightSidebar
           activeDm={activeDm}
           currentUserId={session.user.id}
           closeRightSidebar={closeRightSidebar}
@@ -2123,6 +2155,7 @@ export default function Dashboard({ session }) {
           setSelectedImage={chatManagerProps.setSelectedImage}
           onReportTarget={setReportTarget}
         />
+        </Suspense>
       )}
 
       {showQuickSwitcher && (
@@ -2460,15 +2493,17 @@ export default function Dashboard({ session }) {
         </div>
       )}
 
-      {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onProfileUpdated={(updates) => {
-        setProfileOverride(prev => {
-          const next = { ...prev, ...updates }
-          localStorage.setItem(profileCacheKey, JSON.stringify(next))
-          return next
-        })
-      }} onClose={closeUserSettings} />}
-      {reportTarget && <ReportContentModal targetLabel={reportTarget.label} onSubmit={handleSubmitReport} onClose={() => setReportTarget(null)} />}
-      {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
+      <Suspense fallback={null}>
+        {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onProfileUpdated={(updates) => {
+          setProfileOverride(prev => {
+            const next = { ...prev, ...updates }
+            localStorage.setItem(profileCacheKey, JSON.stringify(next))
+            return next
+          })
+        }} onClose={closeUserSettings} />}
+        {reportTarget && <ReportContentModal targetLabel={reportTarget.label} onSubmit={handleSubmitReport} onClose={() => setReportTarget(null)} />}
+        {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
+      </Suspense>
     </div>
   )
 }

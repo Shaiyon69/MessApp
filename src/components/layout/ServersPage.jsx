@@ -5,11 +5,10 @@
  * permissions; Supabase policies still authorize every mutation here — the
  * canManageServer checks below are convenience, never the security boundary.
  */
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { Camera, ChevronLeft, Copy, Gamepad2, GraduationCap, Hash, ImagePlus, MicOff, MonitorUp, MoreVertical, Plus, Sparkles, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
-import MediaEditorModal from '../media/MediaEditorModal'
 import toast from 'react-hot-toast'
 import { supabase } from '../../supabaseClient'
 import useLongPress from '../../hooks/useLongPress'
@@ -17,6 +16,9 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
 import { debug } from '../../lib/debug'
+
+// Only mounts while cropping a server icon — kept out of the boot bundle.
+const MediaEditorModal = lazy(() => import('../media/MediaEditorModal'))
 
 const SERVER_PRESET_OPTIONS = [
   { ...SERVER_PRESETS.gaming, Icon: Gamepad2, accent: 'text-indigo-300', active: 'border-indigo-400/70 bg-indigo-500/15' },
@@ -773,12 +775,14 @@ export default function ServersPage(props) {
 
       <input ref={serverIconInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" onChange={selectServerIcon} className="hidden" />
       {serverIconFile && (
-        <MediaEditorModal
-          file={serverIconFile}
-          profile
-          onCancel={() => setServerIconFile(null)}
-          onSave={uploadServerIcon}
-        />
+        <Suspense fallback={null}>
+          <MediaEditorModal
+            file={serverIconFile}
+            profile
+            onCancel={() => setServerIconFile(null)}
+            onSave={uploadServerIcon}
+          />
+        </Suspense>
       )}
 
       {dangerPrompt && (
