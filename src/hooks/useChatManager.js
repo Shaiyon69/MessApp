@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
@@ -10,8 +10,11 @@ import { safeHttpUrl } from '../lib/security'
 import { normalizeReactionEmoji } from '../lib/reactions'
 import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { reconcileAuthoritativeMessages, removeMessageById } from '../lib/messageReconciliation'
+import { createSignedUrlCache, withSignedUrlCache } from '../lib/signedUrlCache'
 import { isHydratedAttachment } from '../lib/attachmentCache'
 import { INITIAL_MESSAGE_LIMIT, safeCacheLoad, safeCacheSave } from '../lib/messageCache'
+import { EXPIRY_SWEEP_MS, dropExpired, expiresAtFrom } from '../lib/messageExpiry'
+import { resizeComposer } from '../lib/composerFocus'
 import { debug } from '../lib/debug'
 import { SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT, SEARCH_ROOM_CONCURRENCY, SEARCH_ROOM_MESSAGE_LIMIT, describeChannelResult, describeDmResult, escapeIlikePattern, mapWithConcurrency, matchesSearchQuery, rankSearchResults } from '../lib/messageSearch'
 import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
@@ -149,7 +152,11 @@ const isReadableDecryptedContent = (value) => value !== null && value !== undefi
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
 const MAX_PENDING_ATTACHMENTS = 10
-const getPendingFileFingerprint = (file) => [file?.name, file?.size, file?.type, file?.lastModified].join(':')
+/* lastModified is deliberately excluded: camera captures on Android come back
+   with a generic name and a lastModified stamped when the File was created, so
+   two deliveries of the same photo would otherwise fingerprint differently and
+   both survive the dedupe below. */
+export const getPendingFileFingerprint = (file) => [file?.name, file?.size, file?.type].join(':')
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'])
 const ALLOWED_VIDEO_TYPES = new Set(['video/3gpp', 'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'])
 const ALLOWED_AUDIO_TYPES = new Set(['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/x-m4a'])
@@ -157,6 +164,11 @@ const BLOCKED_FILE_TYPES = new Set(['image/svg+xml', 'text/html', 'application/x
 const BLOCKED_FILE_EXTENSIONS = /\.(?:svg|html?|xhtml|js|mjs)$/i
 const isNativeAndroidKeyboardImageCandidate = () =>
   Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+
+const ATTACHMENT_URL_TTL_SECONDS = 3600
+/* Module scope, not a ref: the same attachment is re-hydrated across
+   conversation switches and remounts, and object paths are already unique. */
+const attachmentUrlCache = createSignedUrlCache()
 
 const normalizeFileType = (value) => (value || 'application/octet-stream').split(';', 1)[0].trim().toLowerCase()
 const getChatAttachmentObjectPath = (value) => {
@@ -179,6 +191,17 @@ const getLocalProfile = (session, myUsername) => ({
   avatar_url: session?.user?.user_metadata?.avatar_url || null,
   public_key: localStorage.getItem(`e2ee_public_key_${session?.user?.id}`) || null
 })
+
+/* Handlers handed to every message row must keep one identity for the lifetime
+   of the hook, or MemoizedMessage re-renders the whole list on every keystroke.
+   The ref always holds the latest closure, so behaviour is unchanged and there
+   is no dependency array to get stale. Event handlers only — never call the
+   returned function during render. */
+const useStableHandler = (handler) => {
+  const ref = useRef(handler)
+  useLayoutEffect(() => { ref.current = handler })
+  return useCallback((...args) => ref.current(...args), [])
+}
 
 const asMessageId = (value) => {
   if (typeof value === 'string' && value.trim()) return value
@@ -272,6 +295,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
   const [pendingFiles, setPendingFiles] = useState([])
   const [composerSpoiler, setComposerSpoiler] = useState(false)
+  /* Sticky for the conversation rather than per message, the way every other
+     messenger does it, but cleared on conversation change so it can never
+     follow the user into a chat where they did not ask for it. */
+  const [composerExpirySeconds, setComposerExpirySeconds] = useState(null)
   const [keyboardImageFallbackMessage, setKeyboardImageFallbackMessage] = useState('')
   const [showLatestMessagesButton, setShowLatestMessagesButton] = useState(false)
   const [peerReadAt, setPeerReadAt] = useState(null)
@@ -292,12 +319,21 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const realtimeRetryTimerRef = useRef(null)
 
   const sharedKeysCacheRef = useRef({})
+  /* The attachment/reaction subscriptions below cannot be filtered server-side —
+     neither table carries a conversation id. This lets their handlers reject
+     events for messages we do not have loaded without paying for a fetch. */
+  const loadedMessageIdsRef = useRef(new Set())
 
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0]
   const activeTargetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
   activeConversationScopeRef.current = activeTargetId
     ? getConversationScopeKey(session.user.id, view, activeTargetId)
     : ''
+
+  /* Synced during render rather than from an effect: the handlers below read
+     this from a Realtime callback, which can land before an effect scheduled by
+     the render that added the message has run. */
+  loadedMessageIdsRef.current = useMemo(() => new Set(messages.map(message => message.id)), [messages])
 
   useEffect(() => { localStorage.setItem(`deleted_msgs_${session.user.id}`, JSON.stringify(localDeletedMessages)) }, [localDeletedMessages, session.user.id])
   useEffect(() => {
@@ -554,11 +590,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             const objectPath = getChatAttachmentObjectPath(attachment.file_url)
             let attachmentUrl = attachment.file_url
             if (objectPath) {
-              const { data: signedData, error: signedError } = await supabase.storage
-                .from('chat-attachments')
-                .createSignedUrl(objectPath, 3600)
-              if (signedError) throw signedError
-              attachmentUrl = signedData.signedUrl
+              attachmentUrl = await withSignedUrlCache(attachmentUrlCache, objectPath, ATTACHMENT_URL_TTL_SECONDS, async () => {
+                const { data: signedData, error: signedError } = await supabase.storage
+                  .from('chat-attachments')
+                  .createSignedUrl(objectPath, ATTACHMENT_URL_TTL_SECONDS)
+                if (signedError) throw signedError
+                return signedData.signedUrl
+              })
             }
             if (!encryptedAttachment) return { ...attachment, file_url: attachmentUrl, is_unavailable: false }
 
@@ -859,7 +897,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     } else toast.error("Failed to load message context.")
   }
 
-  const scrollToMessage = async (message) => {
+  const scrollToMessage = useStableHandler(async (message) => {
     const messageElement = document.getElementById(`message-${message.id}`)
     if (messageElement && scrollContainerRef.current) {
       messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -868,7 +906,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     } else {
       await fetchSurroundingMessages(message)
     }
-  }
+  })
 
   /* Hydrating one attachment costs a signed-URL round trip and, in a DM, a
      download plus an AES-GCM decrypt. Firing a whole page of those at once
@@ -1085,7 +1123,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     const cachedMessages = mergeMessageLists(persistedMessages, sessionHydratedMessages, view === 'server' ? 'channel_id' : 'dm_room_id', targetId)
     setInitialMessagesLoaded(false)
     setMessagesLoading(true)
-    setMessages(cachedMessages)
+    setComposerExpirySeconds(null)
+    // The cache can outlive the messages in it; the server read policy hides
+    // expired rows, so the local copy has to be filtered on the way in too.
+    setMessages(dropExpired(cachedMessages))
     instantScrollToBottom('chat_switch_cache')
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
@@ -1227,6 +1268,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       (async () => {
         const messageId = payload.new?.message_id || payload.old?.message_id
         if (!messageId) return
+        // Unfiltered subscription: reject other conversations before fetching.
+        // A message we have not loaded has nothing on screen to update, and the
+        // messages INSERT handler hydrates its own attachments.
+        if (!loadedMessageIdsRef.current.has(messageId)) return
         const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', messageId).single()
         if (!fullMsg || fullMsg[field] !== targetId) return
         const attachments = fullMsg.message_attachments?.length
@@ -1254,6 +1299,9 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       (async () => {
         const messageId = payload.new?.message_id || payload.old?.message_id
         if (!messageId) return
+        // Unfiltered subscription: the setMessages below already no-ops for a
+        // message we do not hold, so reject it before paying for the fetch.
+        if (!loadedMessageIdsRef.current.has(messageId)) return
         const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', messageId).single()
         if (!fullMsg || fullMsg[field] !== targetId) return
         const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg])
@@ -1362,7 +1410,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [activeChannel?.id, activeDm?.dm_room_id, catchUpMissedMessages, markIncomingSeen, messages, view])
 
-  const toggleReaction = async (messageId, emoji, hasReacted) => {
+  const toggleReaction = useStableHandler(async (messageId, emoji, hasReacted) => {
     const reactionEmoji = normalizeReactionEmoji(emoji)
     if (!messageId || !reactionEmoji || !session?.user?.id) return
     try {
@@ -1408,7 +1456,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       toast.error('Failed to update reaction')
       return false
     }
-  }
+  })
 
   const handleTyping = async () => {
     if (!typingChannelRef.current) return
@@ -1528,8 +1576,21 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
   }, [])
 
-  const uploadPendingFiles = async (items, caption, captionIsSpoiler = false) => {
-    const attachmentsToSend = (items || []).slice(0, MAX_PENDING_ATTACHMENTS)
+  const uploadPendingFiles = async (items, caption, captionIsSpoiler = false, expiresAt = null) => {
+    /* Last line of defence before insertMessageAttachments: whatever queued
+       these, the same attachment must never be written to one message twice. */
+    const seenFingerprints = new Set()
+    const deduped = (items || []).filter(item => {
+      const fingerprint = item?.fingerprint || (item?.file ? getPendingFileFingerprint(item.file) : item?.gifUrl)
+      if (!fingerprint) return true
+      if (seenFingerprints.has(fingerprint)) {
+        debug.warn('ATTACHMENT_UPLOAD', { operation: 'duplicate-dropped', fingerprint })
+        return false
+      }
+      seenFingerprints.add(fingerprint)
+      return true
+    })
+    const attachmentsToSend = deduped.slice(0, MAX_PENDING_ATTACHMENTS)
     if (!attachmentsToSend.length) return false
     setIsUploading(true);
     const toastId = toast.loading(`Uploading ${attachmentsToSend.length} ${attachmentsToSend.length === 1 ? 'attachment' : 'attachments'}...`);
@@ -1566,11 +1627,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           id: localId,
           __local: true,
           __delivery_status: 'sending',
-          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler },
+          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler, expiresAt },
           profile_id: session.user.id,
           profiles: getLocalProfile(session, myUsername),
           content: caption || '',
           is_spoiler: captionIsSpoiler,
+          expires_at: expiresAt,
           created_at: localCreatedAt,
           updated_at: localCreatedAt,
           is_encrypted: view === 'home',
@@ -1608,6 +1670,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         content: contentToSave,
         is_encrypted: view === 'home',
         is_spoiler: captionIsSpoiler,
+        expires_at: expiresAt,
         [field]: targetId,
         reply_to_message_id: replyToMessageId
       }
@@ -1640,7 +1703,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       audioSys.playActionError()
       triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
-      if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler })
+      if (targetId && localId) failLocalMessage(targetId, localId, { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler, expiresAt })
       return false
     } finally {
       setIsUploading(false);
@@ -1648,17 +1711,21 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   };
 
-  const handleSendMessage = async (e) => {
+  /* `forceSpoiler`/`forceExpirySeconds` are the composer's hold-and-drag radial:
+     they apply to this send alone, without waiting for a composer state render to
+     land, and without changing what the composer is set to for the next one. */
+  const handleSendMessage = async (e, { forceSpoiler = false, forceExpirySeconds } = {}) => {
     if (e) e.preventDefault()
     const text = messageInputRef.current?.value.trim()
-    const sendAsSpoiler = composerSpoiler
-    
+    const sendAsSpoiler = forceSpoiler || composerSpoiler
+    const expiresAt = expiresAtFrom(forceExpirySeconds === undefined ? composerExpirySeconds : forceExpirySeconds)
+
     if (pendingFiles.length) {
       const itemsToSend = pendingFiles
       setPendingFiles([])
       setComposerSpoiler(false)
       if (messageInputRef.current) messageInputRef.current.value = ''
-      await uploadPendingFiles(itemsToSend, text, sendAsSpoiler)
+      await uploadPendingFiles(itemsToSend, text, sendAsSpoiler, expiresAt)
       return;
     }
 
@@ -1685,11 +1752,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler },
+        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
         content: text,
         is_spoiler: sendAsSpoiler,
+        expires_at: expiresAt,
         created_at: localCreatedAt,
         updated_at: localCreatedAt,
         is_encrypted: view === 'home',
@@ -1711,10 +1779,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const contentToSave = await buildEncryptedPayload(text, targetId, sharedKeys, messages);
 
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, [field]: targetId, reply_to_message_id: replyToMessageId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
         .select(MESSAGE_SELECT)
         .single()
-        
+
       if (insertError) {
         logMessageSendError('text-message-insert', insertError, { profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', [field]: targetId, reply_to_message_id: replyToMessageId })
         throw insertError
@@ -1734,9 +1802,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       audioSys.playActionError()
       triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
-      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
+      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt })
       setComposerSpoiler(sendAsSpoiler)
-      if (messageInputRef.current) messageInputRef.current.value = text
+      if (messageInputRef.current) {
+        messageInputRef.current.value = text
+        // Restored text is put back behind React: size the field to it too.
+        resizeComposer(messageInputRef.current)
+      }
     }
   }
 
@@ -1761,9 +1833,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         toast.error(`You can send up to ${MAX_PENDING_ATTACHMENTS} attachments at once.`)
         return previous
       }
+      // Carry a fingerprint like every other queued item so the same GIF picked
+      // twice collides instead of stacking up.
+      const fingerprint = `gif:${safeGifUrl}`
+      if (previous.some(item => item.fingerprint === fingerprint)) return previous
       return [...previous, {
         id: crypto.randomUUID(),
         gifUrl: safeGifUrl,
+        fingerprint,
         type: 'image',
         name: 'animation.gif',
         size: 0
@@ -1772,7 +1849,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     return true
   }
 
-  const retryFailedMessage = async (message) => {
+  const retryFailedMessage = useStableHandler(async (message) => {
     const retryPayload = message?.__retry_payload
     if (!retryPayload) return
 
@@ -1788,7 +1865,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     })
 
     if (retryPayload.type === 'attachments' && retryPayload.items?.length) {
-      await uploadPendingFiles(retryPayload.items, retryPayload.caption || '', Boolean(retryPayload.captionIsSpoiler))
+      await uploadPendingFiles(retryPayload.items, retryPayload.caption || '', Boolean(retryPayload.captionIsSpoiler), retryPayload.expiresAt || null)
       return
     }
 
@@ -1796,6 +1873,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     const text = retryPayload.text
     const sendAsSpoiler = Boolean(retryPayload.isSpoiler)
+    // Keep the original stamp: the lifetime runs from when it was composed.
+    const expiresAt = retryPayload.expiresAt || null
     const localId = createLocalMessageId()
     const localCreatedAt = new Date().toISOString()
     setMessages(prev => {
@@ -1803,11 +1882,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler },
+        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
         content: text,
         is_spoiler: sendAsSpoiler,
+        expires_at: expiresAt,
         created_at: localCreatedAt,
         updated_at: localCreatedAt,
         is_encrypted: view === 'home',
@@ -1828,7 +1908,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages)
       const contentToSave = await buildEncryptedPayload(text, targetId, sharedKeys, messages)
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, [field]: targetId, reply_to_message_id: replyToMessageId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
         .select(MESSAGE_SELECT)
         .single()
 
@@ -1848,9 +1928,9 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       audioSys.playActionError()
       triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
-      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler })
+      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt })
     }
-  }
+  })
 
   // Messages typed without a working connection are persisted as failed and
   // resent automatically: once when the room's cached history first arrives, and
@@ -1879,18 +1959,37 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     return () => window.removeEventListener('online', onOnline)
   }, [])
 
+  /* Disappearing messages have to leave an open conversation without a refetch.
+     A plain interval is enough: the sweep walks only the loaded page and hands
+     back the same array when nothing expired, so a quiet chat never re-renders. */
+  useEffect(() => {
+    if (!outboxTargetId) return undefined
+    const timer = setInterval(() => {
+      setMessages(current => {
+        const kept = dropExpired(current)
+        if (kept === current) return current
+        safeCacheSave(session.user.id, outboxTargetId, kept)
+        return kept
+      })
+    }, EXPIRY_SWEEP_MS)
+    return () => clearInterval(timer)
+  }, [outboxTargetId, session.user.id])
+
+  /* Reset the input that actually fired: handleFileUpload is shared by the
+     gallery picker and both capture="environment" camera inputs, so clearing a
+     single ref left the camera inputs holding their last capture. */
   const handleGenericFileUpload = async (e) => {
     const files = Array.from(e.target.files || [])
+    e.target.value = ''
     if (!files.length) return
     queuePendingAttachments(files)
-    if (genericFileInputRef.current) genericFileInputRef.current.value = ''
   }
 
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files || [])
+    e.target.value = ''
     if (!files.length) return
     queuePendingAttachments(files)
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const handleUpdateMessage = useCallback(async (e, id, options = {}) => {
@@ -2118,6 +2217,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     showGifPicker, setShowGifPicker,
     pendingFiles, setPendingFiles, removePendingFile, togglePendingFileSpoiler, queuePendingAttachmentFromFile, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
     composerSpoiler, setComposerSpoiler,
+    composerExpirySeconds, setComposerExpirySeconds,
     keyboardImageFallbackMessage,
     showLatestMessagesButton, scrollToLatestMessages,
     fileInputRef, genericFileInputRef, messageInputRef, messagesEndRef, scrollContainerRef,

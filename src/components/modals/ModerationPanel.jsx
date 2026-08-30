@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, RefreshCw, ShieldAl
 import toast from 'react-hot-toast'
 import { supabase } from '../../supabaseClient'
 import { fetchModerationQueue, MODERATION_ACTIONS, moderateContentReport, REPORT_REASONS } from '../../lib/moderation'
+import { formatMessageTime } from '../../lib/messageTime'
 
 const reasonLabels = new Map(REPORT_REASONS.map(reason => [reason.value, reason.label]))
 
@@ -97,7 +98,7 @@ export default function ModerationPanel() {
                   <span className={`rounded-full px-2 py-0.5 type-meta font-bold uppercase ${report.status === 'reviewing' ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>{report.status}</span>
                 </div>
                 <p className="mt-2 line-clamp-2 type-body font-semibold text-[var(--text-main)]">{reasonLabels.get(report.reason) || report.reason}</p>
-                <p className="mt-1 type-meta text-gray-500">{new Date(report.created_at).toLocaleString()}</p>
+                <p className="mt-1 type-meta text-gray-500">{formatMessageTime(report.created_at)}</p>
               </button>
             ))}
           </div>
