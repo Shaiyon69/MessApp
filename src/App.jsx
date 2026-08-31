@@ -4,6 +4,7 @@
  * auth screens consume the resulting session; subscriptions require cleanup.
  */
 import { useState, useEffect, useLayoutEffect } from 'react'
+import { Sun, Moon } from 'lucide-react'
 import { supabase, supabaseConfigError } from './supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
@@ -16,12 +17,16 @@ import UpdatePassword from './components/UpdatePassword'
 import { applySurfaceTint, applyThemeMode, normalizeThemeMode } from './lib/theme'
 import { debug } from './lib/debug'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
-import { publishPushNavigation } from './lib/pushNavigation'
+import { ACTIVE_CONVERSATION_QUERY, getActiveConversationId, publishPushNavigation } from './lib/pushNavigation'
 
 let keyboardResizeConfigured = false
 
 export default function App() {
   const [session, setSession] = useState(null)
+  /* null means "signed out", which is also what it means before getSession()
+     resolves — so nothing auth-shaped renders until this flips. Otherwise the
+     login screen paints for a frame (longer, if the token needs refreshing). */
+  const [sessionReady, setSessionReady] = useState(false)
   const [showRegister, setShowRegister] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
   const [loginMessage, setLoginMessage] = useState('')
@@ -66,11 +71,17 @@ export default function App() {
       debug.info('APP_SESSION', { operation: 'initial-session', authenticated: Boolean(session) })
     }).catch(error => {
       debug.error('APP_SESSION', { operation: 'initial-session', error })
+    }).finally(() => {
+      setSessionReady(true)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      setSessionReady(true)
       debug.info('APP_SESSION', { operation: 'auth-state-change', authEvent: _event, authenticated: Boolean(session) })
+      // A recovery link may land on any path (site_url fallback, deep link);
+      // send it to the update-password screen instead of the Dashboard.
+      if (_event === 'PASSWORD_RECOVERY' && window.location.pathname !== '/update-password') navigateTo('/update-password')
     })
 
     const setupDeepLinkListener = async () => {
@@ -103,6 +114,11 @@ export default function App() {
     if (!('serviceWorker' in navigator)) return undefined
     const handleServiceWorkerMessage = event => {
       if (event.data?.type === 'MESSAPP_PUSH_OPEN') publishPushNavigation(event.data.data)
+      if (event.data?.type === ACTIVE_CONVERSATION_QUERY) {
+        event.ports?.[0]?.postMessage({
+          activeConversationId: document.visibilityState === 'visible' ? getActiveConversationId() : null
+        })
+      }
     }
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
     return () => navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
@@ -122,20 +138,24 @@ export default function App() {
     return (
       <div className="ambient-shell min-h-screen h-full w-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-[var(--text-main)] flex items-center justify-center px-6 font-sans">
         <div className="glass-panel premium-card w-full max-w-xl rounded-2xl p-6">
-          <div className="text-xs font-bold uppercase tracking-widest text-red-300 mb-3">Configuration Required</div>
-          <h1 className="text-2xl font-bold mb-3">Supabase is not configured</h1>
-          <p className="text-sm text-gray-300 mb-5">{supabaseConfigError}</p>
-          <div className="bg-black/30 border border-white/10 rounded-xl p-4 font-mono text-xs text-gray-200 whitespace-pre-wrap">
+          <div className="type-meta font-bold uppercase tracking-widest text-red-300 mb-3">Configuration Required</div>
+          <h1 className="type-view-title font-bold mb-3">Supabase is not configured</h1>
+          <p className="type-label text-gray-300 mb-5">{supabaseConfigError}</p>
+          <div className="bg-black/30 border border-white/10 rounded-xl p-4 font-mono type-meta text-gray-200 whitespace-pre-wrap">
             VITE_SUPABASE_URL=https://your-project.supabase.co{'\n'}
             VITE_SUPABASE_ANON_KEY=your-anon-key
           </div>
-          <p className="text-xs text-gray-500 mt-4">Add these values to a root `.env` file, then restart the Vite dev server.</p>
+          <p className="type-meta text-gray-500 mt-4">Add these values to a root `.env` file, then restart the Vite dev server.</p>
         </div>
       </div>
     )
   }
 
   const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password'
+
+  /* Same shell, no children: the background is already painted, so the app
+     opens straight into the Dashboard for a signed-in user. */
+  if (!sessionReady) return <div className="ambient-shell flex h-full w-full" />
 
   return (
     <div className={`ambient-shell flex flex-col items-center justify-center h-full w-full font-sans ${isAuthSurface ? 'auth-shell' : 'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'}`}>
@@ -148,7 +168,7 @@ export default function App() {
           aria-label={themeMode === 'dark' ? 'Switch to light mode' : 'Switch to dark OLED mode'}
           title={themeMode === 'dark' ? 'Light mode' : 'Dark OLED mode'}
         >
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">{themeMode === 'dark' ? 'light_mode' : 'dark_mode'}</span>
+          {themeMode === 'dark' ? <Sun size={20} aria-hidden="true" /> : <Moon size={20} aria-hidden="true" />}
         </button>
       )}
       {path === '/update-password' ? (

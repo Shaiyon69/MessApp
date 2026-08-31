@@ -76,6 +76,32 @@ export const disableCurrentPushDevice = async ({
   return { disabled: true }
 }
 
+// Reported per installation, not per account: only the device showing the
+// conversation should go quiet, every other device the user owns still rings.
+// Failures are logged rather than thrown — a missed report costs one redundant
+// notification, and must never break the chat view that called it.
+export const reportActiveConversation = async ({
+  profileId,
+  conversationId,
+  installationId = getInstallationId(),
+  client = supabase
+}) => {
+  if (!profileId) return { reported: false }
+  const { error } = await client
+    .from('push_devices')
+    .update({
+      active_conversation_id: conversationId || null,
+      active_conversation_at: conversationId ? new Date().toISOString() : null
+    })
+    .eq('profile_id', profileId)
+    .eq('installation_id', installationId)
+  if (error) {
+    reportPushError('active_conversation', error)
+    return { reported: false }
+  }
+  return { reported: true, cleared: !conversationId }
+}
+
 const getWebFirebaseConfig = () => {
   const config = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,

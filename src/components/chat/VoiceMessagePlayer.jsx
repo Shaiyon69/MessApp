@@ -88,7 +88,7 @@ export default function VoiceMessagePlayer({ src, label = 'Voice message', class
           />
         ))}
       </button>
-      <span className="w-9 shrink-0 text-right text-[10px] font-bold tabular-nums opacity-65">
+      <span className="w-9 shrink-0 text-right type-meta font-bold tabular-nums opacity-65">
         {formatVoiceMessageDuration(isPlaying || currentTime > 0 ? currentTime : duration)}
       </span>
     </div>
