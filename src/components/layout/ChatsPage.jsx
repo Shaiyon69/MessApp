@@ -17,7 +17,7 @@ export default function ChatsPage(props) {
     <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-24 pt-4 md:px-6 md:pt-6">
       <div className="space-y-1">
         {props.dmsLoading && props.dms.length === 0 && Array.from({ length: 6 }, (_, index) => (
-          <div key={`dm-skeleton-${index}`} className="flex min-h-[4.5rem] items-center gap-4 px-3.5 py-3.5" aria-hidden="true">
+          <div key={`dm-skeleton-${index}`} className="flex min-h-16 items-center gap-3.5 px-3 py-2.5" aria-hidden="true">
             <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-[var(--bg-element)]" />
             <div className="h-3.5 animate-pulse rounded-full bg-[var(--bg-element)]" style={{ width: `${58 + (index % 3) * 12}%` }} />
           </div>
@@ -46,7 +46,7 @@ export default function ChatsPage(props) {
             <div key={`dm-row-${dm.dm_room_id || i}`} className="group relative flex items-center">
               <button
                 onClick={() => openDm(dm)}
-                className={`ios-sidebar-row min-h-[4.5rem] flex-1 flex items-center gap-4 rounded-2xl border px-3.5 py-3.5 text-left outline-none transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'is-active' : isUnread ? 'border-transparent text-[var(--text-main)]' : 'border-transparent text-gray-400 hover:text-[var(--text-main)]'}`}
+                className={`ios-sidebar-row min-h-16 flex-1 flex items-center gap-3.5 rounded-2xl border px-3 py-2.5 text-left outline-none transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'is-active' : isUnread ? 'border-transparent text-[var(--text-main)]' : 'border-transparent text-gray-400 hover:text-[var(--text-main)]'}`}
               >
                 <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={presenceStatus} className="w-11 h-11" />
                 <div className="min-w-0 flex-1 pr-6">
