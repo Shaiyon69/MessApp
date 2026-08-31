@@ -427,7 +427,7 @@ export default function ServersPage(props) {
   const showDetail = panelView === 'detail' && props.activeServer
 
   return (
-    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full pb-0' : 'pb-24'}`}>
+    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full pb-24' : 'pb-24'}`}>
       {/* Popouts here are click-away: one shared backdrop under them all
           (they sit at z-80) closes whichever is open. It listens on pointerdown,
           not click: a long press opens the menu while the finger is still down,
@@ -469,6 +469,53 @@ export default function ServersPage(props) {
         </>
       ) : (
         <div className="flex flex-1 flex-col">
+          {/* The server bar sits above the channel list: the server you are in is the
+              heading for everything under it, so it stays pinned to the top while
+              channels scroll beneath. */}
+          {/* z-20 makes this a stacking context, so the menu inside it cannot
+              rise above the z-70 click-away backdrop on its own — every tap on
+              the menu landed on the backdrop and closed it. Lift the whole
+              bar past the backdrop while the menu is open. */}
+          <div className={`sticky top-0 ${isServerMenuOpen ? 'z-[80]' : 'z-20'} -mx-4 mb-1 bg-[var(--bg-base)] px-4 pb-2 md:-mx-6 md:px-6`}>
+            <div className="relative flex min-h-14 items-center gap-2 py-2">
+              <button type="button" onClick={() => { setIsServerMenuOpen(false); setPanelView('list') }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+                <ChevronLeft size={19} aria-hidden="true" />
+              </button>
+              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl" />
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
+                {/* Role, not a static label: the manage buttons below hinge on it,
+                    so "member" explains their absence without a trip to the DB. */}
+                <p className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">{props.activeServerRole || 'Server'}</p>
+              </div>
+              <button type="button" onClick={() => setIsServerMenuOpen(open => !open)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
+                <MoreVertical size={17} aria-hidden="true" />
+              </button>
+              {isServerMenuOpen && (
+                <div className="premium-menu absolute right-2 top-full z-[80] mt-2 w-64 rounded-xl p-2">
+                  <div className="mb-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2">
+                    <p className="mb-1 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Invite Code</p>
+                    <button type="button" onClick={copyInviteCode} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono type-body text-[var(--text-main)] hover:bg-[var(--bg-element-hover)]">
+                      <span className="truncate">{isGeneratingInvite ? 'Creating...' : activeInviteCode || 'Create code'}</span>
+                      <Copy size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                  {/* Shown to everyone: a member who taps gets told why it failed,
+                      which beats an entry that silently is not there. RLS is the
+                      real gate either way. */}
+                  <button type="button" onClick={() => { setIsServerMenuOpen(false); canManageServer ? setIsCategoryModalOpen(true) : toast.error('Only server admins can add categories.') }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Category</button>
+                  <button type="button" onClick={() => { setIsServerMenuOpen(false); openChannelModal(firstCategoryId) }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Channel</button>
+                  <button type="button" onClick={() => openEditServerItemModal('server', props.activeServer)} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Edit Server</button>
+                  {isServerOwner ? (
+                    <button type="button" onClick={() => askServerAction('delete')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Delete Server</button>
+                  ) : (
+                    <button type="button" onClick={() => askServerAction('leave')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Leave Server</button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="space-y-3">
             {props.serverChannelsLoading && Array.from({ length: 3 }, (_, index) => (
               <div key={`channel-group-skeleton-${index}`} className="rounded-2xl bg-[var(--surface-container)] p-3" aria-hidden="true">
@@ -593,54 +640,6 @@ export default function ServersPage(props) {
                 )}
               </div>
             )}
-          </div>
-
-          {/* The server bar is docked above the bottom nav: it is the thumb
-              target on this screen, so channels scroll behind it rather than
-              pushing it off the top. The row keeps an equal gutter each side
-              so it stays centred under the fixed quick-actions button. */}
-          {/* z-20 makes this a stacking context, so the menu inside it cannot
-              rise above the z-70 click-away backdrop on its own — every tap on
-              the menu landed on the backdrop and closed it. Lift the whole
-              footer past the backdrop while the menu is open. */}
-          <div className={`sticky bottom-0 ${isServerMenuOpen ? 'z-[80]' : 'z-20'} -mx-4 mt-auto bg-[var(--bg-base)] px-4 pb-2 md:-mx-6 md:px-6 md:pb-3`}>
-            <div className="relative flex min-h-14 items-center gap-2 px-16 py-2">
-              <button type="button" onClick={() => { setIsServerMenuOpen(false); setPanelView('list') }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
-                <ChevronLeft size={19} aria-hidden="true" />
-              </button>
-              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl" />
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
-                {/* Role, not a static label: the manage buttons below hinge on it,
-                    so "member" explains their absence without a trip to the DB. */}
-                <p className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">{props.activeServerRole || 'Server'}</p>
-              </div>
-              <button type="button" onClick={() => setIsServerMenuOpen(open => !open)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
-                <MoreVertical size={17} aria-hidden="true" />
-              </button>
-              {isServerMenuOpen && (
-                <div className="premium-menu absolute bottom-full right-2 z-[80] mb-2 w-64 rounded-xl p-2">
-                  <div className="mb-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2">
-                    <p className="mb-1 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Invite Code</p>
-                    <button type="button" onClick={copyInviteCode} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono type-body text-[var(--text-main)] hover:bg-[var(--bg-element-hover)]">
-                      <span className="truncate">{isGeneratingInvite ? 'Creating...' : activeInviteCode || 'Create code'}</span>
-                      <Copy size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                  {/* Shown to everyone: a member who taps gets told why it failed,
-                      which beats an entry that silently is not there. RLS is the
-                      real gate either way. */}
-                  <button type="button" onClick={() => { setIsServerMenuOpen(false); canManageServer ? setIsCategoryModalOpen(true) : toast.error('Only server admins can add categories.') }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Category</button>
-                  <button type="button" onClick={() => { setIsServerMenuOpen(false); openChannelModal(firstCategoryId) }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Channel</button>
-                  <button type="button" onClick={() => openEditServerItemModal('server', props.activeServer)} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Edit Server</button>
-                  {isServerOwner ? (
-                    <button type="button" onClick={() => askServerAction('delete')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Delete Server</button>
-                  ) : (
-                    <button type="button" onClick={() => askServerAction('leave')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Leave Server</button>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
