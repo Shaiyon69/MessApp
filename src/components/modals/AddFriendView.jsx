@@ -1,5 +1,6 @@
 /**
- * The People tab: the full friends list on top, friend lookup under it. The
+
+ * The People tab: friend lookup on top, the full friends list under it. The
  * list lives here because the bottom bar has no Friends slot — see design.md §5.
  * Supabase policies authorize the writes; this only presents them.
  */
@@ -63,44 +64,14 @@ export default function AddFriendView({ session, allFriends = [], getPresenceLab
   }
 
   return (
-    <section className="flex min-h-full flex-col bg-[var(--bg-base)] px-4 pt-5 md:px-6 md:pt-6">
-      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col">
+    <section className="flex min-h-full flex-col bg-[var(--bg-base)] px-4 pt-4 md:px-6 md:pt-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
         {/* Title lives in the app bar now; keep it for screen readers only. */}
         <h1 className="sr-only">Friends</h1>
 
-        <h2 className="mb-2 type-meta font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">
-          Friends {allFriends.length > 0 ? allFriends.length : ''}
-        </h2>
-
-        {allFriends.length === 0 ? (
-          <p className="px-1 py-4 type-label text-[var(--text-muted)]">
-            No friends yet. Search for someone below.
-          </p>
-        ) : (
-          <div className="space-y-0.5">
-            {allFriends.map((friend, index) => (
-              <button
-                key={friend.dm_room_id || friend.profiles?.id || `friend-${index}`}
-                type="button"
-                onClick={() => openDmContact?.(friend)}
-                disabled={startingDmProfileId === friend.profiles?.id}
-                className="dashboard-list-row flex w-full items-center gap-3 rounded-xl p-2 text-left transition-all disabled:opacity-50"
-              >
-                <StatusAvatar url={friend.profiles?.avatar_url} username={friend.profiles?.username} status={getPresenceStatus?.(friend.profiles?.id)} className="h-9 w-9" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate type-body font-bold text-[var(--text-main)]">{friend.profiles?.username}</div>
-                  <div className="truncate type-label text-[var(--text-muted)]">{getPresenceLabel?.(friend.profiles?.id) || 'Offline'}</div>
-                </div>
-                <MessageSquare size={16} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Search docks above the bottom bar: the input is a thumb target, the
-            list is the thing you scroll. It keeps an equal gutter each side so
-            it stays centred under the fixed quick-actions button. */}
-        <div className="sticky bottom-0 z-20 -mx-4 mt-auto bg-[var(--bg-base)] px-20 pb-2 pt-3 md:-mx-6 md:pb-3">
+        {/* Search pins to the top like the server bar: the lookup heads the
+            page, the friends list is the thing you scroll under it. */}
+        <div className="sticky top-0 z-20 -mx-4 mb-3 bg-[var(--bg-base)] px-4 pb-2 pt-3 md:-mx-6 md:px-6">
           <form onSubmit={handleSearch} className="add-friend-search flex items-center gap-2 rounded-2xl p-1.5">
             <Search size={20} className="ml-2 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
             <label htmlFor="friend-lookup" className="sr-only">name#0000</label>
@@ -182,6 +153,36 @@ export default function AddFriendView({ session, allFriends = [], getPresenceLab
             )}
           </div>
         </div>
+
+        <h2 className="mb-2 type-meta font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">
+          Friends {allFriends.length > 0 ? allFriends.length : ''}
+        </h2>
+
+        {allFriends.length === 0 ? (
+          <p className="px-1 py-4 type-label text-[var(--text-muted)]">
+            No friends yet. Search for someone above.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {allFriends.map((friend, index) => (
+              <button
+                key={friend.dm_room_id || friend.profiles?.id || `friend-${index}`}
+                type="button"
+                onClick={() => openDmContact?.(friend)}
+                disabled={startingDmProfileId === friend.profiles?.id}
+                className="dashboard-list-row flex min-h-16 w-full items-center gap-3.5 rounded-2xl px-3 py-2.5 text-left transition-all disabled:opacity-50"
+              >
+                <StatusAvatar url={friend.profiles?.avatar_url} username={friend.profiles?.username} status={getPresenceStatus?.(friend.profiles?.id)} className="h-11 w-11" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate type-title font-semibold text-[var(--text-main)]">{friend.profiles?.username}</div>
+                  <div className="truncate type-label text-[var(--text-muted)]">{getPresenceLabel?.(friend.profiles?.id) || 'Offline'}</div>
+                </div>
+                <MessageSquare size={16} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+
       </div>
     </section>
   )
