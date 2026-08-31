@@ -112,7 +112,7 @@ export default function MenuPage(props) {
   return (
     <div className="mx-auto w-full max-w-3xl p-4 md:p-6" aria-label="Menu">
       <div className="h-24 rounded-2xl bg-cover bg-center" style={getBannerStyle()} aria-hidden="true" />
-      <div className="-mt-10 mb-4 flex items-end gap-3">
+      <div className="-mt-6 mb-4 flex items-end gap-3">
         <button
           type="button"
           onClick={() => openSettings('account')}
@@ -123,7 +123,9 @@ export default function MenuPage(props) {
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate font-display type-view-title font-bold leading-tight text-[var(--text-main)]">{props.myUsername}</h2>
+            {/* Truncates: wrapping grew this row upward into the banner and
+                pushed everything below it down. Full name is in the tooltip. */}
+            <h2 title={props.myUsername} className="min-w-0 flex-1 truncate font-display type-title font-bold leading-tight text-[var(--text-main)]">{props.myUsername}</h2>
             {/* Status is a glyph beside the name, not a row of its own: shape
                 carries it, colour only reinforces it (design.md §6). */}
             <div className="relative shrink-0">
