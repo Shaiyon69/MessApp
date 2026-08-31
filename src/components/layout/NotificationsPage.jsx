@@ -5,6 +5,7 @@
  * Everything here is derived from state Dashboard already holds — see
  * src/lib/notifications.js for what that does and does not buy us.
  */
+import { Capacitor } from '@capacitor/core'
 import { Bell, Check, UserPlus, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { buildNotifications } from '../../lib/notifications'
@@ -23,12 +24,16 @@ function relativeTime(timestamp) {
 export default function NotificationsPage(props) {
   const items = buildNotifications({ friendRequests: props.friendRequests })
 
-  /* ponytail: per-install opt-in state is read from the same localStorage flag
+  /* Native only: the web build already plays a sound in the open tab, so the
+     browser permission prompt buys nothing there.
+
+     ponytail: per-install opt-in state is read from the same localStorage flag
      Settings writes, not from the push_devices table — a device that opted in
      elsewhere still sees this prompt until it opts in here, which is the right
      answer for a per-installation permission anyway. Hidden once the OS-level
      permission is denied, since the toggle cannot recover from that either. */
-  const canPromptForPush = typeof Notification !== "undefined"
+  const canPromptForPush = Capacitor.isNativePlatform()
+    && typeof Notification !== "undefined"
     && Notification.permission !== "denied"
     && localStorage.getItem("notificationsEnabled") !== "true"
 

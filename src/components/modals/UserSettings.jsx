@@ -278,7 +278,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       }
     } catch (error) {
       reportPushError('permission_or_registration', error)
-      toast.error("Notifications are blocked on this device.");
+      toast.error(error?.message || "Notifications could not be enabled.");
     }
   }
 
@@ -948,7 +948,11 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                 <div className="pb-10">
                   <h2 className="hidden md:block type-view-title font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Notifications</h2>
                   <div className="space-y-2">
-                    <ToggleSwitch label="Enable Device Notifications" description="Receive push notifications for DMs and activity in servers you have not muted." checked={desktopNotifs} onChange={requestDesktopNotifs} />
+                    {/* Push is native-only: on web the tab has to stay open anyway,
+                        and the in-app message sound already covers that case. */}
+                    {Capacitor.isNativePlatform() && (
+                      <ToggleSwitch label="Enable Device Notifications" description="Receive push notifications for DMs and activity in servers you have not muted." checked={desktopNotifs} onChange={requestDesktopNotifs} />
+                    )}
                     <h4 className="type-body font-bold text-gray-400 uppercase tracking-widest mt-8 mb-2">Communication Sounds</h4>
                     <ToggleSwitch label="Message sounds" description="Play subtle sent and received sounds while the app is open." checked={messageSoundsEnabled} onChange={setMessageSoundsEnabled} />
                     <ToggleSwitch label="Tactile feedback" description="Add short haptics alongside the subtle messaging sounds." checked={tactileFeedbackEnabled} onChange={setTactileFeedbackEnabled} />
