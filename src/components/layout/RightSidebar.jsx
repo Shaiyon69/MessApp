@@ -271,7 +271,7 @@ export default function RightSidebar({
     <>
       <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform md:hidden" onClick={closeRightSidebar}></div>
       
-      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-72 md:max-w-none md:shadow-none md:backdrop-blur-none lg:w-80 xl:w-96" style={scopedChatStyle}>
+      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-72 md:max-w-none md:shadow-none md:backdrop-blur-none md:overflow-hidden md:rounded-2xl md:border md:border-[var(--chat-border)] lg:w-80 xl:w-96" style={scopedChatStyle}>
         
         {rightTab === 'info' && activeServer && !activeDm && (
           <div className="relative flex h-full flex-col overflow-hidden">

@@ -1988,7 +1988,7 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
+    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0 md:gap-2 md:p-2">
       <a href="#messapp-main" className="skip-link">Skip to conversation</a>
       {/* CallOverlay already self-guards on callActive; gating here as well keeps
           its lazy chunk out of the boot path. */}

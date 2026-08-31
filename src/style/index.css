@@ -3253,3 +3253,11 @@ iframe {
 .messapp-reaction-popover {
   background: var(--bg-base);
 }
+
+/* The rail already has the shell's border; the segmented control's own border
+   doubled it. Phones keep it — there the pill is the only outline. */
+@media (min-width: 768px) {
+  .home-tab-shell .ios-segmented-control {
+    border-color: transparent !important;
+  }
+}

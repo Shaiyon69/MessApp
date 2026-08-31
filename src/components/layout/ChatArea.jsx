@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Hash, Phone, Video, Search, Info, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock } from 'lucide-react'
+import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -664,11 +664,16 @@ useEffect(() => {
     onJoinServer: () => { props.setHomeTab('servers'); setPendingServerAction('join') }
   };
 
+  /* Desktop docks the conversation list beside the thread instead of swapping
+     between them; mobile keeps the single-pane swap this flag has always
+     driven. */
+  const homeVisible = props.view === 'home' && !props.activeDm
+
   return (
       <main
         id="messapp-main"
         tabIndex={-1}
-        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--chat-bg-base)]"
+        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)] md:flex-row md:gap-2"
         style={props.scopedChatStyle}
         onPaste={props.handlePaste}
         onPointerDownCapture={(e) => {
@@ -691,26 +696,61 @@ useEffect(() => {
         onPointerUpCapture={finishEdgeGesture}
         onPointerCancelCapture={() => { edgeGestureRef.current = null }}
       >
+      {/* Nav rail + conversation list. Hidden on mobile while a thread is open,
+          always docked from md up — that is what turns the single-pane phone
+          layout into the three-column desktop one. */}
+      <section className={`min-h-0 min-w-0 flex-col md:flex md:w-[27rem] md:flex-none md:flex-row-reverse md:gap-2 ${homeVisible ? 'flex flex-1' : 'hidden'}`}>
+        <div className="home-dashboard relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)]">
+          <header className="ios-app-bar flex h-16 shrink-0 items-center justify-between gap-3 px-4 md:px-5">
+            <span className="min-w-0 flex-1 truncate font-display type-view-title font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">messapp</span>
+            <span className="type-meta font-bold uppercase tracking-[0.14em] text-gray-500">{TABS.find(tab => tab.id === props.homeTab)?.label}</span>
+          </header>
+          {/* The FAB is positioned against this wrapper, not the shell, so its
+              bottom edge lands exactly where the bottom bar starts. */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+              {props.homeTab === 'menu' ? (
+                <MenuPage {...props} />
+              ) : props.homeTab === 'servers' ? (
+                <ServersPage
+                  {...props}
+                  panelView={serversPanelView}
+                  setPanelView={setServersPanelView}
+                  pendingServerAction={pendingServerAction}
+                  onServerActionHandled={() => setPendingServerAction(null)}
+                />
+              ) : props.homeTab === 'notifs' ? (
+                <NotificationsPage {...props} />
+              ) : props.homeTab === 'add' ? (
+                <AddFriendView session={props.session} allFriends={props.allFriends} getPresenceLabel={props.getPresenceLabel} getPresenceStatus={props.getPresenceStatus} openDmContact={openDmContact} startingDmProfileId={props.startingDmProfileId} />
+              ) : (
+                <ChatsPage {...props} />
+              )}
+            </div>
+            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} />}
+          </div>
+        </div>
+        <BottomBar
+          homeTab={props.homeTab}
+          setHomeTab={props.setHomeTab}
+          notificationCount={props.notificationCount}
+        />
+      </section>
+
+      <section className={`min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)] ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
       <header
         className="ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30"
         style={props.isChatActive ? { backgroundColor: 'var(--chat-bg-surface)' } : undefined}
       >
         <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
-          {/* The bottom bar is the only navigation, so the app bar carries
-              identity: the wordmark while browsing, a way back while inside a
-              conversation. */}
+          {/* Back only matters on mobile — from md up the list it returns to is
+              already on screen. */}
           {props.isChatActive && (
-            <button type="button" onClick={props.handleBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back">
+            <button type="button" onClick={props.handleBack} className="flex md:hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 outline-none transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back">
               <ChevronLeft size={22} aria-hidden="true" />
             </button>
           )}
-          {props.view === 'home' && !props.activeDm ? (
-            <div className="flex w-full min-w-0 items-center animate-fade-in">
-              <span className="block min-w-0 flex-1 truncate font-display type-view-title font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">
-                messapp
-              </span>
-            </div>
-          ) : props.view === 'home' && props.activeDm ? (
+          {props.view === 'home' && props.activeDm ? (
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-dm-${props.activeDm.dm_room_id}`}>
                 <StatusAvatar url={props.activeDm.profiles.avatar_url} username={props.activeDm.profiles.username} status={props.getPresenceStatus?.(props.activeDm.profiles.id)} className="w-9 h-9" loading="eager" />
                 <div className="min-w-0">
@@ -726,13 +766,6 @@ useEffect(() => {
           ) : null}
         </div>
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
-          {/* Wordmark on the left never changes, so the right side names the
-              current bottom-bar destination. */}
-          {props.view === 'home' && !props.activeDm && (
-            <span className="type-meta font-bold uppercase tracking-[0.14em] text-gray-500">
-              {TABS.find(tab => tab.id === props.homeTab)?.label}
-            </span>
-          )}
           {props.isChatActive && (
             <>
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start voice call" title="Voice call"><Phone size={20} aria-hidden="true" /></button>}
@@ -908,37 +941,13 @@ useEffect(() => {
                 </section>
               </div>
             </div>
-          ) : props.view === 'home' && !props.activeDm ? (
-            <div className="home-dashboard relative flex flex-1 flex-col overflow-hidden">
-              {/* The FAB is positioned against this wrapper, not the shell, so its
-                  bottom edge lands exactly where the bottom bar starts. */}
-              <div className="relative flex min-h-0 flex-1 flex-col">
-                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
-                  {props.homeTab === 'menu' ? (
-                    <MenuPage {...props} />
-                  ) : props.homeTab === 'servers' ? (
-                    <ServersPage
-                      {...props}
-                      panelView={serversPanelView}
-                      setPanelView={setServersPanelView}
-                      pendingServerAction={pendingServerAction}
-                      onServerActionHandled={() => setPendingServerAction(null)}
-                    />
-                  ) : props.homeTab === 'notifs' ? (
-                    <NotificationsPage {...props} />
-                  ) : props.homeTab === 'add' ? (
-                    <AddFriendView session={props.session} allFriends={props.allFriends} getPresenceLabel={props.getPresenceLabel} getPresenceStatus={props.getPresenceStatus} openDmContact={openDmContact} startingDmProfileId={props.startingDmProfileId} />
-                  ) : (
-                    <ChatsPage {...props} />
-                  )}
-                </div>
-                {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} />}
-              </div>
-              <BottomBar
-                homeTab={props.homeTab}
-                setHomeTab={props.setHomeTab}
-                notificationCount={props.notificationCount}
-              />
+          ) : homeVisible ? (
+            /* Only reachable from md up: on mobile this whole column is hidden
+               while the list is showing. */
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
+              <MessageSquare size={40} className="text-[var(--text-muted)]" aria-hidden="true" />
+              <p className="type-title font-bold text-[var(--text-main)]">Pick a conversation</p>
+              <p className="type-body text-[var(--text-muted)]">Your messages open here.</p>
             </div>
           ) : (
             <>
@@ -1513,6 +1522,7 @@ useEffect(() => {
         </div>
       </div>
       )}
+      </section>
       {mediaEditorTarget && (
         <Suspense fallback={null}>
           <MediaEditorModal
