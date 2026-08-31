@@ -41,6 +41,19 @@ test('light and dark modes use separate readable outgoing colors', () => {
   )
 })
 
+test('accent-filled controls never label themselves in their own accent', () => {
+  // Mono dark is #f5f5f5, so an accent fill with white text is white on white:
+  // the palette answers with a black fill and a near-white glyph instead.
+  for (const theme of CONVERSATION_THEMES) {
+    for (const mode of ['light', 'dark']) {
+      const style = getConversationThemeStyle(theme.id, mode)
+      assert.notEqual(style['--chat-control-bg'], style['--chat-control-text'], `${theme.id} ${mode}`)
+    }
+  }
+  assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-control-bg'], '#000000')
+  assert.equal(getConversationThemeStyle('mono', 'dark')['--chat-control-text'], '#fafafa')
+})
+
 test('legacy DM colors resolve to the closest conversation theme', () => {
   assert.equal(resolveConversationThemeId(null, '#6366F1'), 'lavender')
   assert.equal(resolveConversationThemeId(null, '#10b981'), 'forest')

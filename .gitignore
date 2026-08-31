@@ -19,6 +19,7 @@
 .env
 .env.*
 !.env.example
+!.env.e2e.example
 *.local
 *.pem
 *.key
@@ -84,13 +85,20 @@ Thumbs.db
 **/xcuserdata/
 /android/local.properties
 
-# Local agent notes and generated analysis; project documentation belongs in
-# SYSTEM_DOCUMENTATION.md.
-/memory.md
-/AGENTS.md
-/CLAUDE.md
+# Only the README ships as markdown. Project documentation is docs/index.html,
+# published as a site; agent notes, deployment/push runbooks, and the design
+# system stay local.
+*.md
+!README.md
 /.codex/
 /graphify-out/
+/.mcp.json
 
 # Self-hosted relay configuration is provisioned outside this repository.
 /infra/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

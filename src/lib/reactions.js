@@ -53,3 +53,30 @@ export const normalizeReactionEmoji = (value) => {
   if (!raw) return ''
   return REACTION_EMOJIS[raw.toLowerCase()] || REACTION_EMOJIS[raw] || raw
 }
+
+const QUICK_REACTION_COUNT = QUICK_REACTION_EMOJIS.length
+
+/** Coerce stored/legacy shapes into exactly QUICK_REACTION_COUNT unique emojis. */
+export const normalizeQuickReactions = (value) => {
+  const list = Array.isArray(value) ? value : []
+  return [...list, ...QUICK_REACTION_EMOJIS]
+    .map(item => normalizeReactionEmoji(typeof item === 'string' ? item : item?.emoji || item?.type || item?.reaction))
+    .filter(Boolean)
+    .filter((item, index, self) => self.indexOf(item) === index)
+    .slice(0, QUICK_REACTION_COUNT)
+}
+
+/**
+ * Put `emoji` in `index`. When it already occupies another slot the two swap,
+ * because dropping the duplicate would let the defaults refill the gap and the
+ * edit would look like it never applied.
+ */
+export const replaceQuickReaction = (list, index, emoji) => {
+  const next = normalizeQuickReactions(list)
+  const picked = normalizeReactionEmoji(emoji)
+  if (!picked || index < 0 || index >= next.length) return next
+  const existing = next.indexOf(picked)
+  if (existing !== -1) next[existing] = next[index]
+  next[index] = picked
+  return next
+}
