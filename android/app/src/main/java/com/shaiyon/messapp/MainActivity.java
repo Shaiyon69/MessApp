@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeMiniPlayerDragPlugin.class);
         registerPlugin(ScreenCapturePlugin.class);
         super.onCreate(savedInstanceState);
+        MessAppDownloads.attach(this, getBridge().getWebView());
     }
 
     @Override

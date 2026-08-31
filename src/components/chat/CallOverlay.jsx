@@ -7,6 +7,7 @@ import { Minimize2, Maximize2, Mic, MicOff, Video, VideoOff, Activity, Phone, Ph
 import StatusAvatar from '../ui/StatusAvatar'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
 import useAutoHideCallChrome from '../../hooks/useAutoHideCallChrome'
+import useVideoAspectRatio, { DEFAULT_ASPECT_RATIO } from '../../hooks/useVideoAspectRatio'
 
 const CALL_STATUS_LABELS = {
   outgoing: 'Starting call...',
@@ -42,19 +43,25 @@ export default function CallOverlay({
   const isTerminal = ['rejected', 'missed', 'timed_out', 'cancelled', 'ended', 'failed'].includes(callDirection)
   const isScreenShareLive = remoteScreenSharing && isConnected
   const isVideoLive = remoteVideoEnabled && isConnected && !isScreenShareLive
+  const remoteStageActive = isVideoLive || isScreenShareLive
+  /* Own camera with nothing coming back yet: the local preview is promoted to
+     the stage rather than sitting in a corner beside an avatar, so a video call
+     is full-screen from the moment it starts. */
+  const localIsStage = !remoteStageActive && videoEnabled && !isIncoming
+  const hasMiniVideo = remoteStageActive || localIsStage
 
-  // Only a full-screen call showing live media is worth clearing chrome from.
+  // Only a call showing live media is worth clearing chrome from — minimized
+  // included, where the controls otherwise take half the card.
   const { chromeVisible, stageActivityProps, chromeHoldProps } = useAutoHideCallChrome({
-    hasVisualMedia: callActive && !callMinimized && (isVideoLive || isScreenShareLive),
+    hasVisualMedia: callActive && hasMiniVideo,
     overlayOpen: Boolean(pendingVideoRequest)
   })
+  const { aspectRatio: miniAspectRatio, videoAspectProps } = useVideoAspectRatio()
 
   if (!callActive) return null;
 
-  const isImmersive = isVideoLive || isScreenShareLive
+  const isImmersive = hasMiniVideo
   const chromeHidden = isImmersive && !chromeVisible
-  const hasMiniVideo = isVideoLive || isScreenShareLive || (videoEnabled && !isIncoming)
-  const isMiniVideoCall = hasMiniVideo || videoEnabled || remoteVideoEnabled
   const statusLabel = CALL_STATUS_LABELS[callDirection] || 'Call'
   const localVideoStyle = cameraFacingMode === 'environment' ? undefined : { transform: 'scaleX(-1)' }
 
@@ -65,52 +72,73 @@ export default function CallOverlay({
         style={floatingStyle}
         data-ui-overlay-owner="CallOverlay:minimized-card"
         data-composer-tray-open={composerTrayOpen ? 'true' : undefined}
-        className="floating-mini-player direct-call-mini minimized-call-card fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] w-[min(248px,calc(100vw-1rem))] pointer-events-auto max-h-[62dvh] overflow-hidden border border-[var(--border-subtle)] rounded-[1.1rem] p-1.5 z-[90] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:w-[min(340px,calc(100vw-2.5rem))] md:max-h-[70dvh] md:rounded-[1.35rem] md:p-2"
+        {...(hasMiniVideo ? stageActivityProps : {})}
+        className={`floating-mini-player direct-call-mini minimized-call-card fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] w-[min(248px,calc(100vw-1rem))] pointer-events-auto max-h-[62dvh] overflow-hidden border border-[var(--border-subtle)] rounded-[1.1rem] z-[90] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:w-[min(340px,calc(100vw-2.5rem))] md:max-h-[70dvh] md:rounded-[1.35rem] ${hasMiniVideo ? 'p-0' : 'p-1.5 md:p-2'}`}
       >
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-        <header className="direct-call-mini-header mb-1.5 flex items-center gap-1 rounded-xl px-1 py-0.5 md:mb-2 md:gap-2 md:rounded-2xl md:px-1.5 md:py-1">
-          <button
-            type="button"
-            {...dragHandleProps}
-            className="mini-player-drag-handle flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-gray-400 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:gap-2 md:rounded-xl md:px-2 md:py-1.5"
-            aria-grabbed="false"
-            aria-label="Move mini call player"
-            title="Drag to move. Use arrow keys to move, or double-click to reset."
-          >
-            <GripHorizontal size={14} className="shrink-0 text-gray-600 md:h-4 md:w-4" aria-hidden="true" />
-            <span className={`h-2 w-2 shrink-0 rounded-full ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} />
-            <span className="min-w-0 flex-1 truncate text-[10px] font-black uppercase tracking-[0.16em]">
-              {isMiniVideoCall ? 'Video call' : 'Voice call'} · {statusLabel}
-            </span>
-          </button>
-          <button type="button" onClick={() => setCallMinimized(false)} className="direct-call-mini-control flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 md:h-8 md:w-8" aria-label="Open full call" title="Open full call">
-            <Maximize2 size={14}/>
-          </button>
-        </header>
 
         {hasMiniVideo ? (
-          <div className="direct-call-mini-media relative mb-1.5 aspect-video overflow-hidden rounded-xl border border-white/10 bg-black md:mb-2 md:rounded-2xl">
+          /* The picture is the whole card and the chrome floats over it, so the
+             controls fading out gives their space back to the video. The shape
+             follows the sender: a phone screen share is portrait, not 16:9. */
+          <div
+            className="direct-call-mini-media relative w-full overflow-hidden bg-black"
+            style={{ aspectRatio: miniAspectRatio || DEFAULT_ASPECT_RATIO }}
+          >
             <video
               ref={isScreenShareLive ? remoteScreenVideoRef : isVideoLive ? remoteVideoRef : localVideoRef}
               autoPlay
               playsInline
               muted={!isVideoLive}
-              className={`h-full w-full ${isScreenShareLive ? 'object-contain' : 'object-cover'}`}
+              {...videoAspectProps}
+              className="absolute inset-0 h-full w-full object-contain"
               style={!isVideoLive && !isScreenShareLive ? localVideoStyle : undefined}
             />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent px-2.5 pb-2 pt-8 md:px-3.5 md:pb-3 md:pt-12">
-              <p className="truncate text-sm font-black tracking-tight text-white md:text-base">{remoteCaller?.username || 'Call'}</p>
-              <p className={`text-[9px] font-bold uppercase tracking-widest md:text-[10px] ${isConnected ? 'text-green-300' : 'text-[var(--theme-base)]'}`}>
-                {isScreenShareLive ? 'Sharing their screen' : statusLabel}{!isVideoLive && !isScreenShareLive ? ' · Your camera' : ''}
-              </p>
-            </div>
             {isVideoLive && videoEnabled && (
               <div className="direct-call-mini-pip absolute right-2 top-2 h-14 w-10 overflow-hidden rounded-lg border border-white/20 bg-[#1c1e22] md:right-2.5 md:top-2.5 md:h-24 md:w-16 md:rounded-xl">
                 <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={localVideoStyle} />
               </div>
             )}
+            <header
+              {...chromeHoldProps}
+              data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+              className="call-chrome call-chrome-top absolute inset-x-0 top-0 z-10 flex items-center gap-1 bg-gradient-to-b from-black/70 to-transparent px-1.5 py-1.5"
+            >
+              <button
+                type="button"
+                {...dragHandleProps}
+                className="mini-player-drag-handle flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-white/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
+                aria-grabbed="false"
+                aria-label="Move mini call player"
+                title="Drag to move. Use arrow keys to move, or double-click to reset."
+              >
+                <GripHorizontal size={14} className="shrink-0" aria-hidden="true" />
+                <span className={`h-2 w-2 shrink-0 rounded-full ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} aria-label={statusLabel} />
+              </button>
+              <button type="button" onClick={() => setCallMinimized(false)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-white/80 hover:text-white md:h-8 md:w-8" aria-label="Open full call" title="Open full call">
+                <Maximize2 size={14}/>
+              </button>
+            </header>
           </div>
         ) : (
+          <>
+          <header className="direct-call-mini-header mb-1.5 flex items-center gap-1 rounded-xl px-1 py-0.5 md:mb-2 md:gap-2 md:rounded-2xl md:px-1.5 md:py-1">
+            <button
+              type="button"
+              {...dragHandleProps}
+              className="mini-player-drag-handle flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-gray-400 hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:gap-2 md:rounded-xl md:px-2 md:py-1.5"
+              aria-grabbed="false"
+              aria-label="Move mini call player"
+              title="Drag to move. Use arrow keys to move, or double-click to reset."
+            >
+              <GripHorizontal size={14} className="shrink-0 text-gray-600 md:h-4 md:w-4" aria-hidden="true" />
+              <span className={`h-2 w-2 shrink-0 rounded-full ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} />
+            </button>
+            <button type="button" onClick={() => setCallMinimized(false)} className="direct-call-mini-control flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 md:h-8 md:w-8" aria-label="Open full call" title="Open full call">
+              <Maximize2 size={14}/>
+            </button>
+          </header>
+
           <div className="direct-call-mini-audio relative mb-1.5 flex min-h-20 min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-white/[0.07] px-2.5 py-2 md:mb-2 md:min-h-32 md:gap-4 md:rounded-2xl md:px-4 md:py-4">
             <div className="direct-call-mini-orb direct-call-mini-orb-one" aria-hidden="true" />
             <div className="direct-call-mini-orb direct-call-mini-orb-two" aria-hidden="true" />
@@ -120,8 +148,8 @@ export default function CallOverlay({
               <span className={`absolute bottom-0.5 right-0.5 z-[3] h-3 w-3 rounded-full border-2 border-[#151820] md:bottom-1 md:right-1 md:h-3.5 md:w-3.5 md:border-[3px] ${isConnected ? 'bg-green-400' : isTerminal ? 'bg-red-400' : 'bg-amber-400'}`} aria-hidden="true" />
             </div>
             <div className="relative z-[1] min-w-0 flex-1">
-              <span className="block truncate text-sm font-black tracking-tight text-white md:text-lg">{remoteCaller?.username || 'Call'}</span>
-              <span className={`mt-0.5 block truncate text-[10px] font-bold uppercase tracking-[0.15em] ${isConnected ? 'text-green-400' : 'text-[var(--theme-base)]'}`}>
+              <span className="block truncate type-title font-bold tracking-tight text-white">{remoteCaller?.username || 'Call'}</span>
+              <span className={`mt-0.5 block truncate type-meta font-bold uppercase tracking-[0.15em] ${isConnected ? 'text-green-400' : 'text-[var(--theme-base)]'}`}>
                 {statusLabel}{isConnected ? ` · ${micEnabled ? 'Mic on' : 'Muted'}` : ''}
               </span>
               {isConnected && (
@@ -133,9 +161,16 @@ export default function CallOverlay({
               )}
             </div>
           </div>
+          </>
         )}
 
-        <div className="direct-call-mini-controls flex flex-wrap items-center justify-center gap-1 rounded-xl border border-white/[0.06] p-1 md:gap-1.5 md:rounded-2xl md:p-1.5">
+        <div
+          {...(hasMiniVideo ? chromeHoldProps : {})}
+          data-chrome-hidden={hasMiniVideo && chromeHidden ? 'true' : 'false'}
+          className={`direct-call-mini-controls flex flex-wrap items-center justify-center gap-1 md:gap-1.5 ${hasMiniVideo
+            ? 'is-overlay call-chrome call-chrome-bottom absolute inset-x-0 bottom-0 z-10 p-1.5 md:p-2'
+            : 'rounded-xl border border-white/[0.06] p-1 md:rounded-2xl md:p-1.5'}`}
+        >
           {!isTerminal && (
             <>
               <button type="button" onClick={toggleMic} className={`direct-call-mini-control flex h-8 w-8 items-center justify-center rounded-full md:h-10 md:w-10 ${micEnabled ? 'is-live text-white' : 'is-danger text-red-300'}`} aria-label={micEnabled ? 'Mute' : 'Unmute'} title={micEnabled ? 'Mute' : 'Unmute'}>
@@ -165,13 +200,13 @@ export default function CallOverlay({
               </button>
 
               {isIncoming ? (
-                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 text-[11px] font-black text-white md:h-10 md:gap-2 md:px-4 md:text-xs"><Phone size={14} />Accept</button>
+                <button type="button" onClick={acceptCall} className="direct-call-mini-accept inline-flex h-8 items-center gap-1.5 rounded-full bg-green-500 px-3 type-meta font-black text-white md:h-10 md:gap-2 md:px-4"><Phone size={14} />Accept</button>
               ) : (
                 <button type="button" onClick={() => endCallNetwork('ended')} className="direct-call-mini-end flex h-8 w-10 items-center justify-center rounded-full bg-red-500 text-white md:h-10 md:w-12" aria-label="End call" title="End call"><PhoneOff size={15}/></button>
               )}
             </>
           )}
-          {isTerminal && <span className="px-3 py-2 text-xs font-bold text-gray-500">{statusLabel}</span>}
+          {isTerminal && <span className="px-3 py-2 type-meta font-bold text-gray-500">{statusLabel}</span>}
         </div>
       </div>
     )
@@ -181,7 +216,9 @@ export default function CallOverlay({
     <div
       data-ui-overlay-owner="CallOverlay:fullscreen-call"
       {...stageActivityProps}
-      className={`fixed inset-0 z-[100] ${isVideoLive ? 'bg-black' : 'bg-[var(--bg-base)]/90 backdrop-blur-2xl'} flex flex-col items-center justify-center p-4 animate-fade-in pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]`}
+      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center animate-fade-in ${isImmersive
+        ? 'bg-black'
+        : 'bg-[var(--bg-base)]/90 backdrop-blur-2xl p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]'}`}
     >
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
@@ -193,9 +230,11 @@ export default function CallOverlay({
         <button onClick={() => setCallMinimized(true)} className="text-gray-400 hover:text-white bg-black/20 p-3 rounded-full border border-white/10 transition-colors cursor-pointer shadow-lg hover:bg-white/10 backdrop-blur-md"><Minimize2 size={20}/></button>
       </div>
 
-      <div className={`relative w-full flex flex-col items-center justify-center gap-4 flex-1 ${isImmersive ? 'max-w-none' : 'max-w-5xl mb-8'}`}>
-        
-        <div className={`relative flex items-center justify-center rounded-3xl overflow-hidden transition-all duration-500 ${(isVideoLive || isScreenShareLive) ? 'w-full h-full' : 'w-52 h-52 md:w-64 md:h-64'} ${isScreenShareLive ? 'bg-black' : ''}`}>
+      <div className={`relative flex flex-col items-center justify-center gap-4 ${isImmersive ? 'absolute inset-0 w-full' : 'w-full max-w-5xl flex-1 mb-8'}`}>
+
+        {/* Immersive fills the viewport edge to edge; without live media the
+            stage collapses back to the avatar circle. */}
+        <div className={`relative flex items-center justify-center overflow-hidden transition-all duration-500 ${isImmersive ? 'absolute inset-0 bg-black' : 'w-52 h-52 md:w-64 md:h-64 rounded-3xl'}`}>
            <video
              ref={remoteScreenVideoRef}
              autoPlay playsInline
@@ -206,13 +245,21 @@ export default function CallOverlay({
              autoPlay playsInline
              className={`w-full h-full object-cover ${isVideoLive ? 'block' : 'hidden'}`}
            />
+           {localIsStage && (
+             <video
+               ref={localVideoRef}
+               autoPlay playsInline muted
+               className="w-full h-full object-cover"
+               style={localVideoStyle}
+             />
+           )}
            {isScreenShareLive && (
-             <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-md">
+             <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 type-meta font-bold text-white backdrop-blur-md">
                <ScreenShare size={13} />
                {remoteCaller?.username || 'They'} is sharing their screen
              </div>
            )}
-           {!isVideoLive && !isScreenShareLive && (
+           {!isImmersive && (
              <>
                {isWaiting && <div className="absolute inset-4 rounded-full border-4 border-[var(--theme-base)] animate-ping opacity-25"></div>}
                {isWaiting && <div className="absolute inset-0 rounded-full border border-[var(--theme-base)]/30 animate-pulse"></div>}
@@ -221,26 +268,36 @@ export default function CallOverlay({
            )}
         </div>
 
-        <div className={`overflow-hidden shadow-2xl border border-white/10 bg-[#1c1e22] transition-all duration-500 ${videoEnabled ? 'block' : 'hidden'} ${(isVideoLive || isScreenShareLive) ? 'absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 rounded-2xl z-40' : 'w-40 h-40 rounded-3xl'}`}>
-           <video
-             ref={localVideoRef}
-             autoPlay playsInline muted
-             className="w-full h-full object-cover"
-             style={localVideoStyle}
-           />
-        </div>
-
-        {screenShareActive && (
-          <div className={`overflow-hidden shadow-2xl border border-[var(--theme-base)]/60 bg-black transition-all duration-500 ${(isVideoLive || isScreenShareLive) ? 'absolute bottom-24 left-4 md:left-8 w-28 h-20 md:w-48 md:h-32 rounded-2xl z-40' : 'w-40 h-24 rounded-2xl'}`}>
-            <video ref={localScreenVideoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-white">You're sharing</div>
+        {/* Only a remote stage leaves room for a corner preview; when the local
+            camera is the stage, localVideoRef is already attached there. */}
+        {remoteStageActive && videoEnabled && (
+          <div className="absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 z-40 overflow-hidden rounded-2xl border border-white/10 bg-[#1c1e22] shadow-2xl transition-all duration-500">
+             <video
+               ref={localVideoRef}
+               autoPlay playsInline muted
+               className="w-full h-full object-cover"
+               style={localVideoStyle}
+             />
           </div>
         )}
 
-        {!isVideoLive && !isScreenShareLive && (
-          <div className="absolute bottom-[8%] flex flex-col items-center px-4 text-center">
-            <h2 className="mb-1 text-2xl font-bold tracking-tight text-white md:text-3xl">{remoteCaller?.username}</h2>
-            <p className="text-sm font-bold text-gray-300">
+        {screenShareActive && (
+          <div className={`overflow-hidden shadow-2xl border border-[var(--theme-base)]/60 bg-black transition-all duration-500 ${isImmersive ? 'absolute bottom-24 left-4 md:left-8 w-28 h-20 md:w-48 md:h-32 rounded-2xl z-40' : 'w-40 h-24 rounded-2xl'}`}>
+            <video ref={localScreenVideoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center type-meta font-bold uppercase tracking-wide text-white">You're sharing</div>
+          </div>
+        )}
+
+        {/* Who is being called, and how it is going. Over a full-screen local
+            preview this rides at the top and fades with the rest of the chrome;
+            a live remote stage carries its own identity, so it is dropped. */}
+        {!remoteStageActive && (
+          <div
+            data-chrome-hidden={chromeHidden ? 'true' : 'false'}
+            className={`absolute flex flex-col items-center px-4 text-center ${isImmersive ? 'call-chrome call-chrome-top inset-x-0 top-[max(1.25rem,env(safe-area-inset-top))] z-40 drop-shadow-lg' : 'bottom-[8%]'}`}
+          >
+            <h2 className="mb-1 type-view-title font-bold tracking-tight text-white">{remoteCaller?.username}</h2>
+            <p className="type-label font-bold text-gray-300">
               {statusLabel}
             </p>
           </div>
@@ -252,12 +309,12 @@ export default function CallOverlay({
               <Video size={24} />
             </div>
             <div className="text-center">
-              <h3 className="text-white font-bold text-lg">{remoteCaller?.username || 'User'}</h3>
-              <span className="text-gray-300 text-sm">is requesting to turn on video</span>
+              <h3 className="text-white font-bold type-title">{remoteCaller?.username || 'User'}</h3>
+              <span className="text-gray-300 type-label">is requesting to turn on video</span>
             </div>
             <div className="flex gap-3 w-full mt-2">
-               <button onClick={declineVideoRequest} className="flex-1 bg-white/5 border border-white/10 text-white py-3 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer">Decline</button>
-               <button onClick={acceptVideoRequest} className="flex-1 bg-green-500 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
+               <button onClick={declineVideoRequest} className="flex-1 bg-white/5 border border-white/10 text-white py-3 rounded-xl type-label font-bold hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer">Decline</button>
+               <button onClick={acceptVideoRequest} className="flex-1 bg-green-500 text-white py-3 rounded-xl type-label font-bold hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
             </div>
           </div>
         )}

@@ -3,13 +3,13 @@
  * selection, presence, permissions, voice-channel state, and modal ownership.
  * Supabase/RPCs remain authoritative; switches must retire obsolete async work.
  */
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import imageCompression from 'browser-image-compression'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
-import { configureNativePushRegistration, registerWebPushDevice, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
+import { configureNativePushRegistration, registerWebPushDevice, reportActiveConversation, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
-import { Search, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
+import { Search, SearchX, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 
 import { audioSys } from '../lib/SoundEngine'
 import { triggerInteractionFeedback } from '../lib/interactionFeedback'
@@ -17,28 +17,29 @@ import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
 
-import CallOverlay from './chat/CallOverlay'
-import LeftSidebar from './layout/LeftSidebar'
-import RightSidebar from './layout/RightSidebar'
 import ChatArea from './layout/ChatArea'
 
-import ServerActionPopout from './modals/ServerActionPopout'
-import ServerSettingsModal from './modals/ServerSettings'
-// import ChannelCreationModal from './modals/ChannelCreation'
-import ChannelSettingsModal from './modals/ChannelSettings'
-import UserSettingsModal from './modals/UserSettings'
-import ReportContentModal from './modals/ReportContentModal'
+// Kept out of the boot bundle — each mounts only behind a user action
+// (starting a call, opening the details pane, opening a modal).
+const CallOverlay = lazy(() => import('./chat/CallOverlay'))
+const RightSidebar = lazy(() => import('./layout/RightSidebar'))
+const ChannelSettingsModal = lazy(() => import('./modals/ChannelSettings'))
+const UserSettingsModal = lazy(() => import('./modals/UserSettings'))
+const ReportContentModal = lazy(() => import('./modals/ReportContentModal'))
 
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
 import { normalizeProfileBaseName } from '../lib/security'
+import { downloadFile } from '../lib/downloadFile'
 import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
+import { buildNotifications } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
 import {
   consumePendingPushTarget,
   consumePushTargetFromLocation,
-  PUSH_NAVIGATION_EVENT
+  PUSH_NAVIGATION_EVENT,
+  setActiveConversationId
 } from '../lib/pushNavigation'
 import {
   CONVERSATION_THEMES,
@@ -67,7 +68,9 @@ import {
 import { createVoiceChannelClient } from '../lib/voiceChannelClient'
 import { getIceServers } from '../lib/iceServers'
 import StatusAvatar from './ui/StatusAvatar'
-import { CornerDownLeft } from 'lucide-react'
+import { CornerDownLeft, Hash, Users } from 'lucide-react'
+import { debug } from '../lib/debug'
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -171,8 +174,7 @@ export default function Dashboard({ session }) {
   const [customWallpaperState, setCustomWallpaperState] = useState({ scopeKey: '', url: '' })
   const [customWallpaperBusy, setCustomWallpaperBusy] = useState(false)
   const [view, setView] = useState('home')
-  const [homeTab, setHomeTab] = useState('all')
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [homeTab, setHomeTab] = useState('chats')
   const [servers, setServers] = useState(cachedServers)
   const [serversLoading, setServersLoading] = useState(cachedServers.length === 0)
   const [activeServer, setActiveServer] = useState(null)
@@ -201,13 +203,13 @@ export default function Dashboard({ session }) {
   const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [rightTab, setRightTab] = useState('search')
   const [searchQuery, setSearchQuery] = useState('')
-  const [serverAction, setServerAction] = useState(null)
-  const [showProfilePopout, setShowProfilePopout] = useState(false)
   
-  const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account', showMenu: true })
+  const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
   const [userStatus, setUserStatus] = useState(() => localStorage.getItem(`user_status_${session.user.id}`) || 'online')
   
-  const popoutRef = useRef(null)
+  /* The Android back listener is registered once, so it reads handleBack
+     through a ref rather than re-subscribing on every render. */
+  const handleBackRef = useRef(() => {})
   const serverMembersCacheRef = useRef(new Map())
   const serversFetchRef = useRef(null)
   const dmsFetchRef = useRef(null)
@@ -218,7 +220,6 @@ export default function Dashboard({ session }) {
   const serverChannelsRequestRef = useRef(0)
   const pushNavigationHandlerRef = useRef(null)
   const pushNavigationMountedRef = useRef(false)
-  const [showServerSettings, setShowServerSettings] = useState(false)
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
@@ -246,7 +247,6 @@ export default function Dashboard({ session }) {
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
   const [reportTarget, setReportTarget] = useState(null)
-  const [serverSettingsName, setServerSettingsName] = useState('')
   const [channelSettingsName, setChannelSettingsName] = useState('')
   const profileCacheKey = `profile_cache_${session.user.id}`
   const [profileOverride, setProfileOverride] = useState(() => {
@@ -260,7 +260,6 @@ export default function Dashboard({ session }) {
   const profileData = { ...(session.user.user_metadata || {}), ...profileOverride }
   const myAvatar = profileData.avatar_url
   const myBanner = profileData.banner_url
-  const myBio = profileData.bio
   const myPronouns = profileData.pronouns
   const myUsername = profileData.username || session.user.email.split('@')[0]
   const myTag = profileData.unique_tag || `${myUsername}#0000`
@@ -280,10 +279,7 @@ export default function Dashboard({ session }) {
   }, [reportTarget, session.user.id])
 
   const closeUserSettings = useCallback(() => {
-    setSettingsModalConfig({ isOpen: false, tab: 'account', showMenu: true })
-    setView('home')
-    setHomeTab('all')
-    if (window.innerWidth < 768) setMobileMenuOpen(true)
+    setSettingsModalConfig({ isOpen: false, tab: 'account' })
   }, [])
 
   const handleCurrentUserRead = useCallback((roomId, readAt) => {
@@ -320,15 +316,20 @@ export default function Dashboard({ session }) {
   const imagePanRef = useRef({ x: 0, y: 0 })
   const imagePointersRef = useRef(new Map())
   const imageGestureRef = useRef({ pinchDistance: 0, pinchZoom: 1, dragStart: null })
+  // Name and avatar only decorate presence, so they are read through a ref: a
+  // profile edit mid-call used to rebuild the factory and re-handshake the
+  // entire voice mesh.
+  const voiceIdentityRef = useRef({ displayName: myUsername, avatarUrl: myAvatar })
+  voiceIdentityRef.current = { displayName: myUsername, avatarUrl: myAvatar }
   const screenShareClientFactory = useMemo(() => roomId => createVoiceChannelClient({
     roomId,
     participant: {
       id: session.user.id,
-      displayName: myUsername,
-      avatarUrl: myAvatar
+      displayName: voiceIdentityRef.current.displayName,
+      avatarUrl: voiceIdentityRef.current.avatarUrl
     },
     iceServers: getIceServers()
-  }), [myAvatar, myUsername, session.user.id])
+  }), [session.user.id])
   const hasConfirmAction = Boolean(confirmAction)
   const hasSelectedImage = Boolean(chatManagerProps.selectedImage)
   const selectedImageItems = chatManagerProps.selectedImage?.items?.length
@@ -455,14 +456,12 @@ export default function Dashboard({ session }) {
   useEffect(() => {
     activeDmRef.current = activeDm;
     stateRef.current = { 
-      mobileMenuOpen, 
+      homeTab,
       showRightSidebar, 
       settingsModalConfig, 
       selectedImage: chatManagerProps.selectedImage,
-      showProfilePopout,
       showQuickSwitcher,
 	      confirmAction,
-	      showServerSettings,
 	      showChannelModal,
 	      showChannelSettings,
 	      dmActionMenuId,
@@ -470,7 +469,7 @@ export default function Dashboard({ session }) {
 	      activeDm,
 	      view
 	    };
-	  }, [mobileMenuOpen, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showProfilePopout, showQuickSwitcher, confirmAction, showServerSettings, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
+	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
     const setupBackButton = async () => {
@@ -492,20 +491,15 @@ export default function Dashboard({ session }) {
 	        else if (state.selectedImage) chatManagerProps.setSelectedImage(null);
         else if (state.confirmAction) setConfirmAction(null);
         else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
-        else if (state.showProfilePopout) setShowProfilePopout(false);
-        else if (state.showServerSettings) setShowServerSettings(false);
         else if (state.showChannelModal) setShowChannelModal(false);
         else if (state.showChannelSettings) setShowChannelSettings(false);
-        else if (state.settingsModalConfig.isOpen) {
-            if (!state.settingsModalConfig.showMenu && window.innerWidth < 768) {
-                setSettingsModalConfig(prev => ({ ...prev, showMenu: true }));
-            } else {
-                closeUserSettings();
-            }
-        }
+        else if (state.settingsModalConfig.isOpen) closeUserSettings();
         else if (state.showRightSidebar) { setShowRightSidebar(false); setSearchQuery(''); }
-        else if (!state.mobileMenuOpen) {
-            setMobileMenuOpen(true);
+        /* Bottom-bar tabs are destinations, so back leaves them for Chats
+           before it starts unwinding conversations or exiting. */
+        else if (state.view === 'home' && !state.activeDm && state.homeTab !== 'chats') setHomeTab('chats');
+        else if (state.activeDm || state.view === 'server') {
+            handleBackRef.current();
         } else {
             if (exitTimerRef.current) {
                 CapacitorApp.exitApp();
@@ -572,7 +566,7 @@ export default function Dashboard({ session }) {
   }, [dmActionMenuId])
 
   useEffect(() => {
-    const nextScope = `${view}:${activeDm?.dm_room_id || 'none'}:${mobileMenuOpen ? 'mobile-open' : 'mobile-closed'}`
+    const nextScope = `${view}:${activeDm?.dm_room_id || 'none'}:${homeTab}`
     if (dmMenuScopeRef.current && dmMenuScopeRef.current !== nextScope && dmActionMenuId) {
       logUiFreezeDebug('dm action menu closed', {
         reason: 'scope_changed',
@@ -583,7 +577,7 @@ export default function Dashboard({ session }) {
       setDmActionMenuId(null)
     }
     dmMenuScopeRef.current = nextScope
-  }, [activeDm?.dm_room_id, dmActionMenuId, mobileMenuOpen, view])
+  }, [activeDm?.dm_room_id, dmActionMenuId, homeTab, view])
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -614,12 +608,11 @@ export default function Dashboard({ session }) {
 
     return () => cancelAnimationFrame(frame)
   }, [
-    mobileMenuOpen,
+    homeTab,
     showRightSidebar,
     settingsModalConfig.isOpen,
     showQuickSwitcher,
     hasConfirmAction,
-    showServerSettings,
     showChannelModal,
     showChannelSettings,
     hasSelectedImage,
@@ -662,9 +655,7 @@ export default function Dashboard({ session }) {
 
     const storedDensity = localStorage.getItem('uiDensity') || localStorage.getItem('chatMessageScale') || 'default';
     const uiDensity = storedDensity === 'comfortable' || storedDensity === 'normal' ? 'default' : storedDensity === 'large' ? 'spacious' : storedDensity;
-    const chatMessageSize = uiDensity === 'spacious' ? '16px' : uiDensity === 'compact' ? '14px' : '15px';
     document.documentElement.setAttribute('data-ui-density', uiDensity);
-    document.documentElement.style.setProperty('--chat-message-font-size', chatMessageSize);
   }, []);
 
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
@@ -672,7 +663,6 @@ export default function Dashboard({ session }) {
 
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
-    setMobileMenuOpen(false)
     if (dm) {
       localStorage.setItem(`last_dm_${session.user.id}`, dm.dm_room_id)
       // Preserve the prior receipt until the message viewport proves what the
@@ -713,7 +703,6 @@ export default function Dashboard({ session }) {
     setView('server')
     setActiveDm(null)
     setActiveChannel(channel)
-    setMobileMenuOpen(false)
     joinVoiceChannel(channel)
   }, [joinVoiceChannel])
 
@@ -729,7 +718,6 @@ export default function Dashboard({ session }) {
     setView('server')
     setActiveDm(null)
     setActiveChannel(channel)
-    setMobileMenuOpen(false)
   }, [activeServer, activeVoiceSession, serverCategories, servers])
 
   const leaveActiveVoice = useCallback(() => {
@@ -751,17 +739,6 @@ export default function Dashboard({ session }) {
       })
     }
   }, [activeVoiceSession, openActiveVoiceChannel])
-
-  const updateProfileBio = useCallback(async (newStatus) => {
-    const nextBio = newStatus.trim()
-    setProfileOverride(prev => {
-      const next = { ...prev, bio: nextBio }
-      localStorage.setItem(profileCacheKey, JSON.stringify(next))
-      return next
-    })
-    const { error } = await supabase.from('profiles').update({ bio: nextBio }).eq('id', session.user.id)
-    if (error) throw error
-  }, [profileCacheKey, session.user.id])
 
   useEffect(() => {
     if (!session?.user?.id) return; 
@@ -894,42 +871,61 @@ export default function Dashboard({ session }) {
          fetchDms();
     }).subscribe();
 
-    const relationshipsSub = supabase.channel('public:user_relationships').on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships' }, (payload) => {
-      const row = payload.new?.id ? payload.new : payload.old;
-      if (row?.blocker_id === session.user.id || row?.blocked_id === session.user.id) fetchRelationships();
-    }).subscribe();
+    /* A postgres_changes filter takes one condition, so blocker and blocked are
+       two listeners on one channel rather than an unfiltered firehose. */
+    const relationshipsSub = supabase.channel('public:user_relationships')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships', filter: `blocker_id=eq.${session.user.id}` }, fetchRelationships)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships', filter: `blocked_id=eq.${session.user.id}` }, fetchRelationships)
+      .subscribe();
 
-    const dmMessagesSub = supabase.channel('public:dm-messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-      const roomId = payload.new?.dm_room_id;
-      if (!roomId) return;
-      const messageAt = payload.new.created_at || new Date().toISOString();
-      const isOwnMessage = payload.new.profile_id === session.user.id;
-      const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
-      if (!isOwnMessage && !isOpenRoom) {
-        audioSys.playMessageReceived()
-        triggerInteractionFeedback('message-received')
-      }
-      setDms(current => {
-        const next = current.map(dm => dm.dm_room_id === roomId ? {
-          ...dm,
-          last_message_at: messageAt,
-          last_message_profile_id: payload.new.profile_id,
-          last_read_at: dm.last_read_at,
-          is_unread: !isOwnMessage && !isOpenRoom
-        } : dm)
-        return sortDmsByLastMessage(next)
-      })
-    }).subscribe();
-
-    return () => { 
+    return () => {
       presenceChannelRef.current = null;
-      supabase.removeChannel(presenceChannel); 
+      supabase.removeChannel(presenceChannel);
       supabase.removeChannel(requestsSub);
       supabase.removeChannel(dmMembersSub);
       supabase.removeChannel(relationshipsSub);
-      supabase.removeChannel(dmMessagesSub);
     }
-  }, [session]) 
+  }, [session])
+
+  /* Sidebar ordering and unread dots for DMs that are not open. This used to be
+     one unfiltered subscription on `messages`, which delivered every message
+     inserted anywhere in the product to every connected client. The handler only
+     ever updates rooms already in `dms`, so one filtered listener per known room
+     carries exactly the same information.
+     ponytail: one listener per room. Fine for a normal DM list; if someone
+     accumulates hundreds of rooms, move this to a server-side fan-out. */
+  const dmRoomIdsKey = useMemo(
+    () => dms.map(dm => dm.dm_room_id).filter(Boolean).sort().join(','),
+    [dms]
+  )
+
+  useEffect(() => {
+    if (!dmRoomIdsKey) return
+    const channel = supabase.channel('dm-message-activity')
+    for (const roomId of dmRoomIdsKey.split(',')) {
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `dm_room_id=eq.${roomId}` }, (payload) => {
+        const messageAt = payload.new.created_at || new Date().toISOString();
+        const isOwnMessage = payload.new.profile_id === session.user.id;
+        const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
+        if (!isOwnMessage && !isOpenRoom) {
+          audioSys.playMessageReceived()
+          triggerInteractionFeedback('message-received')
+        }
+        setDms(current => {
+          const next = current.map(dm => dm.dm_room_id === roomId ? {
+            ...dm,
+            last_message_at: messageAt,
+            last_message_profile_id: payload.new.profile_id,
+            last_read_at: dm.last_read_at,
+            is_unread: !isOwnMessage && !isOpenRoom
+          } : dm)
+          return sortDmsByLastMessage(next)
+        })
+      })
+    }
+    channel.subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [dmRoomIdsKey, session.user.id])
 
   useEffect(() => {
     if (!presenceChannelRef.current) return
@@ -971,7 +967,7 @@ export default function Dashboard({ session }) {
   }, [])
 
   const fetchFriendRequests = async () => {
-    const { data } = await supabase.from('friendships').select('id, sender_id, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
+    const { data } = await supabase.from('friendships').select('id, sender_id, created_at, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
     if (data) setFriendRequests(data)
   }
 
@@ -1036,15 +1032,25 @@ export default function Dashboard({ session }) {
     }
   }
 
-  const handleHomeClick = () => {
-    setView('home')
-    setHomeTab('all')
-    setActiveServer(null)
-    setActiveChannel(null)
-    selectDm(null)
+  /* The app bar's only back affordance, and the Android back button's. Server
+     channels return to the channel list they were opened from; DMs return to
+     the chat list. */
+  const handleBack = () => {
+    if (view === 'server') {
+      setActiveChannel(null)
+      setView('home')
+      setHomeTab('servers')
+    } else {
+      selectDm(null)
+    }
     closeRightSidebar()
-    setMobileMenuOpen(false)
   }
+
+  handleBackRef.current = handleBack
+
+  /* The bottom bar badge. Same derivation the notifications tab renders, so
+     the count and the list can never disagree. */
+  const notificationCount = useMemo(() => buildNotifications({ friendRequests }).length, [friendRequests])
 
   const handleConversationThemeChange = async (requestedThemeId) => {
     const themeId = normalizeConversationThemeId(requestedThemeId)
@@ -1382,7 +1388,9 @@ export default function Dashboard({ session }) {
 
       if (serverChannelsRequestRef.current !== requestId) return []
       setServerCategories(nextCategories)
-      setActiveChannel(current => current && nextChannels.some(channel => channel.id === current.id) ? current : null)
+      /* Swap in the freshly read row rather than keeping the held object, so a
+         rename lands and a channel opened by id alone fills itself in. */
+      setActiveChannel(current => (current && nextChannels.find(channel => channel.id === current.id)) || null)
       setServerChannelsLoading(false)
       return nextCategories
     } catch (_err) {
@@ -1398,10 +1406,7 @@ export default function Dashboard({ session }) {
     const cleanName = name.trim()
     const serverId = server_id || activeServer?.id
     if (!cleanName || !serverId || serverId !== activeServer?.id || !category_id) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can add channels.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can add channels.')
     const channelType = type === 'voice' ? 'voice' : 'text'
 
     const { data: lastChannel, error: positionError } = await supabase
@@ -1417,7 +1422,6 @@ export default function Dashboard({ session }) {
     const { data: channel, error: insertError } = await supabase
       .from('channels')
       .insert({
-        server_id: serverId,
         category_id,
         name: cleanName,
         type: channelType,
@@ -1437,10 +1441,7 @@ export default function Dashboard({ session }) {
     const cleanName = name.trim()
     const serverId = activeServer?.id
     if (!cleanName || !serverId) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can add categories.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can add categories.')
 
     const { data: lastCategory, error: positionError } = await supabase
       .from('categories')
@@ -1471,10 +1472,7 @@ export default function Dashboard({ session }) {
   const handleUpdateCategory = async (categoryId, name) => {
     const cleanName = name.trim()
     if (!activeServer?.id || !categoryId || !cleanName) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can edit categories.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can edit categories.')
     const { data: category, error } = await supabase
       .from('categories')
       .update({ name: cleanName })
@@ -1489,10 +1487,7 @@ export default function Dashboard({ session }) {
 
   const handleDeleteCategory = async (categoryId) => {
     if (!activeServer?.id || !categoryId) return
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can delete categories.')
-      return
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can delete categories.')
     const { error } = await supabase
       .from('categories')
       .delete()
@@ -1507,15 +1502,11 @@ export default function Dashboard({ session }) {
   const handleUpdateChannel = async (channelId, name) => {
     const cleanName = name.trim()
     if (!activeServer?.id || !channelId || !cleanName) return null
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can edit channels.')
-      return null
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can edit channels.')
     const { data: channel, error } = await supabase
       .from('channels')
       .update({ name: cleanName })
       .eq('id', channelId)
-      .eq('server_id', activeServer.id)
       .select()
       .single()
     if (error) throw error
@@ -1526,26 +1517,24 @@ export default function Dashboard({ session }) {
 
   const handleDeleteChannel = async (channelId) => {
     if (!activeServer?.id || !channelId) return
-    if (!canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can delete channels.')
-      return
-    }
+    if (!canManageServer(activeServer, session.user.id)) throw new Error('Only server admins can delete channels.')
     const { error } = await supabase
       .from('channels')
       .delete()
       .eq('id', channelId)
-      .eq('server_id', activeServer.id)
     if (error) throw error
     if (activeVoiceSession?.channelId === channelId) leaveActiveVoice()
     await fetchServerChannels(activeServer.id)
   }
 
+  /* Both of these go through RPCs rather than deleting the rows directly. A
+     PostgREST delete that RLS filters down to zero rows reports no error, so
+     the raw version could not tell "left/deleted" from "silently refused" and
+     reported success either way. The functions raise instead, and delete_server
+     also queues the server's attachments for storage cleanup. */
   const handleLeaveServer = async () => {
     if (!activeServer?.id) return
-    const { error } = await supabase
-      .from('server_members')
-      .delete()
-      .match({ server_id: activeServer.id, profile_id: session.user.id })
+    const { error } = await supabase.rpc('leave_server', { target_server_id: activeServer.id })
     if (error) throw error
     setServers(current => current.filter(server => server.id !== activeServer.id))
     if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
@@ -1557,11 +1546,8 @@ export default function Dashboard({ session }) {
   }
 
   const handleDeleteServer = async () => {
-    if (!activeServer?.id || !canManageServer(activeServer, session.user.id)) {
-      toast.error('Only server admins can delete this server.')
-      return
-    }
-    const { error } = await supabase.from('servers').delete().eq('id', activeServer.id)
+    if (!activeServer?.id) return
+    const { error } = await supabase.rpc('delete_server', { target_server_id: activeServer.id })
     if (error) throw error
     setServers(current => current.filter(server => server.id !== activeServer.id))
     if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
@@ -1679,6 +1665,13 @@ export default function Dashboard({ session }) {
   pushNavigationHandlerRef.current = async target => {
       if (!target || !pushNavigationMountedRef.current) return
       try {
+        if (target.type === 'friend_request') {
+          setView('home')
+          setActiveDm(null)
+          setHomeTab('notifs')
+          await fetchFriendRequests()
+          return
+        }
         if (target.type === 'dm_message') {
           let dm = dms.find(item => item.dm_room_id === target.dmRoomId)
           if (!dm) {
@@ -1709,12 +1702,35 @@ export default function Dashboard({ session }) {
         setView('server')
         setActiveDm(null)
         setActiveChannel(channel)
-        setMobileMenuOpen(false)
-      } catch (error) {
+          } catch (error) {
         reportPushError('open_conversation', error)
         if (pushNavigationMountedRef.current) toast.error('That conversation is no longer available.')
       }
     }
+
+  /* Whichever room is on screen is the one push has to stay quiet about — told
+     to the service worker for notifications already in flight, and to the push
+     sender so it can skip this device entirely. Nothing is reported while the
+     app is hidden: a backgrounded chat is exactly when a notification is
+     wanted. The repeat keeps the server-side report inside its freshness
+     window while the conversation stays open. */
+  useEffect(() => {
+    const conversationId = (view === 'home' ? activeDm?.dm_room_id : activeChannel?.id) || null
+    const profileId = session.user.id
+    const publish = () => {
+      const visibleConversationId = document.visibilityState === 'visible' ? conversationId : null
+      setActiveConversationId(visibleConversationId)
+      void reportActiveConversation({ profileId, conversationId: visibleConversationId })
+    }
+    publish()
+    document.addEventListener('visibilitychange', publish)
+    const refresh = conversationId ? window.setInterval(publish, 60_000) : null
+    return () => {
+      document.removeEventListener('visibilitychange', publish)
+      if (refresh) window.clearInterval(refresh)
+      setActiveConversationId(null)
+    }
+  }, [view, activeDm?.dm_room_id, activeChannel?.id, session.user.id])
 
   useEffect(() => {
     pushNavigationMountedRef.current = true
@@ -1743,14 +1759,75 @@ export default function Dashboard({ session }) {
     }
   }, [activeServer?.id, fetchServerChannels])
 
-  const searchResults = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    if (!showRightSidebar || rightTab !== 'search' || !query) return []
-    return chatManagerProps.validMessages.filter(m => {
-      if (m.is_deleted) return false
-      return m.content?.toLowerCase().includes(query) || m.profiles?.username?.toLowerCase().includes(query)
-    })
-  }, [chatManagerProps.validMessages, rightTab, searchQuery, showRightSidebar])
+  /* Search now reaches every conversation, not just the open one, so it is a
+     round trip (and, for DMs, a decrypt pass) rather than a filter over state.
+     Debounced, and the previous query is aborted so a fast typist does not
+     stack passes. */
+  const [searchResults, setSearchResults] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchAllConversations = chatManagerProps.searchAllConversations
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!showRightSidebar || rightTab !== 'search' || query.length < SEARCH_MIN_QUERY_LENGTH) {
+      setSearchResults([])
+      setSearchLoading(false)
+      return
+    }
+    const controller = new AbortController()
+    setSearchLoading(true)
+    const timer = setTimeout(() => {
+      searchAllConversations(query, { signal: controller.signal })
+        .then(results => { if (!controller.signal.aborted) setSearchResults(results) })
+        .catch(error => {
+          if (controller.signal.aborted) return
+          debug.error('MESSAGE_SEARCH', { operation: 'search-all', error })
+          setSearchResults([])
+        })
+        .finally(() => { if (!controller.signal.aborted) setSearchLoading(false) })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [rightTab, searchAllConversations, searchQuery, showRightSidebar])
+
+  /* A hit can live in a conversation that is not open. Switch to it first, then
+     let scrollToMessage do its usual thing (it pages in the surrounding
+     messages itself when the target is not already rendered). */
+  const [pendingSearchJump, setPendingSearchJump] = useState(null)
+  const selectSearchResult = useCallback((message) => {
+    const scope = message?.__search
+    const alreadyOpen = scope?.type === 'dm'
+      ? scope.dmRoomId === activeDm?.dm_room_id
+      : scope?.channelId === activeChannel?.id
+    if (!scope || alreadyOpen) {
+      chatManagerProps.scrollToMessage(message)
+      return
+    }
+    if (scope.type === 'dm') {
+      const dm = dms.find(item => item.dm_room_id === scope.dmRoomId)
+      if (!dm) return toast.error('That conversation is no longer available.')
+      setView('home')
+      setActiveChannel(null)
+      selectDm(dm)
+    } else {
+      const server = servers.find(item => item.id === scope.serverId)
+      if (!server) return toast.error('That server is no longer available.')
+      setActiveServer(server)
+      setView('server')
+      setActiveDm(null)
+      setActiveChannel({ id: scope.channelId, name: scope.channelName, type: 'text' })
+    }
+    setPendingSearchJump(message)
+  }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.scrollToMessage, dms, selectDm, servers])
+
+  useEffect(() => {
+    if (!pendingSearchJump || !chatManagerProps.initialMessagesLoaded) return
+    const scope = pendingSearchJump.__search
+    const arrived = scope.type === 'dm'
+      ? activeDm?.dm_room_id === scope.dmRoomId
+      : activeChannel?.id === scope.channelId
+    if (!arrived) return
+    chatManagerProps.scrollToMessage(pendingSearchJump)
+    setPendingSearchJump(null)
+  }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.initialMessagesLoaded, chatManagerProps.scrollToMessage, pendingSearchJump])
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
   const getPresenceStatus = useCallback((profileId) => {
@@ -1776,6 +1853,9 @@ export default function Dashboard({ session }) {
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
   const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
+  /* delete_server is owner-only; admins can manage everything else but must
+     leave rather than delete, so the two actions gate on different checks. */
+  const isActiveServerOwner = activeServer?.owner_id === session.user.id
 
   const quickSwitcherBase = allFriends
 
@@ -1786,6 +1866,32 @@ export default function Dashboard({ session }) {
   const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 
   const quickSwitcherResults = quickSwitcherQuery ? quickSwitcherBase.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) || dm.profiles.unique_tag?.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : quickSwitcherBase
+  /* Servers and the open server's channels, from state that is already loaded —
+     channels of other servers are not fetched until that server is opened, so
+     they are reachable through their server rather than listed here. */
+  const quickSwitcherPlaces = useMemo(() => {
+    const query = quickSwitcherQuery.trim().toLowerCase()
+    if (!query) return []
+    const places = [
+      ...servers.map(server => ({ kind: 'server', id: server.id, name: server.name, server })),
+      ...serverCategories.flatMap(category => (category.channels || []).map(channel => (
+        { kind: 'channel', id: channel.id, name: channel.name, channel, context: activeServer?.name }
+      )))
+    ]
+    return places.filter(place => place.name?.toLowerCase().includes(query))
+  }, [activeServer?.name, quickSwitcherQuery, serverCategories, servers])
+
+  const openQuickSwitcherPlace = useCallback((place) => {
+    setShowQuickSwitcher(false)
+    if (place.kind === 'server') {
+      setActiveServer(place.server)
+      setView('server')
+      setActiveDm(null)
+      setActiveChannel(null)
+      return
+    }
+    selectChannel(place.channel)
+  }, [selectChannel])
   const currentConversationThemeId = resolveConversationThemeId(
     view === 'server' ? activeServer?.theme_id : activeDm?.dm_rooms?.theme_id,
     view === 'home' ? activeDm?.dm_rooms?.theme_color : null
@@ -1882,19 +1988,25 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
+    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0 md:gap-2 md:p-2">
       <a href="#messapp-main" className="skip-link">Skip to conversation</a>
-      <CallOverlay 
-        {...webRTCProps}
-        acceptCall={webRTCProps.acceptCall}
-        endCallNetwork={webRTCProps.endCallNetwork}
-        toggleMic={webRTCProps.toggleMic}
-        toggleVideo={webRTCProps.toggleVideo}
-        toggleNoiseCancellation={webRTCProps.toggleNoiseCancellation}
-        acceptVideoRequest={webRTCProps.acceptVideoRequest}
-        declineVideoRequest={webRTCProps.declineVideoRequest}
-        composerTrayOpen={composerTrayOpen}
-      />
+      {/* CallOverlay already self-guards on callActive; gating here as well keeps
+          its lazy chunk out of the boot path. */}
+      {webRTCProps.callActive && (
+        <Suspense fallback={null}>
+          <CallOverlay
+            {...webRTCProps}
+            acceptCall={webRTCProps.acceptCall}
+            endCallNetwork={webRTCProps.endCallNetwork}
+            toggleMic={webRTCProps.toggleMic}
+            toggleVideo={webRTCProps.toggleVideo}
+            toggleNoiseCancellation={webRTCProps.toggleNoiseCancellation}
+            acceptVideoRequest={webRTCProps.acceptVideoRequest}
+            declineVideoRequest={webRTCProps.declineVideoRequest}
+            composerTrayOpen={composerTrayOpen}
+          />
+        </Suspense>
+      )}
 
       <Toaster
         position="top-center"
@@ -1902,82 +2014,7 @@ export default function Dashboard({ session }) {
         toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
 
-      {/* Dashboard owns atomic DM creation and passes the canonical RPC-backed handler down. */}
-      <LeftSidebar 
-        session={session}
-        view={view}
-        setView={setView}
-        homeTab={homeTab}
-        setHomeTab={setHomeTab}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-        servers={servers}
-        serversLoading={serversLoading}
-        activeServer={activeServer}
-        serverCategories={serverCategories}
-        serverChannelsLoading={serverChannelsLoading}
-        setActiveServer={setActiveServer}
-        activeChannel={activeChannel}
-        setActiveChannel={selectChannel}
-        canManageActiveServer={canManageActiveServer}
-        activeServerRole={activeServerRole}
-        handleCreateChannel={handleCreateChannel}
-        handleCreateCategory={handleCreateCategory}
-        handleUpdateCategory={handleUpdateCategory}
-        handleDeleteCategory={handleDeleteCategory}
-        handleUpdateChannel={handleUpdateChannel}
-        handleDeleteChannel={handleDeleteChannel}
-        handleLeaveServer={handleLeaveServer}
-        handleDeleteServer={handleDeleteServer}
-        dms={dms}
-        dmsLoading={dmsLoading}
-        activeDm={activeDm}
-        selectDm={selectDm}
-        createOrOpenDm={createOrOpenDm}
-        startingDmProfileId={startingDmProfileId}
-        onlineUsersSet={onlineUsersSet}
-        userPresence={userPresence}
-        getPresenceStatus={getPresenceStatus}
-        getPresenceLabel={getPresenceLabel}
-        friendRequests={friendRequests}
-        handleAcceptRequest={handleAcceptRequest}
-        handleDeclineRequest={handleDeclineRequest}
-        serverAction={serverAction}
-        setServerAction={setServerAction}
-        fetchServers={fetchServers}
-        showProfilePopout={showProfilePopout}
-        setShowProfilePopout={setShowProfilePopout}
-        settingsModalConfig={settingsModalConfig}
-        setSettingsModalConfig={setSettingsModalConfig}
-        dmActionMenuId={dmActionMenuId}
-        setDmActionMenuId={setDmActionMenuId}
-        setConfirmAction={setConfirmAction}
-        onReportMessage={message => setReportTarget({ targetType: 'message', id: message.id, clientContent: message.content, label: 'message' })}
-        restrictedUsersSet={restrictedUsersSet}
-        blockedUsersSet={blockedUsersSet}
-        myAvatar={myAvatar}
-        myUsername={myUsername}
-        myTag={myTag}
-        myBio={myBio}
-        myPronouns={myPronouns}
-        myBanner={myBanner}
-        userStatus={userStatus}
-        setUserStatus={setUserStatus}
-        updateProfileBio={updateProfileBio}
-        popoutRef={popoutRef}
-        setShowQuickSwitcher={setShowQuickSwitcher}
-        allFriends={allFriends}
-        onlineFriends={onlineFriends}
-        appThemeMode={appThemeMode}
-        scopedChatStyle={scopedChatStyle}
-        handleHomeClick={handleHomeClick}
-        activeVoiceSession={activeVoiceSession}
-        voiceSessionState={voiceSessionState}
-        getVoiceParticipantsForChannel={getVoiceParticipantsForChannel}
-        onVoiceParticipantSelect={focusVoiceParticipant}
-      />
-
-      <ChatArea
+<ChatArea
         session={session}
         view={view}
         activeDm={activeDm}
@@ -1998,10 +2035,40 @@ export default function Dashboard({ session }) {
         openActiveVoiceChannel={openActiveVoiceChannel}
         setVoiceMuted={setVoiceMuted}
         setVoiceDeafened={setVoiceDeafened}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
+        setView={setView}
         homeTab={homeTab}
         setHomeTab={setHomeTab}
+        myTag={myTag}
+        myPronouns={myPronouns}
+        myBanner={myBanner}
+        userStatus={userStatus}
+        setUserStatus={setUserStatus}
+        setSettingsModalConfig={setSettingsModalConfig}
+        notificationCount={notificationCount}
+        handleBack={handleBack}
+        dms={dms}
+        dmsLoading={dmsLoading}
+        appThemeMode={appThemeMode}
+        setShowQuickSwitcher={setShowQuickSwitcher}
+        servers={servers}
+        serversLoading={serversLoading}
+        activeServer={activeServer}
+        setActiveServer={setActiveServer}
+        setActiveChannel={selectChannel}
+        serverCategories={serverCategories}
+        serverChannelsLoading={serverChannelsLoading}
+        canManageActiveServer={canManageActiveServer}
+        isActiveServerOwner={isActiveServerOwner}
+        fetchServers={fetchServers}
+        handleCreateChannel={handleCreateChannel}
+        handleCreateCategory={handleCreateCategory}
+        handleUpdateCategory={handleUpdateCategory}
+        handleDeleteCategory={handleDeleteCategory}
+        handleUpdateChannel={handleUpdateChannel}
+        handleDeleteChannel={handleDeleteChannel}
+        handleLeaveServer={handleLeaveServer}
+        handleDeleteServer={handleDeleteServer}
+        onVoiceParticipantSelect={focusVoiceParticipant}
         friendRequests={friendRequests}
         onlineFriends={onlineFriends}
         allFriends={allFriends}
@@ -2045,7 +2112,8 @@ export default function Dashboard({ session }) {
       />
 
       {showRightSidebar && isChatActive && (
-        <RightSidebar 
+        <Suspense fallback={null}>
+        <RightSidebar
           activeDm={activeDm}
           currentUserId={session.user.id}
           closeRightSidebar={closeRightSidebar}
@@ -2075,6 +2143,8 @@ export default function Dashboard({ session }) {
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           searchResults={searchResults}
+          searchLoading={searchLoading}
+          onSelectSearchResult={selectSearchResult}
           scrollToMessage={chatManagerProps.scrollToMessage}
           CONVERSATION_THEMES={CONVERSATION_THEMES}
           WALLPAPERS={CHAT_WALLPAPERS}
@@ -2085,6 +2155,7 @@ export default function Dashboard({ session }) {
           setSelectedImage={chatManagerProps.setSelectedImage}
           onReportTarget={setReportTarget}
         />
+        </Suspense>
       )}
 
       {showQuickSwitcher && (
@@ -2092,19 +2163,43 @@ export default function Dashboard({ session }) {
           <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
-              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none text-base sm:text-xl font-display placeholder-gray-500" />
-              <div className="hidden sm:block text-[10px] font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
+              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500" />
+              <div className="hidden sm:block type-meta font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
             </div>
             
             <div className="relative z-10 max-h-[60vh] sm:max-h-[400px] overflow-y-auto p-2 sm:p-3 custom-scrollbar">
-              {quickSwitcherQuery && quickSwitcherResults.length === 0 ? (
+              {quickSwitcherQuery && quickSwitcherResults.length === 0 && quickSwitcherPlaces.length === 0 ? (
                  <div className="text-center py-12 flex flex-col items-center">
-                    <span className="material-symbols-outlined text-4xl text-gray-600 mb-2">search_off</span>
-                    <span className="text-gray-400 font-medium">No friends match that query.</span>
+                    <SearchX size={36} className="text-gray-600 mb-2" aria-hidden="true" />
+                    <span className="text-gray-400 font-medium">Nothing matches that query.</span>
                  </div>
               ) : (
                 <>
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Friends & Conversations</div>
+                  {quickSwitcherPlaces.length > 0 && (
+                    <>
+                      <div className="type-meta font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Servers & Channels</div>
+                      {quickSwitcherPlaces.map(place => (
+                        <button
+                          key={`qs-place-${place.kind}-${place.id}`}
+                          onClick={() => openQuickSwitcherPlace(place)}
+                          className="w-full flex items-center justify-between p-3 rounded-xl transition-all text-left group cursor-pointer border border-transparent hover:bg-[var(--bg-base)] hover:border-[var(--border-subtle)]"
+                        >
+                          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-element)] text-gray-400">
+                              {place.kind === 'server' ? <Users size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold type-body text-[var(--text-main)] group-hover:text-indigo-400 transition-colors truncate">{place.kind === 'channel' ? `#${place.name}` : place.name}</span>
+                              <span className="type-meta text-gray-500 truncate">{place.kind === 'server' ? 'Server' : place.context || 'Channel'}</span>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {quickSwitcherResults.length > 0 && (
+                  <div className="type-meta font-bold text-gray-500 uppercase tracking-widest px-3 mb-2 mt-2">Friends & Conversations</div>
+                  )}
                   {quickSwitcherResults.map((dm, idx) => (
                     <button 
                       key={dm.dm_room_id ? `qs-${dm.dm_room_id}` : `qs-fallback-${idx}`} 
@@ -2115,11 +2210,11 @@ export default function Dashboard({ session }) {
                       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={getPresenceStatus(dm.profiles.id)} className="w-10 h-10" />
                         <div className="flex flex-col min-w-0">
-                          <span className={`font-bold text-[15px] transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-[var(--text-main)] group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
-                          <span className="text-[11px] text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
+                          <span className={`font-bold type-body transition-colors ${idx === 0 ? 'text-indigo-400' : 'text-[var(--text-main)] group-hover:text-indigo-400'}`}>{dm.profiles.username}</span>
+                          <span className="type-meta text-gray-500 font-mono tracking-wide">{dm.profiles.unique_tag}</span>
                         </div>
                       </div>
-                      <div className={`hidden sm:flex opacity-0 transition-opacity items-center gap-1 text-[10px] font-bold uppercase text-gray-500 ${idx === 0 ? 'opacity-100' : 'group-hover:opacity-100'}`}>
+                      <div className={`hidden sm:flex opacity-0 transition-opacity items-center gap-1 type-meta font-bold uppercase text-gray-500 ${idx === 0 ? 'opacity-100' : 'group-hover:opacity-100'}`}>
                         {dm.is_new_chat ? 'Start' : 'Jump To'} <CornerDownLeft size={12} className="text-indigo-400 ml-1" />
                       </div>
                     </button>
@@ -2134,14 +2229,14 @@ export default function Dashboard({ session }) {
       {confirmAction && (
         <div data-ui-overlay-owner="Dashboard:confirm-action" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in" style={scopedChatStyle}>
           <div className="premium-modal w-full max-w-md rounded-2xl p-6">
-            <h3 className="gradient-text relative z-10 text-xl font-semibold mb-2">
+            <h3 className="gradient-text relative z-10 type-view-title font-semibold mb-2">
               {confirmAction.type === 'block' && `Block ${confirmAction.profile.username}?`}
               {confirmAction.type === 'unblock' && `Unblock ${confirmAction.profile.username}?`}
               {confirmAction.type === 'restrict' && `Restrict ${confirmAction.profile.username}?`}
               {confirmAction.type === 'unrestrict' && `Unrestrict ${confirmAction.profile.username}?`}
               {confirmAction.type === 'delete_dm' && `Delete conversation with ${confirmAction.profile.username}?`}
             </h3>
-            <p className="relative z-10 text-gray-400 text-sm mb-8">
+            <p className="relative z-10 text-gray-400 type-label mb-8">
               {confirmAction.type === 'block' && "They won't be able to message you or see your online status."}
               {confirmAction.type === 'unblock' && "They will be able to message you again."}
               {confirmAction.type === 'restrict' && "We'll move the chat out of your main list."}
@@ -2219,8 +2314,8 @@ export default function Dashboard({ session }) {
           >
             <div className="flex min-w-0 items-center justify-between gap-3 px-2 py-1">
               <div className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-bold text-white">{chatManagerProps.selectedImage.user}</span>
-                <span className="truncate text-xs text-gray-400">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
+                <span className="truncate type-label font-bold text-white">{chatManagerProps.selectedImage.user}</span>
+                <span className="truncate type-meta text-gray-400">{chatManagerProps.selectedImage.time}{selectedImageItems.length > 1 ? ` • ${selectedImageIndex + 1} of ${selectedImageItems.length}` : ''}</span>
               </div>
               <button
                 type="button"
@@ -2243,16 +2338,12 @@ export default function Dashboard({ session }) {
               </button>
               <button
                 type="button"
-                className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/20"
+                className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 type-label font-bold transition hover:bg-white/20"
                 onClick={() => {
-                  const a = document.createElement('a')
-                  a.style.display = 'none'
-                  a.href = selectedImageItem?.url
-                  a.download = selectedImageItem?.name || `messapp_${selectedMediaIsVideo ? 'video' : 'image'}_${crypto.randomUUID().substring(0, 8)}.${selectedMediaIsVideo ? 'mp4' : 'jpg'}`
-                  document.body.appendChild(a)
-                  a.click()
-                  a.remove()
-                  toast.success(`${selectedMediaIsVideo ? 'Video' : 'Image'} download started`)
+                  const fallbackName = `messapp_${selectedMediaIsVideo ? 'video' : 'image'}_${crypto.randomUUID().substring(0, 8)}.${selectedMediaIsVideo ? 'mp4' : 'jpg'}`
+                  downloadFile(selectedImageItem?.url, selectedImageItem?.name || fallbackName)
+                    .then(() => toast.success(`${selectedMediaIsVideo ? 'Video' : 'Image'} download started`))
+                    .catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'lightbox', error }); toast.error('Download failed') })
                 }}
               >
                 <Download size={18} /><span className="hidden sm:inline">Save {selectedMediaIsVideo ? 'Video' : 'Image'}</span><span className="sm:hidden">Save</span>
@@ -2273,11 +2364,11 @@ export default function Dashboard({ session }) {
       {showPinSetupPrompt && !showRecoveryPrompt && (
         <div data-ui-overlay-owner="Dashboard:pin-setup" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
           <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
-            <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto">
                <Key size={32} />
             </div>
-            <h3 className="gradient-text relative z-10 text-2xl font-semibold mb-2 font-display">Secure Your Messages</h3>
-            <p className="relative z-10 text-gray-400 text-sm mb-6 leading-relaxed">
+            <h3 className="gradient-text relative z-10 type-view-title font-semibold mb-2 font-display">Secure Your Messages</h3>
+            <p className="relative z-10 text-gray-400 type-label mb-6 leading-relaxed">
               MessApp uses <strong>End-to-End Encryption</strong>. Before you can chat, create a 6-Digit PIN to securely back up your keys so you don't lose your messages if you clear your browser.
             </p>
             
@@ -2287,7 +2378,7 @@ export default function Dashboard({ session }) {
               value={setupPinInput}
               onChange={(e) => setSetupPinInput(e.target.value)}
               placeholder="••••••"
-              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none transition-all mx-auto block"
+              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
             />
             
             <button
@@ -2326,11 +2417,11 @@ export default function Dashboard({ session }) {
       {showRecoveryPrompt && (
         <div data-ui-overlay-owner="Dashboard:pin-recovery" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
           <div className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
-            <div className="premium-brand-mark relative z-10 w-16 h-16 text-white rounded-full flex items-center justify-center mb-6 mx-auto">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto">
                <Shield size={32} />
             </div>
-            <h3 className="gradient-text relative z-10 text-2xl font-semibold mb-2 font-display">Enter Your PIN</h3>
-            <p className="relative z-10 text-gray-400 text-sm mb-6 leading-relaxed">
+            <h3 className="gradient-text relative z-10 type-view-title font-semibold mb-2 font-display">Enter Your PIN</h3>
+            <p className="relative z-10 text-gray-400 type-label mb-6 leading-relaxed">
               You are logging in from a new device. Enter your <strong>6-Digit PIN</strong> to unlock your Secure Storage and restore your messages.
             </p>
             
@@ -2340,7 +2431,7 @@ export default function Dashboard({ session }) {
               value={recoveryCodeInput}
               onChange={(e) => setRecoveryCodeInput(e.target.value)}
               placeholder="••••••"
-              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono text-2xl mb-6 outline-none transition-all mx-auto block"
+              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
             />
             
             <div className="relative z-10 flex flex-col gap-3">
@@ -2402,16 +2493,17 @@ export default function Dashboard({ session }) {
         </div>
       )}
 
-      {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onProfileUpdated={(updates) => {
-        setProfileOverride(prev => {
-          const next = { ...prev, ...updates }
-          localStorage.setItem(profileCacheKey, JSON.stringify(next))
-          return next
-        })
-      }} onClose={closeUserSettings} />}
-      {reportTarget && <ReportContentModal targetLabel={reportTarget.label} onSubmit={handleSubmitReport} onClose={() => setReportTarget(null)} />}
-      {showServerSettings && <ServerSettingsModal session={session} activeServer={activeServer} handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowServerSettings(false)} name={serverSettingsName} setName={setServerSettingsName} />}
-      {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
+      <Suspense fallback={null}>
+        {settingsModalConfig.isOpen && <UserSettingsModal session={session} settingsConfig={settingsModalConfig} setSettingsConfig={setSettingsModalConfig} onProfileUpdated={(updates) => {
+          setProfileOverride(prev => {
+            const next = { ...prev, ...updates }
+            localStorage.setItem(profileCacheKey, JSON.stringify(next))
+            return next
+          })
+        }} onClose={closeUserSettings} />}
+        {reportTarget && <ReportContentModal targetLabel={reportTarget.label} onSubmit={handleSubmitReport} onClose={() => setReportTarget(null)} />}
+        {showChannelSettings && <ChannelSettingsModal handleUpdate={() => {}} handleDelete={() => {}} onClose={() => setShowChannelSettings(false)} name={channelSettingsName} setName={setChannelSettingsName} />}
+      </Suspense>
     </div>
   )
 }

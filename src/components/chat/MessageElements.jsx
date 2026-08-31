@@ -3,23 +3,32 @@
  * mobile action portals. Mutation state comes from useChatManager; temporary
  * signed media URLs must not be persisted or logged.
  */
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { createPortal } from 'react-dom'
 import remarkGfm from 'remark-gfm'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
-import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeReactionEmoji, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
+import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
 import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
 import { getVideoAspectRatio, primeVideoPreview } from '../../lib/videoPreview'
-import ChatEmojiPicker from './ChatEmojiPicker'
 import VoiceMessagePlayer from './VoiceMessagePlayer'
 import StatusAvatar from '../ui/StatusAvatar'
 import { debug } from '../../lib/debug'
+import { downloadFile } from '../../lib/downloadFile'
+import { blurComposer } from '../../lib/composerFocus'
+import { formatMessageTime } from '../../lib/messageTime'
 
-const QUICK_REACTION_COUNT = QUICK_REACTION_EMOJIS.length
+// Both pull large dependencies (refractor, emoji-picker-react) that are only
+// needed once a message actually contains a code block or the picker is opened.
+const CodeBlock = lazy(() => import('./CodeBlock'))
+const ChatEmojiPicker = lazy(() => import('./ChatEmojiPicker'))
+
+const CODE_BLOCK_CLASS = 'rounded-xl my-2 ghost-border type-label shadow-lg bg-[var(--bg-base)]'
+const MARKDOWN_PLUGINS = [remarkGfm]
+const EMOJI_ONLY_PATTERN = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}️‍\s]+$/u
+
 const loadedMessageImageKeys = new Set()
 const MAX_LOADED_MESSAGE_IMAGE_KEYS = 1000
 const TOUCH_PORTAL_Z_INDEX = 2147483000
@@ -63,15 +72,6 @@ const ActionToolbarHost = ({ owner, onBackdropPointerDown, children }) => owner 
   : <React.Fragment key={ACTION_TOOLBAR_OWNER.DESKTOP_HOVER}>{children}</React.Fragment>
 
 const ReactionPickerPortal = ({ children }) => createPortal(children, document.body)
-
-const normalizeQuickReactions = (value) => {
-  const list = Array.isArray(value) ? value : []
-  return [...list, ...QUICK_REACTION_EMOJIS]
-    .map(item => normalizeReactionEmoji(typeof item === 'string' ? item : item?.emoji || item?.type || item?.reaction))
-    .filter(Boolean)
-    .filter((item, index, self) => self.indexOf(item) === index)
-    .slice(0, QUICK_REACTION_COUNT)
-}
 
 const getQuickReactionStorageKey = (userId) => `messapp_quick_reactions_${userId || 'anon'}`
 
@@ -282,14 +282,18 @@ const MessageVideo = ({
       {failed && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black px-4 text-center">
           <FileText size={24} className="text-gray-400" aria-hidden="true" />
-          <span className="text-xs font-bold text-white">This video codec cannot be previewed here.</span>
+          <span className="type-meta font-bold text-white">This video codec cannot be previewed here.</span>
           <a
             href={src}
             download
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold text-white"
-            onClick={(event) => event.stopPropagation()}
+            className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 type-meta font-bold text-white"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              downloadFile(src).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'video-fallback', error }); toast.error('Download failed') })
+            }}
           >
             Download video
           </a>
@@ -322,7 +326,7 @@ const MessageVideo = ({
       {concealed && frameReady && !failed && (
         <button
           type="button"
-          className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-black/45 text-sm font-black text-white"
+          className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-black/45 type-label font-black text-white"
           onClick={(event) => {
             event.stopPropagation()
             onReveal?.()
@@ -331,7 +335,7 @@ const MessageVideo = ({
         >
           <EyeOff size={24} aria-hidden="true" />
           <span>Spoiler</span>
-          <span className="text-[10px] font-semibold text-white/75">Tap to reveal</span>
+          <span className="type-meta font-semibold text-white/75">Tap to reveal</span>
         </button>
       )}
       {!concealed && !failed && frameReady && !playing && (
@@ -361,7 +365,7 @@ const MessageVideo = ({
       {!concealed && frameReady && !failed && onHide && (
         <button
           type="button"
-          className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-lg"
+          className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 type-meta font-bold text-white shadow-lg"
           onClick={(event) => {
             event.stopPropagation()
             videoRef.current?.pause()
@@ -426,12 +430,7 @@ const describeTarget = (target) => {
   return `${element.tagName.toLowerCase()}${id}${classes}`
 }
 
-const formatReceiptTime = (value) => {
-  if (!value) return 'Not recorded'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Not recorded'
-  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+const formatReceiptTime = (value) => formatMessageTime(value) || 'Not recorded'
 
 const getSeenTimestamp = (message, peerReadAt) => {
   if (message.seen_at || message.read_at) return message.seen_at || message.read_at
@@ -462,28 +461,53 @@ const getYouTubeEmbedUrl = (value) => {
   }
 }
 
+/* Every mount used to hit microlink again, so scrolling back over a link storm
+   re-fetched the same cards. Failures are cached as null too: a link that has no
+   metadata will not grow any on a retry. */
+const linkPreviewCache = new Map()
+
+/** Host without the www., plus a short path so bare domains stay distinguishable. */
+const describeLink = (safeUrl) => {
+  try {
+    const parsed = new URL(safeUrl)
+    const host = parsed.hostname.replace(/^www\./, '')
+    const path = `${parsed.pathname}${parsed.search}`.replace(/\/$/, '')
+    return { host, path: path === '' ? '' : path }
+  } catch (_err) {
+    return { host: safeUrl, path: '' }
+  }
+}
+
+const LinkPreviewShell = ({ href, children }) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="mt-2 block w-full max-w-[20rem] overflow-hidden rounded-xl border-l-[3px] border-current bg-current/[0.07] text-current no-underline transition-colors hover:bg-current/[0.12] sm:max-w-sm"
+  >
+    {children}
+  </a>
+)
+
 export const LinkPreview = ({ url }) => {
-  const [preview, setPreview] = useState(null)
-  const [loading, setLoading] = useState(true)
   const safeUrl = useMemo(() => safeHttpUrl(url), [url])
+  const [preview, setPreview] = useState(() => linkPreviewCache.get(safeUrl) ?? null)
+  const [loading, setLoading] = useState(() => !linkPreviewCache.has(safeUrl))
   const youtubeEmbedUrl = useMemo(() => safeUrl ? getYouTubeEmbedUrl(safeUrl) : null, [safeUrl])
-  const fallbackHost = useMemo(() => {
-    if (!safeUrl) return ''
-    try {
-      return new URL(safeUrl).hostname.replace(/^www\./, '')
-    } catch (_err) {
-      return safeUrl
-    }
-  }, [safeUrl])
+  const { host: fallbackHost, path: fallbackPath } = useMemo(
+    () => (safeUrl ? describeLink(safeUrl) : { host: '', path: '' }),
+    [safeUrl]
+  )
 
   useEffect(() => {
-    if (!safeUrl) {
+    if (!safeUrl || youtubeEmbedUrl) {
+      setPreview(null)
       setLoading(false)
       return
     }
 
-    if (youtubeEmbedUrl) {
-      setPreview(null)
+    if (linkPreviewCache.has(safeUrl)) {
+      setPreview(linkPreviewCache.get(safeUrl))
       setLoading(false)
       return
     }
@@ -493,72 +517,80 @@ export const LinkPreview = ({ url }) => {
     setLoading(true)
 
     const fetchPreview = async () => {
+      let resolved = null
       try {
         const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(safeUrl)}`)
         const { data } = await res.json()
-        if (active && data && data.title) setPreview(data)
-      } catch (e) {
-        console.error("Failed to fetch link preview", e)
-      } finally {
-        if (active) setLoading(false)
+        if (data?.title) resolved = data
+      } catch (error) {
+        debug.warn('LINK_PREVIEW', { operation: 'fetch', host: fallbackHost, error })
       }
+      linkPreviewCache.set(safeUrl, resolved)
+      if (!active) return
+      setPreview(resolved)
+      setLoading(false)
     }
     fetchPreview()
     return () => {
       active = false
     }
-  }, [safeUrl, youtubeEmbedUrl])
+  }, [fallbackHost, safeUrl, youtubeEmbedUrl])
 
   if (!safeUrl) return null
 
   if (youtubeEmbedUrl) {
     return (
-      <div className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm">
-        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="w-[240px] sm:w-[320px] md:w-96 aspect-video border-0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerPolicy="no-referrer" allowFullScreen loading="lazy"></iframe>
-        <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block px-2 py-1 text-[11px] font-bold text-current hover:underline truncate">{fallbackHost || safeUrl}</a>
-      </div>
+      <LinkPreviewShell href={safeUrl}>
+        <iframe src={youtubeEmbedUrl} title={fallbackHost || 'YouTube preview'} className="block aspect-video w-full border-0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerPolicy="no-referrer" allowFullScreen loading="lazy"></iframe>
+        <span className="block truncate px-3 py-2 type-meta font-bold uppercase tracking-widest text-current/70">{fallbackHost || safeUrl}</span>
+      </LinkPreviewShell>
     )
   }
 
   if (loading) {
     return (
-      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] shadow-sm no-underline">
-        <div className="px-2 py-1">
-          <div className="h-3 w-36 rounded bg-current/20 animate-pulse mb-2"></div>
-          <div className="h-2 w-48 max-w-full rounded bg-current/10 animate-pulse"></div>
-          <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold truncate">{fallbackHost || safeUrl}</div>
+      <LinkPreviewShell href={safeUrl}>
+        <div className="px-3 py-2">
+          <span className="block truncate type-meta font-bold uppercase tracking-widest text-current/70">{fallbackHost || safeUrl}</span>
+          <div className="mt-1.5 h-3 w-36 max-w-full animate-pulse rounded bg-current/20" />
+          <div className="mt-1.5 h-2.5 w-48 max-w-full animate-pulse rounded bg-current/10" />
         </div>
-      </a>
+      </LinkPreviewShell>
     )
   }
 
+  // No metadata worth a card, so the link is shown as itself rather than as an
+  // empty shell with the raw URL repeated underneath it.
   if (!preview) {
     return (
-      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm cursor-pointer no-underline">
-        <div className="px-2 py-1">
-          <h4 className="text-[13px] font-bold text-current truncate mb-1">{fallbackHost || safeUrl}</h4>
-          <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed break-words">{safeUrl}</p>
+      <LinkPreviewShell href={safeUrl}>
+        <div className="px-3 py-2">
+          <span className="block truncate type-label font-bold text-current">{fallbackHost || safeUrl}</span>
+          {fallbackPath && <span className="mt-0.5 block truncate type-snippet text-current/70">{fallbackPath}</span>}
         </div>
-      </a>
+      </LinkPreviewShell>
     )
   }
 
+  const previewImage = safeHttpUrl(preview.image?.url)
+  const previewLogo = safeHttpUrl(preview.logo?.url)
+
   return (
-    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 w-fit max-w-[240px] sm:max-w-[320px] md:max-w-sm rounded-xl overflow-hidden border border-current text-[var(--theme-base)] transition-colors shadow-sm group cursor-pointer no-underline">
-      {safeHttpUrl(preview.image?.url) && (
-        <div className="w-full h-32 overflow-hidden border-b border-current">
-          <img src={safeHttpUrl(preview.image.url)} alt="Preview" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" decoding="async" fetchPriority="low" />
+    <LinkPreviewShell href={safeUrl}>
+      {previewImage && (
+        <div className="aspect-[1.91/1] w-full overflow-hidden bg-current/10">
+          <img src={previewImage} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" fetchPriority="low" />
         </div>
       )}
-      <div className="px-2 py-1">
-        <h4 className="text-[13px] font-bold text-current truncate mb-1">{preview.title}</h4>
-        <p className="text-[11px] text-current/80 line-clamp-2 leading-relaxed">{preview.description}</p>
-        <div className="text-[10px] text-current mt-2 uppercase tracking-widest font-bold flex items-center gap-0.5">
-          {safeHttpUrl(preview.logo?.url) && <img src={safeHttpUrl(preview.logo.url)} className="w-3.5 h-3.5 rounded-sm" alt="Logo" />}
+      <div className="px-3 py-2">
+        <span className="flex items-center gap-1.5 type-meta font-bold uppercase tracking-widest text-current/70">
+          {previewLogo && <img src={previewLogo} className="h-3.5 w-3.5 shrink-0 rounded-sm" alt="" loading="lazy" decoding="async" />}
           <span className="truncate">{preview.publisher || fallbackHost}</span>
-        </div>
+        </span>
+        <p className="mt-1 line-clamp-2 type-label font-bold text-current">{preview.title}</p>
+        {preview.description && <p className="mt-0.5 line-clamp-2 type-snippet text-current/70">{preview.description}</p>}
       </div>
-    </a>
+    </LinkPreviewShell>
   )
 }
 
@@ -688,17 +720,19 @@ export const MemoizedMessage = React.memo(({
     }
   }, [closeMessageInteraction, inlineDeleteMessageId, m.id, messageActionMenuId, setInlineDeleteMessageId, setInlineDeleteStep, setMessageActionMenuId, setMessageActionMenuPosition])
 
+  // Each message keeps its own copy of the row, so an edit made from one message
+  // leaves every other message stale. Re-read whenever the picker opens.
   useEffect(() => {
     try {
       setQuickReactions(normalizeQuickReactions(JSON.parse(localStorage.getItem(getQuickReactionStorageKey(currentUserId)) || '[]')))
     } catch (_err) {
       setQuickReactions(QUICK_REACTION_EMOJIS)
     }
-  }, [currentUserId])
+  }, [currentUserId, showReactionPicker])
 
   const saveQuickReaction = (emoji) => {
     setQuickReactions(current => {
-      const next = normalizeQuickReactions(current.map((item, index) => index === quickReactionSlot ? normalizeReactionEmoji(emoji) : item))
+      const next = replaceQuickReaction(current, quickReactionSlot, emoji)
       try {
         localStorage.setItem(getQuickReactionStorageKey(currentUserId), JSON.stringify(next))
       } catch (_err) {}
@@ -732,6 +766,10 @@ export const MemoizedMessage = React.memo(({
       topOffset: overlayQuickReactions && isMobileViewport ? 54 : 0
     })
   }, [hasImageAttachments, isMe, showReactionPicker])
+
+  // On touch the expanded picker is a bottom sheet, so it ignores anchor
+  // positioning entirely; desktop keeps the anchored popover.
+  const reactionSheetMode = reactionInputMode === 'touch' && (showMoreReactions || editingQuickReactions)
 
   const getReactionPopoverPosition = useCallback((expanded = showMoreReactions || editingQuickReactions) => {
     const bubbleRect = bubbleRef.current?.getBoundingClientRect?.()
@@ -1078,19 +1116,49 @@ export const MemoizedMessage = React.memo(({
     closeActionMenu('portal_backdrop', { pointerType: event.pointerType })
   }
 
-  const groupedReactions = m.message_reactions?.reduce((acc, r) => {
+  const groupedReactions = useMemo(() => m.message_reactions?.reduce((acc, r) => {
     const emoji = normalizeReactionEmoji(r.emoji)
     if (!emoji) return acc
-    acc[emoji] = [...(acc[emoji] || []), { ...r, emoji }]
+    if (acc[emoji]) acc[emoji].push({ ...r, emoji })
+    else acc[emoji] = [{ ...r, emoji }]
     return acc
-  }, {}) || {}
+  }, {}) || {}, [m.message_reactions])
 
-  const exactTime = new Date(m.created_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const exactTime = useMemo(() => formatMessageTime(m.created_at), [m.created_at])
 
   const visibleContent = renderedContent ?? (typeof m.content === 'string' ? m.content : '')
   const isMessageSpoilerHidden = Boolean(m.is_spoiler && !messageSpoilerRevealed)
   const visiblePreviewLinks = isMessageSpoilerHidden ? [] : previewLinks
-  const isEmojiOnly = typeof visibleContent === 'string' && /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u.test(visibleContent.trim());
+  const isEmojiOnly = useMemo(
+    () => typeof visibleContent === 'string' && EMOJI_ONLY_PATTERN.test(visibleContent.trim()),
+    [visibleContent]
+  )
+
+  // Fresh `components`/`remarkPlugins` literals defeat react-markdown's internal
+  // memo and force a full remark parse on every render of every message.
+  const markdownComponents = useMemo(() => {
+    const linkColor = isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)'
+    return {
+      code({ inline, className, children, ...props }) {
+        const match = /language-(\w+)/.exec(className || '')
+        const source = String(children).replace(/\n$/, '')
+        if (inline || !match) {
+          return <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono type-meta border border-[var(--border-subtle)]" style={{ color: linkColor }} {...props}>{children}</code>
+        }
+        return (
+          <Suspense fallback={<pre className={CODE_BLOCK_CLASS}><code>{source}</code></pre>}>
+            <CodeBlock language={match[1]} className={CODE_BLOCK_CLASS} {...props}>{source}</CodeBlock>
+          </Suspense>
+        )
+      },
+      a({ href, ...props }) {
+        const safeHref = safeHttpUrl(href)
+        if (!safeHref) return <span {...props} />
+        return <a className="hover:underline underline-offset-2" style={{ color: linkColor }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
+      },
+      img() { return null }
+    }
+  }, [isMe])
   const hasVisibleContent = typeof visibleContent === 'string' && visibleContent.trim() !== ''
   const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
   const isEditingCaption = isEditing && hasImageAttachments
@@ -1276,6 +1344,9 @@ export const MemoizedMessage = React.memo(({
 
     const reposition = () => updateReactionPopoverPosition()
     const closeOnScroll = (event) => {
+      // Focusing the picker search opens the soft keyboard, which scrolls the
+      // document; that must not tear the picker down under the user.
+      if (showMoreReactions || editingQuickReactions) return
       if (reactionPopoverRef.current?.contains(event.target)) return
       if (actionMenuRef.current?.contains(event.target)) return
       closeActionMenu('message_list_scroll')
@@ -1310,22 +1381,22 @@ export const MemoizedMessage = React.memo(({
       {showHeader ? (
         <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-8 w-8 mt-1 shadow-md ghost-border rounded-full shrink-0" />
       ) : (
-        <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 text-[10px] text-gray-500 font-medium select-none`}></div>
+        <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 type-meta text-gray-500 font-medium select-none`}></div>
       )}
       
       <div className={`flex flex-col w-full min-w-0 ${alignRight ? 'items-end' : ''}`}>
         
         {showHeader && (
         <div className={`flex items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
-            <span className={`text-[14px] md:text-[15px] font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
-            <span className="text-[10px] text-gray-500 font-medium">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className={`type-title font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
+            <span className="type-meta text-gray-500 tabular-nums">{exactTime}</span>
           </div>
         )}
         
         {isEditing && !isEditingCaption && window.innerWidth >= 768 ? (
           <form onSubmit={(e) => handleUpdateMessage(e, m.id)} className="mt-1 w-full max-w-3xl">
-            <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className={`w-full bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-2.5 rounded-xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`} autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
-            <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+            <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} className={`w-full bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-2.5 rounded-xl ghost-border outline-none shadow-inner type-label focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`} autoFocus onKeyDown={(e) => e.key === 'Escape' && setEditingMessageId(null)} />
+            <div className={`mt-1.5 flex items-center gap-2 type-meta text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
               <button
                 type="button"
                 onClick={() => handleToggleMessageSpoiler(m)}
@@ -1369,7 +1440,7 @@ export const MemoizedMessage = React.memo(({
               )}
               
               {m.reply_to_message_id && repliedMsg && !m.is_deleted && (
-                <div onClick={(e) => { e.stopPropagation(); scrollToMessage(repliedMsg); }} className={`flex items-center gap-0.5 mb-1 opacity-70 text-[11px] text-gray-400 select-none cursor-pointer hover:opacity-100 transition-opacity ${alignRight ? 'flex-row-reverse text-right' : 'text-left'}`}>
+                <div onClick={(e) => { e.stopPropagation(); scrollToMessage(repliedMsg); }} className={`flex items-center gap-0.5 mb-1 opacity-70 type-meta text-gray-400 select-none cursor-pointer hover:opacity-100 transition-opacity ${alignRight ? 'flex-row-reverse text-right' : 'text-left'}`}>
                   <CornerDownLeft size={12} className="shrink-0" />
                   <StatusAvatar url={repliedMsg.profiles?.avatar_url} username={repliedMsg.profiles?.username} showStatus={false} className="w-3 h-3 rounded-full shrink-0" />
                   <span className="font-bold truncate max-w-[80px]">{repliedMsg.profiles?.username}</span>
@@ -1380,7 +1451,7 @@ export const MemoizedMessage = React.memo(({
               {m.is_deleted ? (
                 <div className={`px-3 py-1.5 md:px-4 md:py-2 rounded-2xl border w-fit max-w-full ${alignRight ? 'rounded-tr-none border-[var(--theme-20)] text-gray-400/80' : 'rounded-tl-none border-[var(--border-subtle)] text-gray-500'} bg-transparent border-dashed shadow-sm text-left flex items-center gap-2 select-none`}>
                   <Ban size={14} className="opacity-50" />
-                  <span className="italic text-[12px] md:text-[13px]">This message was unsent.</span>
+                  <span className="italic type-body">This message was unsent.</span>
                 </div>
               ) : (
                 <>
@@ -1391,7 +1462,7 @@ export const MemoizedMessage = React.memo(({
                         event.stopPropagation()
                         setMessageSpoilerRevealed(true)
                       }}
-                      className={`flex items-center gap-2 rounded-2xl border border-dashed px-4 py-2.5 text-sm font-bold ${alignRight ? 'ml-auto' : 'mr-auto'} bg-[var(--bg-surface)]/80 text-gray-300 hover:text-white`}
+                      className={`flex items-center gap-2 rounded-2xl border border-dashed px-4 py-2.5 type-label font-bold ${alignRight ? 'ml-auto' : 'mr-auto'} bg-[var(--bg-surface)]/80 text-gray-300 hover:text-white`}
                       aria-label="Reveal spoiler message"
                     >
                       <EyeOff size={15} aria-hidden="true" />
@@ -1403,23 +1474,10 @@ export const MemoizedMessage = React.memo(({
                     </div>
                   ) : hasVisibleContent && !showCaptionBelowMedia && (
                     <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
-                      <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
+                      <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                         <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            code({ inline, className, children, ...props}) {
-                              const match = /language-(\w+)/.exec(className || '')
-                              return !inline && match ? (
-                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" className="rounded-xl my-2 ghost-border text-sm shadow-lg bg-[var(--bg-base)]" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                              ) : <code className="bg-[var(--surface-section)] px-1.5 py-0.5 rounded-md font-mono text-[12px] border border-[var(--border-subtle)]" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} {...props}>{children}</code>
-                            },
-                            a({href, ...props}) {
-                              const safeHref = safeHttpUrl(href)
-                              if (!safeHref) return <span {...props} />
-                              return <a className="hover:underline underline-offset-2" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
-                            },
-                            img() { return null }
-                          }}
+                          remarkPlugins={MARKDOWN_PLUGINS}
+                          components={markdownComponents}
                         >
                           {visibleContent}
                         </ReactMarkdown>
@@ -1440,7 +1498,7 @@ export const MemoizedMessage = React.memo(({
                         if (imageIndex >= 4) return null
                         return (
                         <div key={attachment.id || attachment.file_url || attachmentUrl} className={`max-w-full text-[var(--theme-base)] ${mediaAttachments.length > 1 && (!attachmentIsMedia || attachmentIsVideo) ? 'col-span-2' : ''}`}>
-                          {!attachmentUrl && attachmentIsImage ? (
+                          {!attachmentUrl && attachmentIsImage && !attachment.is_unavailable ? (
                             <div className={`${mediaAttachments.length > 1 ? 'aspect-square h-full w-full' : 'h-40 w-[min(68vw,260px)]'} animate-pulse scale-[0.98] rounded-2xl border bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.14),transparent_45%),linear-gradient(135deg,var(--bg-element-hover),var(--bg-element))] blur-md`} style={attachmentBorderStyle} aria-label="Image loading" />
                           ) : !attachmentUrl ? (
                             <div className="file-message-card flex min-w-[220px] max-w-[min(76vw,360px)] items-center gap-3 rounded-2xl border px-4 py-3.5 text-gray-500">
@@ -1448,8 +1506,8 @@ export const MemoizedMessage = React.memo(({
                                 <FileText size={24} className="text-[var(--theme-base)]" />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <span className="block text-sm font-bold text-[var(--chat-text,var(--text-main))] truncate">{attachment.file_name || 'Attachment unavailable'}</span>
-                                <span className="block text-[11px] font-semibold text-gray-500">Unavailable{attachmentSize ? ` • ${attachmentSize}` : ''}</span>
+                                <span className="block type-label font-bold text-[var(--chat-text,var(--text-main))] truncate">{attachment.file_name || 'Attachment unavailable'}</span>
+                                <span className="block type-meta font-semibold text-gray-500">Unavailable{attachmentSize ? ` • ${attachmentSize}` : ''}</span>
                               </div>
                             </div>
                           ) : attachmentIsImage ? (
@@ -1479,7 +1537,7 @@ export const MemoizedMessage = React.memo(({
                                 {attachment.is_spoiler && !revealedAttachmentSpoilers.has(attachment.id) && (
                                   <button
                                     type="button"
-                                    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-xl bg-black/45 text-sm font-black text-white"
+                                    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-xl bg-black/45 type-label font-black text-white"
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setRevealedAttachmentSpoilers(previous => new Set(previous).add(attachment.id))
@@ -1488,13 +1546,13 @@ export const MemoizedMessage = React.memo(({
                                   >
                                     <EyeOff size={22} aria-hidden="true" />
                                     <span>Spoiler</span>
-                                    <span className="text-[10px] font-semibold text-white/75">Tap to reveal</span>
+                                    <span className="type-meta font-semibold text-white/75">Tap to reveal</span>
                                   </button>
                                 )}
                                 {attachment.is_spoiler && revealedAttachmentSpoilers.has(attachment.id) && (
                                   <button
                                     type="button"
-                                    className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-lg"
+                                    className="absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1.5 type-meta font-bold text-white shadow-lg"
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setRevealedAttachmentSpoilers(previous => {
@@ -1526,7 +1584,7 @@ export const MemoizedMessage = React.memo(({
                                 {imageIndex === 3 && imageGallery.length > 4 && (
                                   <button
                                     type="button"
-                                    className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 text-2xl font-black text-white backdrop-blur-[1px]"
+                                    className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 type-view-title font-black text-white backdrop-blur-[1px]"
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setSelectedImage({
@@ -1586,6 +1644,10 @@ export const MemoizedMessage = React.memo(({
                               target="_blank"
                               rel="noopener noreferrer"
                               download={attachment.file_name || true}
+                              onClickCapture={(event) => {
+                                event.preventDefault()
+                                downloadFile(attachmentUrl, attachment.file_name).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'file-card', error }); toast.error('Download failed') })
+                              }}
                               className="file-message-card flex min-w-[220px] max-w-[calc(100vw-2rem)] overflow-hidden items-center gap-3 rounded-2xl border px-4 py-3.5 text-[var(--chat-text,var(--text-main))] transition-all duration-300 ease-out transform hover:-translate-y-0.5 hover:border-[var(--theme-50)]"
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -1593,8 +1655,8 @@ export const MemoizedMessage = React.memo(({
                                 <FileText size={25} className="text-[var(--theme-base)]" />
                               </div>
                               <div className="min-w-0 flex-1 text-left">
-                                <span className="block text-sm font-bold leading-tight truncate">{attachment.file_name || 'Attachment'}</span>
-                                <span className="mt-1 block text-[11px] font-semibold text-gray-500">{attachmentSize || 'File attachment'}</span>
+                                <span className="block type-label font-bold leading-tight truncate">{attachment.file_name || 'Attachment'}</span>
+                                <span className="mt-1 block type-meta font-semibold text-gray-500">{attachmentSize || 'File attachment'}</span>
                               </div>
                               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]">
                                 <Download size={16} aria-hidden="true" />
@@ -1612,7 +1674,7 @@ export const MemoizedMessage = React.memo(({
                         <textarea
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
-                          className={`w-full resize-none bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-3 rounded-2xl ghost-border outline-none shadow-inner text-sm focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`}
+                          className={`w-full resize-none bg-[var(--bg-surface)] text-[var(--text-main)] px-4 py-3 rounded-2xl ghost-border outline-none shadow-inner type-label focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${alignRight ? 'text-right' : ''}`}
                           autoFocus
                           rows={2}
                           placeholder="Add a caption"
@@ -1624,7 +1686,7 @@ export const MemoizedMessage = React.memo(({
                             }
                           }}
                         />
-                        <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`mt-1.5 flex items-center gap-2 type-meta text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
                           {editContent.trim() && (
                             <button
                               type="button"
@@ -1647,7 +1709,7 @@ export const MemoizedMessage = React.memo(({
                           event.stopPropagation()
                           setMessageSpoilerRevealed(true)
                         }}
-                        className={`mt-1.5 flex items-center gap-2 rounded-2xl border border-dashed bg-[var(--bg-surface)]/80 px-4 py-2.5 text-sm font-bold text-gray-300 ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                        className={`mt-1.5 flex items-center gap-2 rounded-2xl border border-dashed bg-[var(--bg-surface)]/80 px-4 py-2.5 type-label font-bold text-gray-300 ${alignRight ? 'ml-auto' : 'mr-auto'}`}
                         aria-label="Reveal spoiler caption"
                       >
                         <EyeOff size={15} aria-hidden="true" />
@@ -1655,17 +1717,10 @@ export const MemoizedMessage = React.memo(({
                       </button>
                     ) : showCaptionBelowMedia ? (
                       <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
-                        <div className="leading-relaxed text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal', fontSize: 'var(--chat-message-font-size, 15px)' }}>
+                        <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                           <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              a({href, ...props}) {
-                                const safeHref = safeHttpUrl(href)
-                                if (!safeHref) return <span {...props} />
-                                return <a className="hover:underline underline-offset-2" style={{ color: isMe ? 'var(--chat-outgoing-text)' : 'var(--theme-base)' }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
-                              },
-                              img() { return null }
-                            }}
+                            remarkPlugins={MARKDOWN_PLUGINS}
+                            components={markdownComponents}
                           >
                             {visibleContent}
                           </ReactMarkdown>
@@ -1681,7 +1736,7 @@ export const MemoizedMessage = React.memo(({
                         event.stopPropagation()
                         setMessageSpoilerRevealed(false)
                       }}
-                      className={`mt-1 flex items-center gap-1 rounded-full bg-[var(--bg-surface)]/80 px-2.5 py-1 text-[10px] font-bold text-gray-400 hover:text-[var(--text-main)] ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                      className={`mt-1 flex items-center gap-1 rounded-full bg-[var(--bg-surface)]/80 px-2.5 py-1 type-meta font-bold text-gray-400 hover:text-[var(--text-main)] ${alignRight ? 'ml-auto' : 'mr-auto'}`}
                       aria-label={showCaptionBelowMedia ? 'Hide spoiler caption' : 'Hide spoiler message'}
                     >
                       <Eye size={12} aria-hidden="true" />
@@ -1695,8 +1750,16 @@ export const MemoizedMessage = React.memo(({
                     </div>
                   ))}
 
+                  {/* A disappearing message says so, or it just goes missing. */}
+                  {m.expires_at && (
+                    <div className={`mt-1 flex items-center gap-1 type-meta font-bold text-gray-500 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                      <Timer size={11} aria-hidden="true" />
+                      <span>Disappears {formatMessageTime(m.expires_at)}</span>
+                    </div>
+                  )}
+
                   {showInlineTime && (
-                    <div className={`mt-1 mb-1 rounded-lg border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-element,var(--bg-element))]/80 px-2.5 py-2 text-[10px] text-gray-400 shadow-inner animate-fade-in ${alignRight ? 'text-right' : 'text-left'}`}>
+                    <div className={`mt-1 mb-1 rounded-lg border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-element,var(--bg-element))]/80 px-2.5 py-2 type-meta text-gray-400 shadow-inner animate-fade-in ${alignRight ? 'text-right' : 'text-left'}`}>
                       <div className="font-semibold text-[var(--chat-text,var(--text-main))]">{exactTime}</div>
                       {isMe && receiptRows.slice(1).map(row => (
                         <div key={row.label} className={`mt-0.5 flex items-center gap-2 ${alignRight ? 'justify-end' : 'justify-start'}`}>
@@ -1708,7 +1771,7 @@ export const MemoizedMessage = React.memo(({
                   )}
 
                   {shouldShowDeliveryStatus && (
-                    <div className={`mt-1 flex items-center gap-0.5 text-[10px] font-bold ${deliveryMeta.className} ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`mt-1 flex items-center gap-0.5 type-meta font-bold ${deliveryMeta.className} ${alignRight ? 'justify-end' : 'justify-start'}`}>
                       {DeliveryIcon && <DeliveryIcon size={12} strokeWidth={2.4} aria-hidden="true" />}
                       <span>{deliveryMeta.label}</span>
                       {deliveryStatus === 'failed' && (
@@ -1718,7 +1781,7 @@ export const MemoizedMessage = React.memo(({
                             e.stopPropagation()
                             retryFailedMessage?.(m)
                           }}
-                          className="ml-1 inline-flex items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold text-red-300 transition-colors hover:bg-red-500/20 cursor-pointer"
+                          className="ml-1 inline-flex items-center gap-0.5 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 type-meta font-bold text-red-300 transition-colors hover:bg-red-500/20 cursor-pointer"
                         >
                           <RotateCcw size={11} aria-hidden="true" />
                           Retry
@@ -1732,7 +1795,7 @@ export const MemoizedMessage = React.memo(({
                       {Object.entries(groupedReactions).map(([emoji, reactions], idx) => {
                         const hasReacted = reactions.some(r => r.profile_id === currentUserId)
                         return (
-                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg text-xs flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
+                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg type-meta flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
                             <span>{emoji}</span> <span className={`font-bold ${hasReacted ? 'text-[var(--text-main)]' : 'text-gray-400'}`}>{reactions.length}</span>
                           </button>
                         )
@@ -1753,7 +1816,7 @@ export const MemoizedMessage = React.memo(({
                 data-reaction-toolbar
                 data-toolbar-owner={actionToolbarOwner}
                 data-message-id={m.id}
-                className={`message-action-toolbar select-none transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
+                className={`message-action-toolbar select-none transition-all duration-200 ease-out shrink-0 premium-menu rounded-2xl p-1 ${reactionSheetMode ? 'invisible' : ''} ${reactionInputMode === 'touch' ? 'z-[160]' : 'z-[80]'}
                   ${isActionMenuOpen && reactionInputMode === 'touch' ? 'fixed' : `absolute top-1/2 -translate-y-1/2 ${alignRight ? 'right-full mr-2' : 'left-full ml-2'}`}
                   ${inlineDeleteMessageId === m.id
                     ? 'flex-row h-auto w-auto min-w-max px-1.5 py-1 gap-1'
@@ -1797,8 +1860,18 @@ export const MemoizedMessage = React.memo(({
                     <div
                       ref={reactionPopoverRef}
                       data-reaction-picker
-                      className="messapp-reaction-popover premium-menu fixed z-[170] animate-fade-in rounded-2xl overflow-hidden p-1.5"
-                      style={{
+                      className={`messapp-reaction-popover premium-menu fixed z-[170] animate-fade-in overflow-hidden p-1.5 ${reactionSheetMode ? 'flex flex-col rounded-t-2xl' : 'rounded-2xl'}`}
+                      style={reactionSheetMode ? {
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100%',
+                        height: '62vh',
+                        paddingBottom: 'env(safe-area-inset-bottom)',
+                        pointerEvents: 'auto',
+                        touchAction: 'manipulation',
+                        zIndex: TOUCH_PORTAL_Z_INDEX + 1
+                      } : {
                         left: reactionPopoverPosition.left,
                         top: reactionPopoverPosition.top,
                         width: reactionPopoverPosition.width,
@@ -1819,9 +1892,11 @@ export const MemoizedMessage = React.memo(({
                       onTouchEnd={isolateReactionSurfaceEvent}
                       onTouchCancel={isolateReactionSurfaceEvent}
                       onWheel={isolateReactionSurfaceEvent}
-                      onTouchStartCapture={() => { if (document.activeElement) document.activeElement.blur(); }}
+                      onTouchStartCapture={() => {
+                        blurComposer()
+                      }}
                     >
-                    <div className="relative z-10">
+                    <div className={`relative z-10 ${reactionSheetMode ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
                       <div className="grid grid-cols-7 items-center gap-1">
                         {quickReactions.map((emoji, index) => {
                           const hasReacted = groupedReactions[emoji]?.some(r => r.profile_id === currentUserId)
@@ -1845,7 +1920,7 @@ export const MemoizedMessage = React.memo(({
                                 if (editingQuickReactions) return
                                 handleReactionButtonTouchEnd(event, emoji)
                               }}
-                              className={`flex aspect-square min-h-9 w-full min-w-0 items-center justify-center rounded-full text-xl transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-105 ring-2 ring-[var(--theme-base)]' : ''}`}
+                              className={`flex aspect-square min-h-9 w-full min-w-0 items-center justify-center rounded-full type-view-title transition-all hover:bg-[var(--bg-element-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${hasReacted ? 'bg-[var(--theme-20)] ring-1 ring-[var(--theme-50)]' : 'bg-[var(--bg-element)]'} ${isSelectedSlot ? 'scale-105 ring-2 ring-[var(--theme-base)]' : ''}`}
                               title={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
                               aria-label={editingQuickReactions ? `Change quick reaction ${index + 1}` : `React with ${emoji}`}
                             >
@@ -1878,7 +1953,7 @@ export const MemoizedMessage = React.memo(({
                       </div>
 
                       {(showMoreReactions || editingQuickReactions) && (
-                        <div className="mt-1.5 rounded-xl overflow-hidden">
+                        <div className={`mt-1.5 overflow-hidden ${reactionSheetMode ? 'flex min-h-0 flex-1 flex-col rounded-xl' : 'rounded-xl'}`}>
                           {showMoreReactions && !editingQuickReactions && (
                             <div className="flex items-center justify-end bg-[var(--bg-element)] px-3 py-2">
                               <button
@@ -1889,14 +1964,14 @@ export const MemoizedMessage = React.memo(({
                                   if (nextPosition) setReactionPopoverPosition(nextPosition)
                                   setEditingQuickReactions(true)
                                 }}
-                                className="text-[11px] font-bold text-[var(--theme-base)] hover:text-[var(--text-main)]"
+                                className="type-meta font-bold text-[var(--theme-base)] hover:text-[var(--text-main)]"
                               >
                                 Edit quick reactions
                               </button>
                             </div>
                           )}
                           {editingQuickReactions && (
-                            <div className="flex items-center justify-between gap-3 bg-[var(--bg-element)] px-3 py-2 text-[11px] font-bold text-gray-400">
+                            <div className="flex items-center justify-between gap-3 bg-[var(--bg-element)] px-3 py-2 type-meta font-bold text-gray-400">
                               <span>Pick replacement for {quickReactions[quickReactionSlot]}</span>
                               <button
                                 type="button"
@@ -1912,19 +1987,23 @@ export const MemoizedMessage = React.memo(({
                               </button>
                             </div>
                           )}
-                          <ChatEmojiPicker
-                            width={typeof window !== 'undefined' ? Math.min(324, window.innerWidth - 28) : 324}
-                            height={editingQuickReactions ? 320 : 360}
-                            searchDisabled={false}
-                            onEmojiClick={(emojiData) => {
-                              if (editingQuickReactions) {
-                                saveQuickReaction(emojiData.emoji)
-                                return
-                              }
-                              const emoji = normalizeReactionEmoji(emojiData.emoji)
-                              void submitReaction({ stopPropagation() {}, preventDefault() {} }, emoji, 'action_react_picker')
-                            }}
-                          />
+                          <div className={reactionSheetMode ? 'min-h-0 flex-1' : 'h-[360px]'}>
+                          <Suspense fallback={<div className="h-full w-full" />}>
+                            <ChatEmojiPicker
+                              width="100%"
+                              height="100%"
+                              searchDisabled={false}
+                              onEmojiClick={(emojiData) => {
+                                if (editingQuickReactions) {
+                                  saveQuickReaction(emojiData.emoji)
+                                  return
+                                }
+                                const emoji = normalizeReactionEmoji(emojiData.emoji)
+                                void submitReaction({ stopPropagation() {}, preventDefault() {} }, emoji, 'action_react_picker')
+                              }}
+                            />
+                          </Suspense>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1936,22 +2015,22 @@ export const MemoizedMessage = React.memo(({
                   <div className="flex min-h-10 min-w-max items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-1.5 py-1 shadow-sm animate-fade-in">
                     {inlineDeleteStep === 'options' && (
                       <>
-                        {(isMe || canModerateMessage) && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">{isMe ? 'Unsend' : 'Remove'}</button>}
-                        <button type="button" data-reaction-action="delete-hide-option" onClick={() => setInlineDeleteStep('confirm_me')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer">Hide</button>
+                        {(isMe || canModerateMessage) && <button type="button" data-reaction-action="delete-unsend-option" onClick={() => setInlineDeleteStep('confirm_everyone')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 type-meta font-bold text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 cursor-pointer">{isMe ? 'Unsend' : 'Remove'}</button>}
+                        <button type="button" data-reaction-action="delete-hide-option" onClick={() => setInlineDeleteStep('confirm_me')} className="flex min-h-9 items-center whitespace-nowrap rounded-full px-3 type-meta font-bold text-gray-400 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer">Hide</button>
                         <div className="mx-0.5 h-5 w-px shrink-0 bg-[var(--border-subtle)]"></div>
 	                        <button type="button" data-reaction-action="delete-cancel" onClick={() => closeActionMenu('delete_cancel')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Cancel delete menu"><X size={15}/></button>
                       </>
                     )}
                     {inlineDeleteStep === 'confirm_everyone' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
-                        <span className="px-1 text-xs font-bold text-red-400 whitespace-nowrap">{isMe ? 'Unsend?' : 'Remove?'}</span>
+                        <span className="px-1 type-meta font-bold text-red-400 whitespace-nowrap">{isMe ? 'Unsend?' : 'Remove?'}</span>
 	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, isMe ? 'everyone' : 'moderate'); closeActionMenu('action_delete_everyone'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer" aria-label={isMe ? 'Confirm unsend' : 'Confirm moderator removal'}><Check size={15}/></button>
                         <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
                     )}
                     {inlineDeleteStep === 'confirm_me' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
-                        <span className="px-1 text-xs font-bold text-gray-400 whitespace-nowrap">Hide?</span>
+                        <span className="px-1 type-meta font-bold text-gray-400 whitespace-nowrap">Hide?</span>
 	                        <button type="button" data-reaction-action="delete-confirm-hide" onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--text-main)]/10 text-[var(--text-main)] transition-colors hover:bg-[var(--text-main)]/20 cursor-pointer" aria-label="Confirm hide"><Check size={15}/></button>
                         <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
                       </div>
@@ -1966,7 +2045,7 @@ export const MemoizedMessage = React.memo(({
                       style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined}
                       onClick={openReactionPicker}
                       onTouchStartCapture={() => { 
-                        if (document.activeElement) document.activeElement.blur(); 
+                        blurComposer(); 
                       }}
                       onMouseDown={(e) => { e.preventDefault(); }}
                       className="message-action-button text-gray-500 hover:text-yellow-400 md:hover:bg-[var(--border-subtle)]" 
@@ -1975,6 +2054,9 @@ export const MemoizedMessage = React.memo(({
                     >
                       <SmilePlus size={15} aria-hidden="true" />
                     </button>
+	                    {hasVisibleContent && (
+	                      <button type="button" data-reaction-action="copy" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { navigator.clipboard.writeText(visibleContent).then(() => toast.success('Copied!'), () => toast.error('Copy failed')); closeActionMenu('action_copy'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Copy" aria-label="Copy message text"><Copy size={15} aria-hidden="true" /></button>
+	                    )}
 	                    {isMe && !hasAttachments && (
 	                      <button type="button" data-reaction-action="edit" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
 	                    )}
@@ -1983,7 +2065,7 @@ export const MemoizedMessage = React.memo(({
 	                    )}
 	                    <button type="button" data-reaction-action="pin" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { togglePinnedMessage(m); closeActionMenu('action_pin'); }} className={`message-action-button md:hover:bg-[var(--border-subtle)] ${m.is_pinned ? 'text-[var(--theme-base)]' : 'text-gray-500 hover:text-[var(--theme-base)]'}`} title={m.is_pinned ? 'Unpin' : 'Pin'} aria-label={m.is_pinned ? 'Unpin' : 'Pin'}><Pin size={15} aria-hidden="true" /></button>
 	                    {firstImageUrl && (
-	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.stopPropagation(); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
+	                      <a href={firstImageUrl} target="_blank" rel="noopener noreferrer" download={imageAttachments[0]?.file_name || true} onClick={(e) => { e.preventDefault(); e.stopPropagation(); downloadFile(firstImageUrl, imageAttachments[0]?.file_name).catch(error => { debug.error('ATTACHMENT_DOWNLOAD', { operation: 'action-menu', error }); toast.error('Download failed') }); closeActionMenu('action_download'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Download" aria-label="Download">
 	                        <Download size={15} aria-hidden="true" />
 	                      </a>
 	                    )}
@@ -2010,7 +2092,7 @@ export const MemoizedMessage = React.memo(({
 	                      <Trash2 size={15} aria-hidden="true" />
 	                    </button>
 	                    {showReceiptDetails && (
-	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 text-[11px] text-gray-400 shadow-inner md:col-span-full">
+	                      <div className="mt-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-2.5 py-2 type-meta text-gray-400 shadow-inner md:col-span-full">
 	                        {receiptRows.map(row => (
 	                          <div key={row.label} className="flex items-center justify-between gap-4 py-0.5">
 	                            <span className="font-bold text-gray-500">{row.label}</span>
