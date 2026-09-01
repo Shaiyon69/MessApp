@@ -5,7 +5,7 @@
  * permissions; Supabase policies still authorize every mutation here — the
  * canManageServer checks below are convenience, never the security boundary.
  */
-import React, { useEffect, useState, useRef, lazy, Suspense } from 'react'
+import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
 import { Camera, ChevronLeft, Copy, Gamepad2, GraduationCap, Hash, ImagePlus, MicOff, MonitorUp, MoreVertical, Plus, Sparkles, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
@@ -77,6 +77,7 @@ export default function ServersPage(props) {
     props.onServerActionHandled?.()
   }, [props.pendingServerAction, props.onServerActionHandled])
 
+  const unreadChannels = useMemo(() => new Set(props.unreadChannelIds || []), [props.unreadChannelIds])
   const canManageServer = Boolean(props.canManageActiveServer)
   /* Deleting is the owner's alone — the delete_server RPC raises for anyone
      else, so an admin gets Leave Server instead of a button that always fails. */
@@ -551,6 +552,7 @@ export default function ServersPage(props) {
                 <div className="space-y-1 pt-1.5">
                   {(category.channels || []).map(channel => {
                     const isActive = props.activeChannel?.id === channel.id
+                    const isUnread = !isActive && unreadChannels.has(channel.id)
                     const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
                     return (
                       <div
@@ -558,12 +560,14 @@ export default function ServersPage(props) {
                         className={`long-press-target relative rounded-xl ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/55' : ''}`}
                         {...(canManageServer ? bindLongPress(`channel-${channel.id}`) : null)}
                       >
-                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-10 text-left type-body font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
+                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-10 text-left type-body font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--bg-base)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
                           <span className={`absolute inset-y-2 left-0 w-0.5 rounded-r-full ${isActive ? 'bg-[var(--theme-base)]' : 'bg-transparent'}`} aria-hidden="true" />
                           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
                             {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
                           </span>
-                          <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+                          <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
+                          {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
+                          {isUnread && <span className="absolute right-10 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
                           {channel.type === 'voice' && voiceParticipants.length > 0 && (
                             <span className="shrink-0 rounded-full border border-green-500/15 bg-green-500/10 px-1.5 py-0.5 font-mono type-meta font-black uppercase tracking-wide text-green-300">{voiceParticipants.length} live</span>
                           )}

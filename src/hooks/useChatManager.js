@@ -2,7 +2,6 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } fr
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
-import imageCompression from 'browser-image-compression'
 import { cacheThumbnail } from '../lib/cacheManager'
 import { importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm } from '../lib/crypto'
 import { audioSys } from '../lib/SoundEngine'
@@ -419,13 +418,24 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     setPeerReadAt(data?.last_read_at || null)
   }, [activeDm?.profiles?.id, view])
 
+  /* Read pointer for whichever conversation is open: DMs write `dm_reads` (which
+     doubles as the peer's seen receipt), channels write `channel_reads` — the same
+     table/column split `send-message-push` makes. Channels take the latest message
+     from any author, because `channels.last_message_at` moves for your own messages
+     too and the unread badge compares against it. */
   const markIncomingSeen = useCallback(async (targetId, messageList) => {
-    if (view !== 'home' || !targetId || document.visibilityState !== 'visible') {
+    const isChannel = view === 'server'
+    /* A hidden tab must not advance a DM pointer — the peer would see "seen" for
+       a message nobody looked at. A channel carries no such receipt, so an open
+       channel keeps its pointer current in the background and its unread dot
+       does not come back on the next server load. */
+    if ((view !== 'home' && !isChannel) || !targetId || (!isChannel && document.visibilityState !== 'visible')) {
       if (isDebugEnabled('messappDebugReceipts')) console.debug('[RECEIPT_DEBUG]', { handler: 'markIncomingSeen', earlyReturn: true, view, targetId, visibilityState: document.visibilityState })
       return
     }
+    const idColumn = isChannel ? 'channel_id' : 'dm_room_id'
     const latestIncoming = messageList
-      .filter(message => message?.dm_room_id === targetId && message.profile_id !== session.user.id && message.created_at)
+      .filter(message => message?.[idColumn] === targetId && (isChannel || message.profile_id !== session.user.id) && message.created_at)
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
     if (!latestIncoming?.created_at) {
       if (isDebugEnabled('messappDebugReceipts')) console.debug('[RECEIPT_DEBUG]', { handler: 'markIncomingSeen', earlyReturn: true, reason: 'no-incoming-created-at', currentUserId: session.user.id, targetId })
@@ -437,8 +447,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     seenReceiptWriteRef.current = `${targetId}:${readAt}`
 
     const { error } = await supabase
-      .from('dm_reads')
-      .upsert({ profile_id: session.user.id, dm_room_id: targetId, last_read_at: readAt })
+      .from(isChannel ? 'channel_reads' : 'dm_reads')
+      .upsert({ profile_id: session.user.id, [idColumn]: targetId, last_read_at: readAt })
     if (error) {
       seenReceiptWriteRef.current = ''
       console.warn('[RECEIPT_DEBUG] seen receipt write failed.', { targetId, currentUserId: session.user.id, readAt, error })
@@ -1486,7 +1496,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     const kind = getAttachmentKind(file)
     const shouldCompressImage = kind === 'image' && normalizeFileType(file.type) !== 'image/gif'
     const uploadFile = shouldCompressImage
-      ? await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true, initialQuality: 0.82 })
+      // Dynamic: the compressor is ~50 kB and only runs on an actual upload.
+      ? await (await import('browser-image-compression')).default(file, { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true, initialQuality: 0.82 })
       : file
     const fileExt = file.name?.split('.').pop() || (kind === 'image' ? 'png' : 'bin')
     const encrypted = view === 'home'
