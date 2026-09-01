@@ -607,7 +607,7 @@ export const MemoizedMessage = React.memo(({
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
-  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false
+  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false, myMention = ''
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMoreReactions, setShowMoreReactions] = useState(false)
@@ -1162,9 +1162,22 @@ export const MemoizedMessage = React.memo(({
         if (!safeHref) return <span {...props} />
         return <a className="hover:underline underline-offset-2" style={{ color: linkColor }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
       },
-      img() { return null }
+      img() { return null },
+      // Markdown emits no spans of its own, so the only ones here come from
+      // remarkMentions; anything else falls through untouched.
+      span({ node: _node, className, children, ...props }) {
+        if (className !== 'mention') return <span className={className} {...props}>{children}</span>
+        const isSelf = Boolean(myMention) && props['data-mention'] === myMention
+        return (
+          <span
+            {...props}
+            className={`rounded px-1 font-bold ${isSelf ? 'bg-[var(--theme-20)]' : ''}`}
+            style={{ color: linkColor }}
+          >{children}</span>
+        )
+      }
     }
-  }, [isMe])
+  }, [isMe, myMention])
   // Plain prose is the common case: skip the remark parse — and the markdown
   // chunk — unless the text holds something markdown could act on.
   const messageBody = hasMarkdown(visibleContent)

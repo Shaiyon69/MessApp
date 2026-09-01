@@ -22,6 +22,7 @@ import useLongPress from '../../hooks/useLongPress'
 import { DISAPPEARING_OPTIONS, describeExpiry } from '../../lib/messageExpiry'
 import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_DEAD_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
 import { blurComposer, resizeComposer, enterSends } from '../../lib/composerFocus'
+import { applyMention, findMentionQuery, matchMembers, normalizeMention } from '../../lib/mentions'
 import { getPendingFileFingerprint } from '../../hooks/useChatManager'
 import { primeVideoPreview } from '../../lib/videoPreview'
 import {
@@ -76,6 +77,11 @@ export default function ChatArea(props) {
   /* The composer is uncontrolled — handleSendMessage reads the DOM value — so
      the send button needs its own signal for whether anything is typed. */
   const [composerHasText, setComposerHasText] = useState(false)
+  /* The @token the caret is inside, or null. Read off the DOM in syncComposer
+     for the same reason composerHasText is: React never sees the field's text. */
+  const [mentionQuery, setMentionQuery] = useState(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+
   // null while nothing is being held; otherwise what releasing would do.
   const [voiceHold, setVoiceHold] = useState(null);
   
@@ -478,6 +484,29 @@ useEffect(() => {
       else draftsRef.current.delete(activeChatKey)
     }
     setComposerHasText(Boolean(text.trim()))
+    // Servers only: a DM has one other person in it, so there is nobody to pick.
+    const query = props.view === 'server' && !props.editingMessageId
+      ? findMentionQuery(text, input?.selectionStart ?? text.length)
+      : null
+    setMentionQuery(query)
+    setMentionIndex(0)
+  };
+
+  const mentionCandidates = useMemo(
+    () => (mentionQuery ? matchMembers(props.serverMembers, mentionQuery.query) : []),
+    [mentionQuery, props.serverMembers]
+  )
+  const myMention = useMemo(() => normalizeMention(props.myUsername), [props.myUsername])
+
+  const insertMention = (member) => {
+    const input = props.messageInputRef.current
+    if (!input || !mentionQuery) return
+    const caret = input.selectionStart ?? input.value.length
+    const next = applyMention(input.value, mentionQuery.start, caret, member?.profiles?.username || '')
+    input.value = next.text
+    input.setSelectionRange(next.caret, next.caret)
+    input.focus()
+    syncComposer()
   };
 
   // Switching conversations remounts the composer empty; put the draft back.
@@ -1022,6 +1051,7 @@ useEffect(() => {
                       setInlineDeleteStep={props.setInlineDeleteStep}
                       executeInlineDelete={props.executeInlineDelete}
                       canModerateMessage={props.view === 'server' && MODERATOR_ROLES.includes(props.activeServerRole)}
+                      myMention={myMention}
                       toggleReaction={props.toggleReaction}
                       setReplyingTo={props.setReplyingTo}
                       repliedMsg={repliedMsg}
@@ -1306,7 +1336,29 @@ useEffect(() => {
                     <input type="file" accept="image/*" capture="environment" ref={cameraPhotoInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <input type="file" accept="video/*" capture="environment" ref={cameraVideoInputRef} onChange={props.handleFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
                     <input type="file" accept="*/*" multiple ref={props.genericFileInputRef} onChange={props.handleGenericFileUpload} onClick={(e) => { e.currentTarget.value = '' }} className="hidden" />
-                    <div className="flex-1 flex flex-col min-w-0">
+                    <div className="flex-1 flex flex-col min-w-0 relative">
+                    {mentionCandidates.length > 0 && (
+                      <div role="listbox" aria-label="Mention a member" className="premium-menu absolute bottom-full left-0 right-0 mb-2 z-50 max-h-56 overflow-y-auto rounded-2xl p-1 custom-scrollbar">
+                        {mentionCandidates.map((member, index) => (
+                          <button
+                            key={member.profile_id || member.profiles?.username}
+                            type="button"
+                            role="option"
+                            aria-selected={index === mentionIndex}
+                            /* mousedown, not click: click lands after the field
+                               has already blurred and lost the caret. */
+                            onMouseDown={(e) => { e.preventDefault(); insertMention(member) }}
+                            onMouseEnter={() => setMentionIndex(index)}
+                            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left type-body ${index === mentionIndex ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}
+                          >
+                            <span className="truncate font-bold">{member.profiles?.username}</span>
+                            {member.role && member.role !== 'member' && (
+                              <span className="ml-auto type-meta uppercase tracking-wide text-[var(--text-subtle)]">{member.role}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {/* Black field, hairline edge: the fill used to be
                         --chat-bg-element, a blue-grey slab on an OLED thread. */}
                     <div className="flex items-center bg-[var(--chat-bg-base,var(--bg-base))] rounded-[22px] relative min-w-0 border border-[var(--chat-border,var(--border-subtle))] min-h-[44px]">
@@ -1318,7 +1370,7 @@ useEffect(() => {
                           props.setShowGifPicker(false); 
                           setShowAttachMenu(false); 
                         }}
-                        onBlur={() => debug.debug('COMPOSER', { operation: 'blur', hadText: Boolean(props.messageInputRef.current?.value) })}
+                        onBlur={() => { setMentionQuery(null); debug.debug('COMPOSER', { operation: 'blur', hadText: Boolean(props.messageInputRef.current?.value) }) }}
                         onInput={syncComposer}
                         onPaste={props.handlePaste}
                         onBeforeInput={props.handleBeforeInput}
@@ -1346,6 +1398,24 @@ useEffect(() => {
                               props.setEditContent('')
                             }
                             return
+                          }
+
+                          if (mentionCandidates.length > 0) {
+                            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                              e.preventDefault()
+                              const step = e.key === 'ArrowDown' ? 1 : mentionCandidates.length - 1
+                              setMentionIndex((index) => (index + step) % mentionCandidates.length)
+                              return
+                            }
+                            if (e.key === 'Enter' || e.key === 'Tab') {
+                              e.preventDefault()
+                              insertMention(mentionCandidates[mentionIndex] || mentionCandidates[0])
+                              return
+                            }
+                            if (e.key === 'Escape') {
+                              setMentionQuery(null)
+                              return
+                            }
                           }
 
                           if (e.key === 'Enter' && !e.shiftKey && enterSends()) {

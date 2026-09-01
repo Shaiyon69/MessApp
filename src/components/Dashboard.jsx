@@ -2163,6 +2163,7 @@ export default function Dashboard({ session }) {
         userPresence={userPresence}
         getPresenceStatus={getPresenceStatus}
         getPresenceLabel={getPresenceLabel}
+        serverMembers={serverMembers}
         myUsername={myUsername}
         myAvatar={myAvatar}
         {...chatManagerProps}
