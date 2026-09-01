@@ -4,7 +4,6 @@
  * Supabase/RPCs remain authoritative; switches must retire obsolete async work.
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import imageCompression from 'browser-image-compression'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
 import { configureNativePushRegistration, registerWebPushDevice, reportActiveConversation, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
@@ -1239,6 +1238,8 @@ export default function Dashboard({ session }) {
     let uploadedPath = ''
     try {
       validateCustomWallpaperFile(file)
+      // Dynamic: the compressor is ~50 kB and only runs on an actual upload.
+      const { default: imageCompression } = await import('browser-image-compression')
       const compressed = await imageCompression(file, {
         maxSizeMB: 1.5,
         maxWidthOrHeight: 2048,
