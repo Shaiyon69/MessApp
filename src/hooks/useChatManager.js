@@ -2,7 +2,6 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } fr
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
-import imageCompression from 'browser-image-compression'
 import { cacheThumbnail } from '../lib/cacheManager'
 import { importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm } from '../lib/crypto'
 import { audioSys } from '../lib/SoundEngine'
@@ -1497,7 +1496,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     const kind = getAttachmentKind(file)
     const shouldCompressImage = kind === 'image' && normalizeFileType(file.type) !== 'image/gif'
     const uploadFile = shouldCompressImage
-      ? await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true, initialQuality: 0.82 })
+      // Dynamic: the compressor is ~50 kB and only runs on an actual upload.
+      ? await (await import('browser-image-compression')).default(file, { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true, initialQuality: 0.82 })
       : file
     const fileExt = file.name?.split('.').pop() || (kind === 'image' ? 'png' : 'bin')
     const encrypted = view === 'home'
