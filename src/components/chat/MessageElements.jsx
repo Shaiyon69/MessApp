@@ -4,9 +4,7 @@
  * signed media URLs must not be persisted or logged.
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
-import ReactMarkdown from 'react-markdown'
 import { createPortal } from 'react-dom'
-import remarkGfm from 'remark-gfm'
 import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
@@ -19,14 +17,22 @@ import { debug } from '../../lib/debug'
 import { downloadFile } from '../../lib/downloadFile'
 import { blurComposer } from '../../lib/composerFocus'
 import { formatMessageTime } from '../../lib/messageTime'
+import { hasMarkdown } from '../../lib/markdownText'
 
-// Both pull large dependencies (refractor, emoji-picker-react) that are only
-// needed once a message actually contains a code block or the picker is opened.
+// Each pulls a large dependency (refractor, remark/micromark, emoji-picker-react)
+// that is only needed once a message actually contains a code block or markup,
+// or the picker is opened.
 const CodeBlock = lazy(() => import('./CodeBlock'))
+const MarkdownBody = lazy(() => import('./MarkdownBody'))
 const ChatEmojiPicker = lazy(() => import('./ChatEmojiPicker'))
 
+// Formatted messages are common enough that waiting for the chunk would flash
+// raw text, so warm it once the boot work is done — off the critical path.
+// Safari before 17.4 has no requestIdleCallback; a timer keeps it off boot too.
+const whenIdle = typeof requestIdleCallback === 'function' ? requestIdleCallback : (fn) => setTimeout(fn, 2000)
+whenIdle(() => import('./MarkdownBody'))
+
 const CODE_BLOCK_CLASS = 'rounded-xl my-2 ghost-border type-label shadow-lg bg-[var(--bg-base)]'
-const MARKDOWN_PLUGINS = [remarkGfm]
 const EMOJI_ONLY_PATTERN = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}️‍\s]+$/u
 
 const loadedMessageImageKeys = new Set()
@@ -601,7 +607,7 @@ export const MemoizedMessage = React.memo(({
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
-  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false
+  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false, myMention = ''
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMoreReactions, setShowMoreReactions] = useState(false)
@@ -1156,9 +1162,31 @@ export const MemoizedMessage = React.memo(({
         if (!safeHref) return <span {...props} />
         return <a className="hover:underline underline-offset-2" style={{ color: linkColor }} target="_blank" rel="noreferrer" href={safeHref} {...props} />
       },
-      img() { return null }
+      img() { return null },
+      // Markdown emits no spans of its own, so the only ones here come from
+      // remarkMentions; anything else falls through untouched.
+      span({ node: _node, className, children, ...props }) {
+        if (className !== 'mention') return <span className={className} {...props}>{children}</span>
+        const isSelf = Boolean(myMention) && props['data-mention'] === myMention
+        return (
+          <span
+            {...props}
+            className={`rounded px-1 font-bold ${isSelf ? 'bg-[var(--theme-20)]' : ''}`}
+            style={{ color: linkColor }}
+          >{children}</span>
+        )
+      }
     }
-  }, [isMe])
+  }, [isMe, myMention])
+  // Plain prose is the common case: skip the remark parse — and the markdown
+  // chunk — unless the text holds something markdown could act on.
+  const messageBody = hasMarkdown(visibleContent)
+    ? (
+      <Suspense fallback={visibleContent}>
+        <MarkdownBody components={markdownComponents}>{visibleContent}</MarkdownBody>
+      </Suspense>
+    )
+    : visibleContent
   const hasVisibleContent = typeof visibleContent === 'string' && visibleContent.trim() !== ''
   const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
   const isEditingCaption = isEditing && hasImageAttachments
@@ -1475,12 +1503,7 @@ export const MemoizedMessage = React.memo(({
                   ) : hasVisibleContent && !showCaptionBelowMedia && (
                     <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
                       <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                        <ReactMarkdown
-                          remarkPlugins={MARKDOWN_PLUGINS}
-                          components={markdownComponents}
-                        >
-                          {visibleContent}
-                        </ReactMarkdown>
+                        {messageBody}
                       </div>
                     </div>
                   )}
@@ -1718,12 +1741,7 @@ export const MemoizedMessage = React.memo(({
                     ) : showCaptionBelowMedia ? (
                       <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
                         <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                          <ReactMarkdown
-                            remarkPlugins={MARKDOWN_PLUGINS}
-                            components={markdownComponents}
-                          >
-                            {visibleContent}
-                          </ReactMarkdown>
+                          {messageBody}
                         </div>
                       </div>
                     ) : null
