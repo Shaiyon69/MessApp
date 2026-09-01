@@ -186,6 +186,7 @@ export default function Dashboard({ session }) {
   const [voiceDeafened, setVoiceDeafened] = useState(false)
   const [serverCategories, setServerCategories] = useState([])
   const [serverChannelsLoading, setServerChannelsLoading] = useState(false)
+  const [unreadChannelIds, setUnreadChannelIds] = useState([])
   const [serverMembers, setServerMembers] = useState([])
   const [dms, setDms] = useState(cachedDms)
   const [dmsLoading, setDmsLoading] = useState(cachedDms.length === 0)
@@ -418,6 +419,7 @@ export default function Dashboard({ session }) {
 
   const stateRef = useRef({});
   const activeDmRef = useRef(null);
+  const activeChannelRef = useRef(null);
   const presenceChannelRef = useRef(null);
   const acceptingRefs = useRef(new Set());
   const startingDmRefs = useRef(new Set());
@@ -455,6 +457,7 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     activeDmRef.current = activeDm;
+    activeChannelRef.current = activeChannel;
     stateRef.current = { 
       homeTab,
       showRightSidebar, 
@@ -703,6 +706,8 @@ export default function Dashboard({ session }) {
     setView('server')
     setActiveDm(null)
     setActiveChannel(channel)
+    // Local half only; useChatManager owns the channel_reads write, as with DMs.
+    setUnreadChannelIds(current => current.filter(id => id !== channel.id))
     joinVoiceChannel(channel)
   }, [joinVoiceChannel])
 
@@ -926,6 +931,37 @@ export default function Dashboard({ session }) {
     channel.subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [dmRoomIdsKey, session.user.id])
+
+  /* Unread dots for channels of the open server that are not the open channel.
+     Same shape as the DM listener above, and for the same reason: an unfiltered
+     `messages` subscription would deliver every message in the product.
+     `channels` itself is not in the Realtime publication, so the INSERT on
+     `messages` is the signal, not the trigger's last_message_at update.
+     ponytail: one listener per channel. Fine for a normal server; if a server
+     grows hundreds of channels, move this to a server-side fan-out. */
+  const serverChannelIdsKey = useMemo(
+    () => serverCategories
+      .flatMap(category => category.channels || [])
+      .filter(channel => channel.type !== 'voice')
+      .map(channel => channel.id)
+      .sort()
+      .join(','),
+    [serverCategories]
+  )
+
+  useEffect(() => {
+    if (!serverChannelIdsKey) return
+    const channel = supabase.channel('channel-message-activity')
+    for (const channelId of serverChannelIdsKey.split(',')) {
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` }, (payload) => {
+        if (payload.new.profile_id === session.user.id) return
+        if (activeChannelRef.current?.id === channelId) return
+        setUnreadChannelIds(current => current.includes(channelId) ? current : [...current, channelId])
+      })
+    }
+    channel.subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [serverChannelIdsKey, session.user.id])
 
   useEffect(() => {
     if (!presenceChannelRef.current) return
@@ -1348,6 +1384,7 @@ export default function Dashboard({ session }) {
     if (!serverId) {
       setServerChannelsLoading(false)
       setServerCategories([])
+      setUnreadChannelIds([])
       setActiveChannel(null)
       return []
     }
@@ -1386,7 +1423,24 @@ export default function Dashboard({ session }) {
       }))
       const nextChannels = nextCategories.flatMap(category => category.channels)
 
+      /* Unread is `channels.last_message_at` (kept by a trigger) against this
+         user's `channel_reads` row — the DM rule, minus the author check the DM
+         list makes, because the trigger does not record who sent it. */
+      const textChannelIds = nextChannels.filter(channel => channel.type !== 'voice').map(channel => channel.id)
+      const { data: reads } = textChannelIds.length
+        ? await supabase.from('channel_reads').select('channel_id, last_read_at').eq('profile_id', session.user.id).in('channel_id', textChannelIds)
+        : { data: [] }
+      const readByChannel = new Map((reads || []).map(item => [item.channel_id, item.last_read_at]))
+      const nextUnread = nextChannels
+        .filter(channel => {
+          if (channel.type === 'voice' || !channel.last_message_at) return false
+          const lastReadAt = readByChannel.get(channel.id)
+          return !lastReadAt || new Date(channel.last_message_at) > new Date(lastReadAt)
+        })
+        .map(channel => channel.id)
+
       if (serverChannelsRequestRef.current !== requestId) return []
+      setUnreadChannelIds(nextUnread)
       setServerCategories(nextCategories)
       /* Swap in the freshly read row rather than keeping the held object, so a
          rename lands and a channel opened by id alone fills itself in. */
@@ -1396,6 +1450,7 @@ export default function Dashboard({ session }) {
     } catch (_err) {
       if (serverChannelsRequestRef.current !== requestId) return []
       setServerCategories([])
+      setUnreadChannelIds([])
       setActiveChannel(null)
       setServerChannelsLoading(false)
       return []
@@ -2057,6 +2112,7 @@ export default function Dashboard({ session }) {
         setActiveChannel={selectChannel}
         serverCategories={serverCategories}
         serverChannelsLoading={serverChannelsLoading}
+        unreadChannelIds={unreadChannelIds}
         canManageActiveServer={canManageActiveServer}
         isActiveServerOwner={isActiveServerOwner}
         fetchServers={fetchServers}
