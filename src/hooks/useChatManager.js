@@ -17,6 +17,7 @@ import { resizeComposer } from '../lib/composerFocus'
 import { debug } from '../lib/debug'
 import { SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT, SEARCH_ROOM_CONCURRENCY, SEARCH_ROOM_MESSAGE_LIMIT, describeChannelResult, describeDmResult, escapeIlikePattern, mapWithConcurrency, matchesSearchQuery, rankSearchResults } from '../lib/messageSearch'
 import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
+import { withMessageEffect } from '../lib/messageEffects'
 
 const KeyboardImage =
   window.__messappKeyboardImagePlugin ||
@@ -294,6 +295,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
   const [pendingFiles, setPendingFiles] = useState([])
   const [composerSpoiler, setComposerSpoiler] = useState(false)
+  const [composerEffect, setComposerEffect] = useState(null)
   /* Sticky for the conversation rather than per message, the way every other
      messenger does it, but cleared on conversation change so it can never
      follow the user into a chat where they did not ask for it. */
@@ -1729,19 +1731,23 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (e) e.preventDefault()
     const text = messageInputRef.current?.value.trim()
     const sendAsSpoiler = forceSpoiler || composerSpoiler
+    const sendEffect = composerEffect
+    const sentText = withMessageEffect(text, sendEffect)
     const expiresAt = expiresAtFrom(forceExpirySeconds === undefined ? composerExpirySeconds : forceExpirySeconds)
 
     if (pendingFiles.length) {
       const itemsToSend = pendingFiles
       setPendingFiles([])
       setComposerSpoiler(false)
+      setComposerEffect(null)
       if (messageInputRef.current) messageInputRef.current.value = ''
-      await uploadPendingFiles(itemsToSend, text, sendAsSpoiler, expiresAt)
+      await uploadPendingFiles(itemsToSend, sentText, sendAsSpoiler, expiresAt)
       return;
     }
 
     if (!text) return
     setComposerSpoiler(false)
+    setComposerEffect(null)
     if (messageInputRef.current) messageInputRef.current.value = ''
     
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
@@ -1763,10 +1769,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt },
+        __retry_payload: { type: 'text', text: sentText, isSpoiler: sendAsSpoiler, expiresAt },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
-        content: text,
+        content: sentText,
         is_spoiler: sendAsSpoiler,
         expires_at: expiresAt,
         created_at: localCreatedAt,
@@ -1787,7 +1793,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     try {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages);
-      const contentToSave = await buildEncryptedPayload(text, targetId, sharedKeys, messages);
+      const contentToSave = await buildEncryptedPayload(sentText, targetId, sharedKeys, messages);
 
       const { data: newMsg, error: insertError } = await supabase.from('messages')
         .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
@@ -1813,8 +1819,9 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       audioSys.playActionError()
       triggerInteractionFeedback('error')
       ownSendScrollRef.current = { targetId: null, active: false }
-      failLocalMessage(targetId, localId, { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt })
+      failLocalMessage(targetId, localId, { type: 'text', text: sentText, isSpoiler: sendAsSpoiler, expiresAt })
       setComposerSpoiler(sendAsSpoiler)
+      setComposerEffect(sendEffect)
       if (messageInputRef.current) {
         messageInputRef.current.value = text
         // Restored text is put back behind React: size the field to it too.
@@ -2228,6 +2235,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     showGifPicker, setShowGifPicker,
     pendingFiles, setPendingFiles, removePendingFile, togglePendingFileSpoiler, queuePendingAttachmentFromFile, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,
     composerSpoiler, setComposerSpoiler,
+    composerEffect, setComposerEffect,
     composerExpirySeconds, setComposerExpirySeconds,
     keyboardImageFallbackMessage,
     showLatestMessagesButton, scrollToLatestMessages,

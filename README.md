@@ -105,9 +105,8 @@ Follow these steps to set up the development environment on your local machine.
    VITE_SUPABASE_URL=your_supabase_project_url
    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-   # Optional. Without them the GIF picker still opens, but search is disabled.
-   VITE_GIPHY_API_KEY=your_giphy_web_key
-   VITE_GIPHY_API_KEY_MOBILE=your_giphy_native_key
+   # Optional. Without it the GIF picker still opens, but search is disabled.
+   VITE_KLIPY_API_KEY=your_klipy_app_key
    ```
     *(Note: Never commit local `.env` files to version control.)*
 

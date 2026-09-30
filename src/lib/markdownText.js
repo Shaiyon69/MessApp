@@ -6,7 +6,7 @@
  * yet produces exactly the raw string back. The pattern is deliberately
  * over-eager — a false positive only means the normal markdown path runs.
  */
-const MARKDOWN_HINT = /[\\`*_~[\]()<>#|!&@=+-]|\d+[.)]\s|https?:\/\/|www\./
+const MARKDOWN_HINT = /[\\`*_~[\]()<>{#|!&@=+-]|\d+[.)]\s|https?:\/\/|www\./
 
 export function hasMarkdown(text) {
   return typeof text === 'string' && MARKDOWN_HINT.test(text)

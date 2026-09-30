@@ -1588,29 +1588,33 @@ export default function Dashboard({ session }) {
      the raw version could not tell "left/deleted" from "silently refused" and
      reported success either way. The functions raise instead, and delete_server
      also queues the server's attachments for storage cleanup. */
-  const handleLeaveServer = async () => {
-    if (!activeServer?.id) return
-    const { error } = await supabase.rpc('leave_server', { target_server_id: activeServer.id })
+  const handleLeaveServer = async (target = activeServer) => {
+    if (!target?.id) return
+    const { error } = await supabase.rpc('leave_server', { target_server_id: target.id })
     if (error) throw error
-    setServers(current => current.filter(server => server.id !== activeServer.id))
-    if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
-    setActiveServer(null)
-    setActiveChannel(null)
-    setServerCategories([])
-    setView('home')
+    setServers(current => current.filter(server => server.id !== target.id))
+    if (activeVoiceSession?.serverId === target.id) leaveActiveVoice()
+    if (activeServer?.id === target.id) {
+      setActiveServer(null)
+      setActiveChannel(null)
+      setServerCategories([])
+      setView('home')
+    }
     await fetchServers()
   }
 
-  const handleDeleteServer = async () => {
-    if (!activeServer?.id) return
-    const { error } = await supabase.rpc('delete_server', { target_server_id: activeServer.id })
+  const handleDeleteServer = async (target = activeServer) => {
+    if (!target?.id) return
+    const { error } = await supabase.rpc('delete_server', { target_server_id: target.id })
     if (error) throw error
-    setServers(current => current.filter(server => server.id !== activeServer.id))
-    if (activeVoiceSession?.serverId === activeServer.id) leaveActiveVoice()
-    setActiveServer(null)
-    setActiveChannel(null)
-    setServerCategories([])
-    setView('home')
+    setServers(current => current.filter(server => server.id !== target.id))
+    if (activeVoiceSession?.serverId === target.id) leaveActiveVoice()
+    if (activeServer?.id === target.id) {
+      setActiveServer(null)
+      setActiveChannel(null)
+      setServerCategories([])
+      setView('home')
+    }
     await fetchServers()
   }
 
@@ -1911,7 +1915,6 @@ export default function Dashboard({ session }) {
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
   /* delete_server is owner-only; admins can manage everything else but must
      leave rather than delete, so the two actions gate on different checks. */
-  const isActiveServerOwner = activeServer?.owner_id === session.user.id
 
   const quickSwitcherBase = allFriends
 
@@ -2115,7 +2118,6 @@ export default function Dashboard({ session }) {
         serverChannelsLoading={serverChannelsLoading}
         unreadChannelIds={unreadChannelIds}
         canManageActiveServer={canManageActiveServer}
-        isActiveServerOwner={isActiveServerOwner}
         fetchServers={fetchServers}
         handleCreateChannel={handleCreateChannel}
         handleCreateCategory={handleCreateCategory}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'messapp-v2';
+const CACHE_NAME = 'messapp-v3';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 const PUSH_DATA_KEYS = ['type', 'message_id', 'dm_room_id', 'server_id', 'channel_id', 'sender_id', 'request_id'];
 
@@ -80,6 +80,10 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  // Vite dev serves modules whose URLs are reused across edits; caching them
+  // pins stale code and blanks the page. Only built assets are safe to cache.
+  if (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1') return;
+
   const url = new URL(e.request.url);
 
   // Bypass service worker for API calls and Supabase services

@@ -15,6 +15,7 @@ import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverM
 import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
 import { debug } from '../../lib/debug'
 import { formatMessageTime } from '../../lib/messageTime'
+import { stripEffects } from '../../lib/messageEffects'
 
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
   enabled: import.meta.env?.VITE_SERVER_NOTIFICATION_PREFERENCES_ENABLED === 'true'
@@ -245,7 +246,7 @@ export default function RightSidebar({
   const formatMessagePreview = (message) => {
     if (message?.is_spoiler) return 'Spoiler'
     if (!message?.content) return 'Attachment'
-    const value = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+    const value = typeof message.content === 'string' ? stripEffects(message.content) : JSON.stringify(message.content)
     return value.length > 90 ? `${value.slice(0, 90)}...` : value
   }
 
@@ -738,7 +739,16 @@ export default function RightSidebar({
               <input type="text" placeholder="Search all conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-[var(--text-subtle)] font-medium min-w-0" autoFocus />
             </div>
             
-            {searchLoading && <div className="text-center text-[var(--text-muted)] type-body mt-8">Searching…</div>}
+            {searchLoading && (
+              <div className="space-y-2" role="status" aria-label="Searching">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div key={`search-skeleton-${index}`} className="space-y-2 rounded-xl bg-[var(--surface-section)] p-3" aria-hidden="true">
+                    <div className="skeleton h-3 w-24 rounded-full" />
+                    <div className="skeleton h-2.5 rounded-full" style={{ width: `${62 + (index % 3) * 12}%` }} />
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* DM history is encrypted, so it is decrypted and scanned locally
                 rather than matched by the database — the reach differs by
@@ -766,7 +776,7 @@ export default function RightSidebar({
                         <span className="type-meta text-[var(--text-muted)] shrink-0">{formatMessageTime(m.created_at)}</span>
                       </div>
                       {m.__search?.label && <div className="type-meta text-[var(--text-muted)] truncate mb-1">{m.__search.label}</div>}
-                      <p className="type-snippet text-[var(--text-main)] line-clamp-3 break-words">{m.is_spoiler ? 'Spoiler' : m.content}</p>
+                      <p className="type-snippet text-[var(--text-main)] line-clamp-3 break-words">{m.is_spoiler ? 'Spoiler' : stripEffects(m.content)}</p>
                     </button>
                   ))}
                 </div>

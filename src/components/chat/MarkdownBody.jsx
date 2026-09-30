@@ -5,8 +5,9 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkMentions } from '../../lib/mentions'
+import { remarkWordEffects } from '../../lib/messageEffects'
 
-const MARKDOWN_PLUGINS = [remarkGfm, remarkMentions]
+const MARKDOWN_PLUGINS = [remarkGfm, remarkMentions, remarkWordEffects]
 
 export default function MarkdownBody({ components, children }) {
   return <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>{children}</ReactMarkdown>
