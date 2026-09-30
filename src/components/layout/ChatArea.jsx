@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock } from 'lucide-react'
+import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, Sparkles } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -23,6 +23,8 @@ import { DISAPPEARING_OPTIONS, describeExpiry } from '../../lib/messageExpiry'
 import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_DEAD_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
 import { blurComposer, resizeComposer, enterSends } from '../../lib/composerFocus'
 import { applyMention, findMentionQuery, matchMembers, normalizeMention } from '../../lib/mentions'
+import { BUBBLE_EFFECTS, SCREEN_EFFECTS, WORD_EFFECTS, applyWordEffect, stripEffects } from '../../lib/messageEffects'
+import ScreenEffect from '../chat/ScreenEffect'
 import { getPendingFileFingerprint } from '../../hooks/useChatManager'
 import { primeVideoPreview } from '../../lib/videoPreview'
 import {
@@ -32,6 +34,9 @@ import {
   normalizeVoiceMessageMimeType
 } from '../../lib/voiceMessages'
 import { getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
+
+// ponytail: effect picker off until there's a design worth shipping; flip to bring it back.
+const COMPOSER_EFFECTS_ENABLED = false
 
 // Kept out of the boot bundle — each is only mounted behind a user action
 // (opening a picker, editing media, joining a voice channel).
@@ -506,6 +511,19 @@ useEffect(() => {
     input.value = next.text
     input.setSelectionRange(next.caret, next.caret)
     input.focus()
+    syncComposer()
+  };
+
+  // A textarea keeps its selection after blur, so the menu tap still knows
+  // which words were picked.
+  const insertWordEffect = (effect) => {
+    const input = props.messageInputRef.current
+    if (!input) return
+    const next = applyWordEffect(input.value, input.selectionStart ?? 0, input.selectionEnd ?? 0, effect)
+    if (props.editingMessageId) props.setEditContent(next.text)
+    else input.value = next.text
+    input.focus()
+    requestAnimationFrame(() => input.setSelectionRange(next.caret, next.caret))
     syncComposer()
   };
 
@@ -1000,8 +1018,8 @@ useEffect(() => {
                       const isOwn = index % 3 === 1
                       return (
                         <div key={`message-skeleton-${index}`} className={`flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : ''}`} aria-hidden="true">
-                          <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[var(--bg-element)]" />
-                          <div className={`animate-pulse rounded-2xl bg-[var(--bg-element)] ${index % 2 === 0 ? 'h-14 w-[min(72%,28rem)]' : 'h-10 w-[min(52%,20rem)]'}`} />
+                          <div className="skeleton h-8 w-8 shrink-0 rounded-full" />
+                          <div className={`skeleton rounded-2xl ${isOwn ? 'is-own' : ''} ${index % 2 === 0 ? 'h-14 w-[min(72%,28rem)]' : 'h-10 w-[min(52%,20rem)]'}`} />
                         </div>
                       )
                     })}
@@ -1104,7 +1122,7 @@ useEffect(() => {
                     <div className="bg-[var(--theme-20)] backdrop-blur-md border-l-4 border-[var(--theme-base)] px-4 py-2 mb-2 mx-2 rounded-r-xl flex items-center justify-between type-label animate-fade-in shadow-sm">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-bold text-[var(--theme-base)] whitespace-nowrap">Replying to {props.replyingTo.profiles?.username}</span>
-                        <span className="truncate text-gray-300 max-w-[150px] md:max-w-[300px]">{props.replyingTo.is_spoiler ? 'Spoiler' : props.replyingTo.content || 'Attachment'}</span>
+                        <span className="truncate text-gray-300 max-w-[150px] md:max-w-[300px]">{props.replyingTo.is_spoiler ? 'Spoiler' : stripEffects(props.replyingTo.content) || 'Attachment'}</span>
                       </div>
                       <button onClick={() => props.setReplyingTo(null)} className="text-gray-400 hover:text-[var(--text-main)] ml-2 p-1 rounded-md hover:bg-white/10 transition-colors cursor-pointer shrink-0"><X size={14}/></button>
                     </div>
@@ -1505,7 +1523,7 @@ useEffect(() => {
                           keeps the persistent toggles and the lifetimes the three
                           wedges have no room for. */}
                       {sendOptionsOpen && (
-                        <div className="premium-menu absolute bottom-full right-0 mb-3 z-50 flex w-[9rem] flex-col gap-1 rounded-xl p-1.5 animate-slide-up origin-bottom-right" role="menu" aria-label="Send options">
+                        <div className="premium-menu absolute bottom-full right-0 mb-3 z-50 flex max-h-[70vh] w-[9rem] flex-col gap-1 overflow-y-auto rounded-xl p-1.5 animate-slide-up origin-bottom-right" role="menu" aria-label="Send options">
                           <button
                             type="button"
                             data-no-long-press
@@ -1539,6 +1557,47 @@ useEffect(() => {
                               </button>
                             ))}
                           </div>
+
+                          {/* iMessage-style effects. Text effects wrap the
+                              selected words (or the whole draft); send effects
+                              ride on the next message only. Hidden until the
+                              picker earns its place; received effects still render. */}
+                          {COMPOSER_EFFECTS_ENABLED && <>
+                          <div className="grid grid-cols-2 gap-0.5 border-t border-[var(--border-subtle)] px-1 pt-1.5" role="group" aria-label="Text effects">
+                            <Sparkles size={14} className="col-span-2 mx-auto text-[var(--text-muted)]" aria-hidden="true" />
+                            {WORD_EFFECTS.map(effect => (
+                              <button
+                                key={effect}
+                                type="button"
+                                data-no-long-press
+                                onClick={() => insertWordEffect(effect)}
+                                className="rounded-md py-1 text-center type-meta font-bold capitalize text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]"
+                                role="menuitem"
+                                aria-label={`Apply ${effect} effect to selected text`}
+                              >
+                                {effect}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-2 gap-0.5 border-t border-[var(--border-subtle)] px-1 pt-1.5 pb-0.5" role="group" aria-label="Send with effect">
+                            <Send size={14} className="col-span-2 mx-auto text-[var(--text-muted)]" aria-hidden="true" />
+                            {[...BUBBLE_EFFECTS, ...SCREEN_EFFECTS].map(effect => (
+                              <button
+                                key={effect}
+                                type="button"
+                                data-no-long-press
+                                onClick={() => props.setComposerEffect(props.composerEffect === effect ? null : effect)}
+                                disabled={Boolean(props.editingMessageId)}
+                                className={`rounded-md py-1 text-center type-meta font-bold capitalize transition-colors disabled:opacity-40 ${props.composerEffect === effect ? 'bg-[var(--bg-element)] text-[var(--text-main)] ring-1 ring-inset ring-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
+                                role="menuitemradio"
+                                aria-checked={props.composerEffect === effect}
+                                aria-label={`Send with ${effect} effect`}
+                              >
+                                {effect}
+                              </button>
+                            ))}
+                          </div>
+                          </>}
                         </div>
                       )}
 
@@ -1603,6 +1662,7 @@ useEffect(() => {
           />
         </Suspense>
       )}
+      <ScreenEffect />
     </main>
   )
 }

@@ -1,13 +1,22 @@
 /** Loads GIF search results and queues the selected GIF as an attachment. */
 import { useEffect, useState } from 'react'
-import { Capacitor } from '@capacitor/core'
-import { Loader2, Search, X } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { safeHttpUrl } from '../../lib/security'
 
-// One dist/ ships to web, Capacitor and Tauri alike, so the GIPHY app key is
-// chosen at runtime rather than at build time. Native falls back to the web key.
-const giphyApiKey = () =>
-  (Capacitor.isNativePlatform() && import.meta.env.VITE_GIPHY_API_KEY_MOBILE) || import.meta.env.VITE_GIPHY_API_KEY
+const KLIPY_API_KEY = import.meta.env.VITE_KLIPY_API_KEY
+const CUSTOMER_ID_KEY = 'messapp_klipy_customer_id'
+
+// KLIPY requires a per-user customer_id. A random per-device id satisfies it
+// without handing the account id to a third party.
+const klipyCustomerId = () => {
+  try {
+    let id = localStorage.getItem(CUSTOMER_ID_KEY)
+    if (!id) localStorage.setItem(CUSTOMER_ID_KEY, id = crypto.randomUUID())
+    return id
+  } catch (_error) {
+    return 'anonymous'
+  }
+}
 
 const RECENT_GIFS_KEY = 'messapp_recent_gifs'
 
@@ -32,7 +41,7 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [recentGifs, setRecentGifs] = useState(readRecentGifs)
-  const apiKey = giphyApiKey()
+  const apiKey = KLIPY_API_KEY
 
   useEffect(() => {
     if (!apiKey) {
@@ -44,13 +53,13 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
       setLoading(true)
       setError('')
       try {
-        const endpoint = query.trim()
-          ? `https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(query.trim())}&limit=24&rating=pg-13`
-          : `https://api.giphy.com/v1/gifs/trending?api_key=${apiKey}&limit=24&rating=pg-13`
+        const params = new URLSearchParams({ per_page: '24', customer_id: klipyCustomerId(), content_filter: 'medium' })
+        if (query.trim()) params.set('q', query.trim())
+        const endpoint = `https://api.klipy.com/api/v1/${encodeURIComponent(apiKey)}/gifs/${query.trim() ? 'search' : 'trending'}?${params}`
         const response = await fetch(endpoint, { signal: controller.signal })
         if (!response.ok) throw new Error('GIF search is temporarily unavailable.')
         const payload = await response.json()
-        setGifs(Array.isArray(payload.data) ? payload.data : [])
+        setGifs(Array.isArray(payload.data?.data) ? payload.data.data : [])
       } catch (fetchError) {
         if (fetchError.name !== 'AbortError') setError(fetchError.message || 'GIF search failed.')
       } finally {
@@ -79,7 +88,7 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
       <div className="mb-3 flex items-center justify-between">
         <div>
           <p className="type-label font-black text-[var(--text-main)]">Send a GIF</p>
-          <p className="type-label text-gray-500">{apiKey ? 'Search GIPHY' : 'Search needs VITE_GIPHY_API_KEY'}</p>
+          <p className="type-label text-gray-500">{apiKey ? 'Search KLIPY' : 'Search needs VITE_KLIPY_API_KEY'}</p>
         </div>
         <button onClick={onClose} type="button" className="premium-icon-button grid h-9 w-9 place-items-center rounded-full" aria-label="Close GIF picker"><X size={15} /></button>
       </div>
@@ -95,12 +104,16 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
 
       <div className="h-72 overflow-y-auto pr-1 custom-scrollbar">
         {loading ? (
-          <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin text-[var(--theme-base)]" size={26} /></div>
+          <div className="columns-2 gap-2" role="status" aria-label="Loading GIFs">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={`gif-skeleton-${index}`} className="skeleton mb-2 rounded-xl" style={{ height: `${72 + (index % 3) * 24}px` }} aria-hidden="true" />
+            ))}
+          </div>
         ) : apiKey && gifs.length ? (
           <div className="columns-2 gap-2">
             {gifs.map(gif => {
-              const previewUrl = safeHttpUrl(gif.images?.fixed_width_small?.url || gif.images?.fixed_height_small?.url)
-              const sendUrl = safeHttpUrl(gif.images?.downsized?.url || gif.images?.original?.url)
+              const previewUrl = safeHttpUrl(gif.file?.sm?.gif?.url || gif.file?.md?.gif?.url)
+              const sendUrl = safeHttpUrl(gif.file?.md?.gif?.url || gif.file?.hd?.gif?.url)
               if (!previewUrl || !sendUrl) return null
               return (
                 <button key={gif.id} type="button" onClick={() => chooseGif(sendUrl)} className="group mb-2 block w-full break-inside-avoid overflow-hidden rounded-xl border border-transparent bg-[var(--bg-base)] hover:border-[var(--theme-base)]">
@@ -124,12 +137,12 @@ export default function GifPickerPopout({ onSelectGif, onClose }) {
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
             <span className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-pink-500/10 type-title font-black text-pink-300">GIF</span>
             <p className="type-body font-bold text-gray-300">{apiKey ? 'No GIFs found' : 'GIF search is unavailable'}</p>
-            <p className="mt-1 type-label text-gray-500">{apiKey ? 'Selected GIFs are added to the attachment preview before sending.' : 'Set VITE_GIPHY_API_KEY to enable GIPHY search.'}</p>
+            <p className="mt-1 type-label text-gray-500">{apiKey ? 'Selected GIFs are added to the attachment preview before sending.' : 'Set VITE_KLIPY_API_KEY to enable KLIPY search.'}</p>
           </div>
         )}
       </div>
 
-      {apiKey && <a href="https://giphy.com/" target="_blank" rel="noreferrer" className="mt-2 block text-right type-meta font-bold uppercase tracking-wider text-gray-600 hover:text-gray-400">Powered by GIPHY</a>}
+      {apiKey && <a href="https://klipy.com/" target="_blank" rel="noreferrer" className="mt-2 block text-right type-meta font-bold uppercase tracking-wider text-gray-600 hover:text-gray-400">Powered by KLIPY</a>}
     </div>
   )
 }
