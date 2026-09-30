@@ -83,6 +83,9 @@
 }
 
 @theme {
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+
   --font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
 
@@ -670,80 +673,25 @@ iframe {
     z-index: -1;
   }
 
-  .message-skeleton-list {
-    display: flex;
-    min-height: 100%;
-    flex-direction: column;
-    justify-content: flex-end;
-    gap: 0.875rem;
-    padding-bottom: 2rem;
-  }
-
-  .message-skeleton-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.625rem;
-    max-width: min(44rem, 92vw);
-  }
-
-  .message-skeleton-row.is-own {
-    justify-content: flex-end;
-    margin-left: auto;
-    width: 100%;
-  }
-
-  .message-skeleton-avatar,
-  .message-skeleton-line,
-  .message-skeleton-bubble {
+  /* Loading placeholder: tonal block with a soft highlight sweeping across. */
+  .skeleton {
     position: relative;
     overflow: hidden;
     background: color-mix(in srgb, var(--chat-bg-element, var(--bg-element)) 76%, white 4%);
   }
 
-  .message-skeleton-avatar::after,
-  .message-skeleton-line::after,
-  .message-skeleton-bubble::after {
+  .skeleton.is-own {
+    background: color-mix(in srgb, var(--theme-base, var(--accent)) 24%, var(--chat-bg-element, var(--bg-element)) 76%);
+  }
+
+  .skeleton::after {
     content: "";
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: color-mix(in srgb, var(--text-main) 8%, transparent);
-    animation: skeletonShimmer 1.35s ease-in-out infinite;
-  }
-
-  .message-skeleton-avatar {
-    width: 2.25rem;
-    height: 2.25rem;
-    flex: 0 0 auto;
-    border-radius: 999px;
-  }
-
-  .message-skeleton-stack {
-    display: flex;
-    min-width: 8rem;
-    max-width: min(72vw, 28rem);
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-
-  .message-skeleton-line {
-    width: 5.5rem;
-    height: 0.55rem;
-    border-radius: 999px;
-    opacity: 0.7;
-  }
-
-  .message-skeleton-line.short {
-    width: 4.25rem;
-  }
-
-  .message-skeleton-bubble {
-    height: 2.65rem;
-    border-radius: 1.125rem;
-  }
-
-  .message-skeleton-row.is-own .message-skeleton-bubble {
-    background: color-mix(in srgb, var(--theme-base, var(--accent)) 24%, var(--chat-bg-element, var(--bg-element)) 76%);
+    background: linear-gradient(90deg, transparent, var(--text-main), transparent);
+    opacity: 0.09;
+    animation: skeletonShimmer 1.6s var(--m3-standard) infinite;
   }
 
   .message-action-toolbar {
@@ -1157,9 +1105,14 @@ iframe {
     transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
   }
 
-  .server-list-row:hover {
-    background: var(--state-hover);
-    color: var(--text-main);
+  /* Hover only where a real pointer hovers: touch browsers emulate :hover at
+     the last tap point, so a tap that closes an overlay left the row under it
+     lit up afterwards. */
+  @media (hover: hover) {
+    .server-list-row:hover {
+      background: var(--state-hover);
+      color: var(--text-main);
+    }
   }
 
   .server-list-row.is-active {
@@ -1192,9 +1145,11 @@ iframe {
     background: transparent;
   }
 
-  .ios-sidebar-row:hover {
-    border-color: var(--border-subtle);
-    background: var(--state-hover);
+  @media (hover: hover) {
+    .ios-sidebar-row:hover {
+      border-color: var(--border-subtle);
+      background: var(--state-hover);
+    }
   }
 
   .ios-sidebar-row.is-active {
@@ -1637,10 +1592,10 @@ iframe {
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .space-action-button,
-    .space-shelf-item,
-    .skip-link {
-      transition-duration: 0.01ms;
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
     }
   }
 
@@ -1784,31 +1739,6 @@ iframe {
     animation: none;
   }
 
-  .sidebar-icon {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 3rem;
-    width: 3rem;
-    margin-top: 0.5rem;
-    margin-bottom: 0.5rem;
-    margin-left: auto;
-    margin-right: auto;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    background-color: #1a1b1e;
-    color: var(--color-primary);
-    border-radius: 1.5rem;
-    transition: all 300ms linear;
-    cursor: pointer;
-  }
-
-  .sidebar-icon:hover, .sidebar-icon.active {
-    background-color: var(--color-primary);
-    color: #ffffff;
-    border-radius: 0.75rem;
-  }
-
   /* Scrollbars are hidden app-wide; scrolling itself is untouched. Keyboard,
      wheel, and touch all still work — only the visual affordance and the drag
      target are gone, so scrollable regions need another cue that they scroll. */
@@ -1820,9 +1750,9 @@ iframe {
     display: none;
   }
 
-  .animate-slide-up { animation: slideInUp 0.4s ease-out forwards; }
+  .animate-slide-up { animation: slideInUp 0.26s var(--m3-emphasized) both; }
   .animate-settings-sheet { animation: settingsSheetUp 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-  .animate-fade-in { animation: fadeInScale 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+  .animate-fade-in { animation: fadeInScale 0.25s var(--m3-emphasized) both; }
   .animate-slide-right { animation: slideInRight 0.3s var(--m3-standard) forwards; }
   .animate-quick-switch { animation: quickSwitchPop 0.2s var(--m3-standard) forwards; }
   .animate-profile-drawer { animation: profileDrawer 0.24s var(--m3-standard) forwards; }
@@ -1843,7 +1773,7 @@ iframe {
 }
 
 @keyframes slideInUp {
-  0% { opacity: 0; transform: translateY(20px); }
+  0% { opacity: 0; transform: translateY(12px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 @keyframes fadeInScale {
@@ -3260,4 +3190,59 @@ iframe {
   .home-tab-shell .ios-segmented-control {
     border-color: transparent !important;
   }
+}
+
+/* iMessage-style effects (src/lib/messageEffects.js). Word effects loop like
+   iOS text effects; bubble effects play once on a fresh message; screen
+   effects are drawn by ScreenEffect.jsx. All transform/opacity only. */
+.fx { display: inline-block; }
+.fx > span { display: inline-block; white-space: pre; }
+.fx-big { font-size: 1.6em; font-weight: 800; line-height: 1.1; animation: fxBig 2.4s ease-in-out infinite; }
+.fx-small { font-size: 0.75em; opacity: 0.8; animation: fxSmall 2.4s ease-in-out infinite; }
+.fx-shake { animation: fxShake 2s ease-in-out infinite; }
+.fx-nod { animation: fxNod 1.6s ease-in-out infinite; transform-origin: 50% 100%; }
+.fx-explode > span { animation: fxExplode 2.4s cubic-bezier(.2,.8,.3,1) infinite; }
+.fx-explode > span:nth-child(odd) { --dir: -1; }
+.fx-ripple > span { animation: fxRipple 1.8s ease-in-out infinite; animation-delay: calc(var(--i) * 0.07s); }
+.fx-bloom > span { animation: fxBloom 2.4s ease-in-out infinite; animation-delay: calc(var(--i) * 0.08s); }
+.fx-jitter > span { animation: fxJitter 0.35s steps(2) infinite; animation-delay: calc(var(--i) * -0.11s); }
+
+@keyframes fxBig { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@keyframes fxSmall { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.9); } }
+@keyframes fxShake {
+  0%, 30%, 100% { transform: translateX(0); }
+  5%, 15%, 25% { transform: translateX(-3px) rotate(-2deg); }
+  10%, 20% { transform: translateX(3px) rotate(2deg); }
+}
+@keyframes fxNod { 0%, 60%, 100% { transform: rotate(0); } 15%, 45% { transform: rotate(8deg) translateY(1px); } 30% { transform: rotate(-4deg); } }
+@keyframes fxExplode {
+  0%, 55%, 100% { transform: none; opacity: 1; }
+  20% { transform: translate(calc(var(--dir, 1) * (0.2em + var(--i) * 0.08em)), -0.8em) rotate(calc(var(--dir, 1) * 40deg)) scale(1.3); opacity: 0.6; }
+}
+@keyframes fxRipple { 0%, 50%, 100% { transform: translateY(0); } 20% { transform: translateY(-0.35em); } }
+@keyframes fxBloom { 0%, 60%, 100% { transform: scale(1); text-shadow: none; } 25% { transform: scale(1.3); text-shadow: 0 0 0.5em currentColor; } }
+@keyframes fxJitter { 0% { transform: translate(0.5px, -0.5px); } 50% { transform: translate(-0.5px, 0.5px); } }
+
+.msg-fx-slam { animation: msgFxSlam 0.6s cubic-bezier(.3,1.4,.5,1) both; }
+.msg-fx-loud { animation: msgFxLoud 0.9s ease-out both; }
+.msg-fx-gentle { animation: msgFxGentle 1.6s ease-out both; }
+@keyframes msgFxSlam { 0% { transform: scale(2.6) rotate(-6deg); opacity: 0; } 60% { transform: scale(0.95) rotate(1deg); opacity: 1; } 100% { transform: none; } }
+@keyframes msgFxLoud {
+  0% { transform: scale(1); } 20% { transform: scale(1.5); }
+  30%, 50% { transform: scale(1.5) rotate(-3deg); } 40%, 60% { transform: scale(1.5) rotate(3deg); }
+  100% { transform: none; }
+}
+@keyframes msgFxGentle { 0% { transform: scale(0.6); opacity: 0.3; } 100% { transform: none; opacity: 1; } }
+
+.screen-fx { position: fixed; inset: 0; z-index: 60; overflow: hidden; pointer-events: none; }
+.screen-fx > span { position: absolute; left: var(--x); font-size: calc(1.8rem * var(--scale)); animation-delay: var(--delay); animation-fill-mode: both; }
+.screen-fx-confetti > span { top: -3rem; animation: screenFxFall 2.6s ease-in var(--delay) both; }
+.screen-fx-balloons > span { bottom: -4rem; animation: screenFxRise 3s ease-in var(--delay) both; }
+.screen-fx-fireworks > span { top: calc(35vh + var(--drift)); animation: screenFxBurst 1.4s ease-out var(--delay) both; }
+@keyframes screenFxFall { to { transform: translate(var(--drift), 110vh) rotate(var(--spin)); } }
+@keyframes screenFxRise { to { transform: translate(var(--drift), -115vh) rotate(calc(var(--spin) / 8)); } }
+@keyframes screenFxBurst { 0% { transform: scale(0); opacity: 1; } 70% { opacity: 1; } 100% { transform: scale(2.4) translateY(1rem); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx, .fx > span, .msg-fx-slam, .msg-fx-loud, .msg-fx-gentle { animation: none; }
 }

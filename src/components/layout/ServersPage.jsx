@@ -6,16 +6,24 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { Camera, ChevronLeft, Copy, Gamepad2, GraduationCap, Hash, ImagePlus, MicOff, MonitorUp, MoreVertical, Plus, Sparkles, Volume2, VolumeX, X } from 'lucide-react'
+import { Bell, BellOff, Camera, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
 import { supabase } from '../../supabaseClient'
 import useLongPress from '../../hooks/useLongPress'
+import useStoredSet from '../../hooks/useStoredSet'
+import ActionSheet from '../ui/ActionSheet'
+import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
 import { debug } from '../../lib/debug'
+
+// Same flag and table as RightSidebar's mute button; separate instance, same rows.
+const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
+  enabled: import.meta.env?.VITE_SERVER_NOTIFICATION_PREFERENCES_ENABLED === 'true'
+})
 
 // Only mounts while cropping a server icon — kept out of the boot bundle.
 const MediaEditorModal = lazy(() => import('../media/MediaEditorModal'))
@@ -45,9 +53,12 @@ export default function ServersPage(props) {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [isCreatingCategory, setIsCreatingCategory] = useState(false)
-  const [activeInviteCode, setActiveInviteCode] = useState('')
   const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
-  const [isServerMenuOpen, setIsServerMenuOpen] = useState(false)
+  /* The options sheet: opened from the detail bar's ⋮ for the active server, or
+     by holding a row in the server list for that row's server. */
+  const [sheetServer, setSheetServer] = useState(null)
+  const [sheetServerMuted, setSheetServerMuted] = useState(null)
+  const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
   const [serverItemMenuId, setServerItemMenuId] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
      confirmLabel, run }`, cleared when the prompt closes. */
@@ -79,9 +90,31 @@ export default function ServersPage(props) {
 
   const unreadChannels = useMemo(() => new Set(props.unreadChannelIds || []), [props.unreadChannelIds])
   const canManageServer = Boolean(props.canManageActiveServer)
-  /* Deleting is the owner's alone — the delete_server RPC raises for anyone
-     else, so an admin gets Leave Server instead of a button that always fails. */
-  const isServerOwner = Boolean(props.isActiveServerOwner)
+  const bindServerLongPress = useLongPress(setSheetServer)
+  const servers = [...props.servers].sort((a, b) => pinnedServers.has(b.id) - pinnedServers.has(a.id))
+  const isSheetActive = sheetServer?.id === props.activeServer?.id
+
+  // null = unknown or the preferences table is not deployed; the row hides.
+  useEffect(() => {
+    setSheetServerMuted(null)
+    if (!sheetServer?.id || !props.session?.user?.id) return undefined
+    let active = true
+    serverNotificationPreferences.load(sheetServer.id, props.session.user.id).then(({ data, error, unavailable }) => {
+      if (active && !unavailable && !error) setSheetServerMuted(Boolean(data?.muted))
+    })
+    return () => { active = false }
+  }, [sheetServer?.id, props.session?.user?.id])
+
+  const toggleSheetServerMute = async (server, nextMuted) => {
+    const { error, unavailable } = await serverNotificationPreferences.upsert({
+      server_id: server.id,
+      profile_id: props.session.user.id,
+      muted: nextMuted,
+      updated_at: new Date().toISOString()
+    })
+    if (error || unavailable) return toast.error('Could not update mute preference')
+    toast.success(nextMuted ? 'Server muted' : 'Server unmuted')
+  }
   /* The server menu has no category picker, so Create Channel drops into the
      first category — same default the per-category button would give. */
   const firstCategoryId = (props.serverCategories || [])[0]?.id
@@ -135,7 +168,7 @@ export default function ServersPage(props) {
     if (!canManageServer) return toast.error(type === 'server' ? 'Only server admins can edit this server.' : 'Only server admins can manage channels.')
     if (!item) return
     setServerItemMenuId(null)
-    setIsServerMenuOpen(false)
+    setSheetServer(null)
     clearStagedServerIcon()
     setEditingServerItem({ type, item })
     setEditingServerItemName(item.name || '')
@@ -372,19 +405,18 @@ export default function ServersPage(props) {
     }
   }
 
-  const copyInviteCode = async () => {
-    if (!props.activeServer?.id || isGeneratingInvite) return
+  const copyInviteCode = async (server) => {
+    if (!server?.id || isGeneratingInvite) return
     setIsGeneratingInvite(true)
     try {
       const { data, error } = await supabase.rpc('create_server_invite', {
-        target_server_id: props.activeServer.id,
+        target_server_id: server.id,
         requested_uses: 100,
         requested_expires_at: null
       })
       if (error) throw error
-      setActiveInviteCode(data.code)
       await navigator.clipboard.writeText(data.code)
-      toast.success('Invite code copied')
+      toast.success(`Invite code ${data.code} copied`)
     } catch (error) {
       debug.error('SERVER_ADMIN', { operation: 'create-invite', error })
       toast.error('Could not create invite')
@@ -393,30 +425,27 @@ export default function ServersPage(props) {
     }
   }
 
-  const askServerAction = (action) => {
-    setIsServerMenuOpen(false)
-    if (action === 'delete' && !isServerOwner) return toast.error('Only the server owner can delete this server.')
-    const serverName = props.activeServer?.name || 'this server'
+  const askServerAction = (action, server) => {
+    const serverName = server?.name || 'this server'
     setDangerPrompt(action === 'delete'
       ? {
         title: `Delete ${serverName}?`,
         body: 'Every channel, message, and member of this server is removed for everyone. This cannot be undone.',
         confirmLabel: 'Delete Server',
-        run: () => runServerAction('delete')
+        run: () => runServerAction('delete', server)
       }
       : {
         title: `Leave ${serverName}?`,
         body: 'You lose access to its channels until someone invites you back.',
         confirmLabel: 'Leave Server',
-        run: () => runServerAction('leave')
+        run: () => runServerAction('leave', server)
       })
   }
 
-  const runServerAction = async (action) => {
+  const runServerAction = async (action, server) => {
     try {
-      if (action === 'delete') await props.handleDeleteServer?.()
-      else await props.handleLeaveServer?.()
-      setIsServerMenuOpen(false)
+      if (action === 'delete') await props.handleDeleteServer?.(server)
+      else await props.handleLeaveServer?.(server)
       setPanelView('list')
       toast.success(action === 'delete' ? 'Server deleted' : 'Server left')
     } catch (error) {
@@ -434,28 +463,30 @@ export default function ServersPage(props) {
           not click: a long press opens the menu while the finger is still down,
           and the click that ends that press would otherwise land on this
           backdrop and shut the menu again immediately. */}
-      {(isServerMenuOpen || serverItemMenuId) && (
-        <div className="fixed inset-0 z-[70]" onPointerDown={() => { setIsServerMenuOpen(false); setServerItemMenuId(null) }} aria-hidden="true" />
+      {serverItemMenuId && (
+        <div className="fixed inset-0 z-[70]" onPointerDown={() => setServerItemMenuId(null)} aria-hidden="true" />
       )}
       {!showDetail ? (
         <>
           <div className="space-y-1">
             {props.serversLoading && props.servers.length === 0 && Array.from({ length: 4 }, (_, index) => (
-              <div key={`server-skeleton-${index}`} className="flex min-h-16 animate-pulse items-center gap-3.5 rounded-2xl px-3" aria-hidden="true">
-                <span className="h-11 w-11 rounded-xl bg-[var(--bg-element)]" />
-                <span className="h-3 w-32 rounded-full bg-[var(--bg-element)]" />
+              <div key={`server-skeleton-${index}`} className="flex min-h-16 items-center gap-3.5 rounded-2xl px-3" aria-hidden="true">
+                <span className="skeleton h-11 w-11 rounded-xl" />
+                <span className="skeleton h-3 w-32 rounded-full" />
               </div>
             ))}
-            {props.servers.map((server, i) => (
-              <button
-                key={server.id || `server-${i}`}
-                type="button"
-                onClick={() => openServer(server)}
-                className="server-list-row"
-              >
-                <ServerIcon url={server.icon_url} name={server.name} />
-                <span className="min-w-0 flex-1 truncate text-left">{server.name}</span>
-              </button>
+            {servers.map((server, i) => (
+              <div key={server.id || `server-${i}`} className="long-press-target" {...bindServerLongPress(server)}>
+                <button
+                  type="button"
+                  onClick={() => openServer(server)}
+                  className="server-list-row"
+                >
+                  <ServerIcon url={server.icon_url} name={server.name} />
+                  <span className="min-w-0 flex-1 truncate text-left">{server.name}</span>
+                  {pinnedServers.has(server.id) && <Pin size={14} className="shrink-0 text-[var(--text-muted)]" aria-label="Pinned" />}
+                </button>
+              </div>
             ))}
             {!props.serversLoading && props.servers.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 opacity-60">
@@ -473,13 +504,9 @@ export default function ServersPage(props) {
           {/* The server bar sits above the channel list: the server you are in is the
               heading for everything under it, so it stays pinned to the top while
               channels scroll beneath. */}
-          {/* z-20 makes this a stacking context, so the menu inside it cannot
-              rise above the z-70 click-away backdrop on its own — every tap on
-              the menu landed on the backdrop and closed it. Lift the whole
-              bar past the backdrop while the menu is open. */}
-          <div className={`sticky top-0 ${isServerMenuOpen ? 'z-[80]' : 'z-20'} -mx-4 mb-1 bg-[var(--bg-base)] px-4 pb-2 md:-mx-6 md:px-6`}>
+          <div className="sticky top-0 z-20 -mx-4 mb-1 bg-[var(--bg-base)] px-4 pb-2 md:-mx-6 md:px-6">
             <div className="relative flex min-h-14 items-center gap-2 py-2">
-              <button type="button" onClick={() => { setIsServerMenuOpen(false); setPanelView('list') }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+              <button type="button" onClick={() => setPanelView('list')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
                 <ChevronLeft size={19} aria-hidden="true" />
               </button>
               <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl" />
@@ -489,39 +516,17 @@ export default function ServersPage(props) {
                     so "member" explains their absence without a trip to the DB. */}
                 <p className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">{props.activeServerRole || 'Server'}</p>
               </div>
-              <button type="button" onClick={() => setIsServerMenuOpen(open => !open)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
+              <button type="button" onClick={() => setSheetServer(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
                 <MoreVertical size={17} aria-hidden="true" />
               </button>
-              {isServerMenuOpen && (
-                <div className="premium-menu absolute right-2 top-full z-[80] mt-2 w-64 rounded-xl p-2">
-                  <div className="mb-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-element)] p-2">
-                    <p className="mb-1 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Invite Code</p>
-                    <button type="button" onClick={copyInviteCode} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left font-mono type-body text-[var(--text-main)] hover:bg-[var(--bg-element-hover)]">
-                      <span className="truncate">{isGeneratingInvite ? 'Creating...' : activeInviteCode || 'Create code'}</span>
-                      <Copy size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                  {/* Shown to everyone: a member who taps gets told why it failed,
-                      which beats an entry that silently is not there. RLS is the
-                      real gate either way. */}
-                  <button type="button" onClick={() => { setIsServerMenuOpen(false); canManageServer ? setIsCategoryModalOpen(true) : toast.error('Only server admins can add categories.') }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Category</button>
-                  <button type="button" onClick={() => { setIsServerMenuOpen(false); openChannelModal(firstCategoryId) }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Channel</button>
-                  <button type="button" onClick={() => openEditServerItemModal('server', props.activeServer)} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Edit Server</button>
-                  {isServerOwner ? (
-                    <button type="button" onClick={() => askServerAction('delete')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Delete Server</button>
-                  ) : (
-                    <button type="button" onClick={() => askServerAction('leave')} className="w-full rounded-md px-3 py-2 text-left type-body font-bold text-red-400 hover:bg-red-500/10">Leave Server</button>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
           <div className="space-y-3">
             {props.serverChannelsLoading && Array.from({ length: 3 }, (_, index) => (
               <div key={`channel-group-skeleton-${index}`} className="rounded-2xl bg-[var(--surface-container)] p-3" aria-hidden="true">
-                <div className="mb-3 h-2.5 w-24 animate-pulse rounded-full bg-[var(--bg-element)]" />
-                <div className="h-10 animate-pulse rounded-xl bg-[var(--bg-element)]" />
+                <div className="skeleton mb-3 h-2.5 w-24 rounded-full" />
+                <div className="skeleton h-10 rounded-xl" />
               </div>
             ))}
             {(props.serverCategories || []).map(category => (
@@ -786,6 +791,36 @@ export default function ServersPage(props) {
             onSave={uploadServerIcon}
           />
         </Suspense>
+      )}
+
+      {sheetServer && (
+        <ActionSheet
+          aria-label={`${sheetServer.name} options`}
+          onClose={() => setSheetServer(null)}
+          header={<>
+            <ServerIcon url={sheetServer.icon_url} name={sheetServer.name} className="server-list-icon h-10 w-10 shrink-0 rounded-xl" />
+            <p className="truncate type-title font-semibold text-[var(--text-main)]">{sheetServer.name}</p>
+          </>}
+          items={[
+            pinnedServers.has(sheetServer.id)
+              ? { label: 'Unpin', Icon: PinOff, onSelect: () => togglePinnedServer(sheetServer.id, false) }
+              : { label: 'Pin', Icon: Pin, onSelect: () => togglePinnedServer(sheetServer.id, true) },
+            sheetServerMuted !== null && (sheetServerMuted
+              ? { label: 'Unmute', Icon: Bell, onSelect: () => toggleSheetServerMute(sheetServer, false) }
+              : { label: 'Mute', Icon: BellOff, onSelect: () => toggleSheetServerMute(sheetServer, true) }),
+            { label: 'Add members', Icon: UserPlus, onSelect: () => copyInviteCode(sheetServer) },
+            /* Channel/category/edit mutations target Dashboard's activeServer, so
+               they only appear for the server that is open. RLS still gates them. */
+            isSheetActive && canManageServer && { label: 'Create category', Icon: FolderPlus, onSelect: () => setIsCategoryModalOpen(true) },
+            isSheetActive && canManageServer && { label: 'Create channel', Icon: Hash, onSelect: () => openChannelModal(firstCategoryId) },
+            isSheetActive && canManageServer && { label: 'Edit server', Icon: Pencil, onSelect: () => openEditServerItemModal('server', sheetServer) },
+            /* Deleting is the owner's alone — the delete_server RPC raises for
+               anyone else, so an admin gets Leave instead of a button that fails. */
+            sheetServer.owner_id === props.session?.user?.id
+              ? { label: 'Delete server', Icon: Trash2, danger: true, onSelect: () => askServerAction('delete', sheetServer) }
+              : { label: 'Leave server', Icon: LogOut, danger: true, onSelect: () => askServerAction('leave', sheetServer) }
+          ]}
+        />
       )}
 
       {dangerPrompt && (

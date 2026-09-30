@@ -18,6 +18,7 @@ import { downloadFile } from '../../lib/downloadFile'
 import { blurComposer } from '../../lib/composerFocus'
 import { formatMessageTime } from '../../lib/messageTime'
 import { hasMarkdown } from '../../lib/markdownText'
+import { BUBBLE_EFFECTS, LETTER_EFFECTS, SCREEN_EFFECTS, SCREEN_EFFECT_EVENT, claimFreshEffect, parseMessageEffect, stripEffects } from '../../lib/messageEffects'
 
 // Each pulls a large dependency (refractor, remark/micromark, emoji-picker-react)
 // that is only needed once a message actually contains a code block or markup,
@@ -677,18 +678,29 @@ export const MemoizedMessage = React.memo(({
     }))
     .filter(item => item.url)
   const isActionMenuOpen = messageActionMenuId === m.id
-  const { previewLinks, renderedContent } = useMemo(() => {
+  const { previewLinks, renderedContent, messageEffect } = useMemo(() => {
     if (!m.content || m.is_deleted || typeof m.content !== 'string') {
-      return { previewLinks: [], renderedContent: typeof m.content === 'string' ? m.content : '' }
+      return { previewLinks: [], renderedContent: typeof m.content === 'string' ? m.content : '', messageEffect: null }
     }
-    const links = extractPreviewLinks(m.content)
+    const { effect, text } = parseMessageEffect(m.content)
+    const links = extractPreviewLinks(text)
     const previews = uniquePreviewLinks(links)
     const previewUrls = new Set(previews.map(link => link.url))
     return {
       previewLinks: previews,
-      renderedContent: stripPreviewLinks(m.content, links.filter(link => previewUrls.has(link.url)))
+      renderedContent: stripPreviewLinks(text, links.filter(link => previewUrls.has(link.url))),
+      messageEffect: effect
     }
   }, [m.content, m.is_deleted])
+  // Decided once at mount: only a message that just arrived plays its effect,
+  // never one scrolled back into view or loaded from history.
+  const [playEffect] = useState(() => Boolean(messageEffect) && claimFreshEffect(m))
+  useEffect(() => {
+    if (playEffect && SCREEN_EFFECTS.includes(messageEffect)) {
+      window.dispatchEvent(new CustomEvent(SCREEN_EFFECT_EVENT, { detail: messageEffect }))
+    }
+  }, [playEffect, messageEffect])
+  const bubbleEffectClass = playEffect && BUBBLE_EFFECTS.includes(messageEffect) ? ` msg-fx-${messageEffect}` : ''
 
   const closeActionMenu = useCallback((reason, payload = {}) => {
     if (touchTimer.current) {
@@ -1166,6 +1178,16 @@ export const MemoizedMessage = React.memo(({
       // Markdown emits no spans of its own, so the only ones here come from
       // remarkMentions; anything else falls through untouched.
       span({ node: _node, className, children, ...props }) {
+        const fx = props['data-fx']
+        if (fx) {
+          if (!LETTER_EFFECTS.has(fx) || typeof children !== 'string') return <span className={className} {...props}>{children}</span>
+          // Letters stagger off --i; the aria-label keeps screen readers on the word.
+          return (
+            <span className={className} {...props} aria-label={children}>
+              {Array.from(children, (letter, i) => <span key={i} aria-hidden="true" style={{ '--i': i }}>{letter}</span>)}
+            </span>
+          )
+        }
         if (className !== 'mention') return <span className={className} {...props}>{children}</span>
         const isSelf = Boolean(myMention) && props['data-mention'] === myMention
         return (
@@ -1472,7 +1494,7 @@ export const MemoizedMessage = React.memo(({
                   <CornerDownLeft size={12} className="shrink-0" />
                   <StatusAvatar url={repliedMsg.profiles?.avatar_url} username={repliedMsg.profiles?.username} showStatus={false} className="w-3 h-3 rounded-full shrink-0" />
                   <span className="font-bold truncate max-w-[80px]">{repliedMsg.profiles?.username}</span>
-                  <span className="truncate max-w-[150px] md:max-w-[250px]">{repliedMsg.is_spoiler ? 'Spoiler' : repliedMsg.content || 'Attachment'}</span>
+                  <span className="truncate max-w-[150px] md:max-w-[250px]">{repliedMsg.is_spoiler ? 'Spoiler' : stripEffects(repliedMsg.content) || 'Attachment'}</span>
                 </div>
               )}
 
@@ -1501,7 +1523,7 @@ export const MemoizedMessage = React.memo(({
                       {visibleContent.trim()}
                     </div>
                   ) : hasVisibleContent && !showCaptionBelowMedia && (
-                    <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
+                    <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
                       <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                         {messageBody}
                       </div>
@@ -1739,7 +1761,7 @@ export const MemoizedMessage = React.memo(({
                         Spoiler caption — tap to reveal
                       </button>
                     ) : showCaptionBelowMedia ? (
-                      <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}`} style={bubbleStyle}>
+                      <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
                         <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                           {messageBody}
                         </div>
@@ -2073,7 +2095,7 @@ export const MemoizedMessage = React.memo(({
                       <SmilePlus size={15} aria-hidden="true" />
                     </button>
 	                    {hasVisibleContent && (
-	                      <button type="button" data-reaction-action="copy" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { navigator.clipboard.writeText(visibleContent).then(() => toast.success('Copied!'), () => toast.error('Copy failed')); closeActionMenu('action_copy'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Copy" aria-label="Copy message text"><Copy size={15} aria-hidden="true" /></button>
+	                      <button type="button" data-reaction-action="copy" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { navigator.clipboard.writeText(stripEffects(visibleContent)).then(() => toast.success('Copied!'), () => toast.error('Copy failed')); closeActionMenu('action_copy'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Copy" aria-label="Copy message text"><Copy size={15} aria-hidden="true" /></button>
 	                    )}
 	                    {isMe && !hasAttachments && (
 	                      <button type="button" data-reaction-action="edit" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
