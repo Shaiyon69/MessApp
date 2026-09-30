@@ -6,7 +6,7 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { Bell, BellOff, Camera, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
+import { Bell, BellOff, Camera, CheckCheck, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
@@ -59,7 +59,7 @@ export default function ServersPage(props) {
   const [sheetServer, setSheetServer] = useState(null)
   const [sheetServerMuted, setSheetServerMuted] = useState(null)
   const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
-  const [serverItemMenuId, setServerItemMenuId] = useState(null)
+  const [serverItemSheet, setServerItemSheet] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
      confirmLabel, run }`, cleared when the prompt closes. */
   const [dangerPrompt, setDangerPrompt] = useState(null)
@@ -118,9 +118,9 @@ export default function ServersPage(props) {
   /* The server menu has no category picker, so Create Channel drops into the
      first category — same default the per-category button would give. */
   const firstCategoryId = (props.serverCategories || [])[0]?.id
-  /* Holding a category or channel row — or right-clicking it — opens the same
-     popout its ⋮ button does. The button stays as the visible affordance. */
-  const bindLongPress = useLongPress(setServerItemMenuId)
+  /* Holding a category or channel row — or right-clicking it — opens its
+     options sheet: `{ type: 'category' | 'channel', item }`. */
+  const bindLongPress = useLongPress(setServerItemSheet)
 
   // Server-wide voice presence resolves occupancy for every channel; the local
   // fallback only knows about the channel this client joined.
@@ -167,7 +167,7 @@ export default function ServersPage(props) {
   const openEditServerItemModal = (type, item) => {
     if (!canManageServer) return toast.error(type === 'server' ? 'Only server admins can edit this server.' : 'Only server admins can manage channels.')
     if (!item) return
-    setServerItemMenuId(null)
+    setServerItemSheet(null)
     setSheetServer(null)
     clearStagedServerIcon()
     setEditingServerItem({ type, item })
@@ -378,7 +378,7 @@ export default function ServersPage(props) {
   }
 
   const askDeleteServerItem = (type, item) => {
-    setServerItemMenuId(null)
+    setServerItemSheet(null)
     if (!canManageServer) return toast.error('Only server admins can manage channels.')
     setDangerPrompt({
       title: `Delete ${item.name}?`,
@@ -458,14 +458,6 @@ export default function ServersPage(props) {
 
   return (
     <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full pb-24' : 'pb-24'}`}>
-      {/* Popouts here are click-away: one shared backdrop under them all
-          (they sit at z-80) closes whichever is open. It listens on pointerdown,
-          not click: a long press opens the menu while the finger is still down,
-          and the click that ends that press would otherwise land on this
-          backdrop and shut the menu again immediately. */}
-      {serverItemMenuId && (
-        <div className="fixed inset-0 z-[70]" onPointerDown={() => setServerItemMenuId(null)} aria-hidden="true" />
-      )}
       {!showDetail ? (
         <>
           <div className="space-y-1">
@@ -533,7 +525,7 @@ export default function ServersPage(props) {
               <section key={category.id} className="server-channel-group first:[&>div]:border-t-0">
                 <div
                   className="server-channel-group-header long-press-target relative flex min-h-9 items-center justify-between gap-2 border-t-2 border-[var(--border-hover)] px-1 pb-1.5 pt-3"
-                  {...(canManageServer ? bindLongPress(`category-${category.id}`) : null)}
+                  {...(canManageServer ? bindLongPress({ type: 'category', item: category }) : null)}
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="min-w-0 truncate type-meta font-black uppercase tracking-[0.12em] text-gray-400">{category.name}</span>
@@ -541,18 +533,6 @@ export default function ServersPage(props) {
                       {(category.channels || []).length}
                     </span>
                   </div>
-                  {canManageServer && (
-                    <button type="button" data-no-long-press onClick={() => setServerItemMenuId(serverItemMenuId === `category-${category.id}` ? null : `category-${category.id}`)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${category.name} menu`} title="Category menu">
-                      <MoreVertical size={14} aria-hidden="true" />
-                    </button>
-                  )}
-                  {serverItemMenuId === `category-${category.id}` && (
-                    <div className="premium-menu absolute right-1 top-9 z-[80] w-44 rounded-xl p-1">
-                      <button type="button" onClick={() => { setServerItemMenuId(null); openChannelModal(category.id) }} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Create Channel</button>
-                      <button type="button" onClick={() => openEditServerItemModal('category', category)} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Edit Category</button>
-                      <button type="button" onClick={() => askDeleteServerItem('category', category)} className="w-full rounded-md px-3 py-2 text-left type-body text-red-400 hover:bg-red-500/10">Delete Category</button>
-                    </div>
-                  )}
                 </div>
                 <div className="space-y-1 pt-1.5">
                   {(category.channels || []).map(channel => {
@@ -563,31 +543,20 @@ export default function ServersPage(props) {
                       <div
                         key={channel.id}
                         className={`long-press-target relative rounded-xl ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/55' : ''}`}
-                        {...(canManageServer ? bindLongPress(`channel-${channel.id}`) : null)}
+                        {...(canManageServer || channel.type !== 'voice' ? bindLongPress({ type: 'channel', item: channel }) : null)}
                       >
-                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-10 text-left type-body font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--bg-base)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
+                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--bg-base)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
                           <span className={`absolute inset-y-2 left-0 w-0.5 rounded-r-full ${isActive ? 'bg-[var(--theme-base)]' : 'bg-transparent'}`} aria-hidden="true" />
                           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
                             {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
                           </span>
                           <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
                           {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
-                          {isUnread && <span className="absolute right-10 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
+                          {isUnread && <span className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
                           {channel.type === 'voice' && voiceParticipants.length > 0 && (
                             <span className="shrink-0 rounded-full border border-green-500/15 bg-green-500/10 px-1.5 py-0.5 font-mono type-meta font-black uppercase tracking-wide text-green-300">{voiceParticipants.length} live</span>
                           )}
                         </button>
-                        {canManageServer && (
-                          <button type="button" data-no-long-press onClick={(e) => { e.stopPropagation(); setServerItemMenuId(serverItemMenuId === `channel-${channel.id}` ? null : `channel-${channel.id}`) }} className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label={`${channel.name} menu`} title="Channel menu">
-                            <MoreVertical size={14} aria-hidden="true" />
-                          </button>
-                        )}
-                        {serverItemMenuId === `channel-${channel.id}` && (
-                          <div className="premium-menu absolute right-2 top-10 z-[80] w-44 rounded-xl p-1">
-                            <button type="button" onClick={() => openEditServerItemModal('channel', channel)} className="w-full rounded-md px-3 py-2 text-left type-body text-[var(--text-main)] hover:bg-[var(--bg-element)]">Edit Channel</button>
-                            <button type="button" onClick={() => askDeleteServerItem('channel', channel)} className="w-full rounded-md px-3 py-2 text-left type-body text-red-400 hover:bg-red-500/10">Delete Channel</button>
-                          </div>
-                        )}
                         {voiceParticipants.length > 0 && (
                           <div data-no-long-press className="voice-participant-list ml-5 space-y-1 border-l border-green-500/15 px-2 pb-2 pl-3 pt-1">
                             {voiceParticipants.map(participant => {
@@ -819,6 +788,31 @@ export default function ServersPage(props) {
             sheetServer.owner_id === props.session?.user?.id
               ? { label: 'Delete server', Icon: Trash2, danger: true, onSelect: () => askServerAction('delete', sheetServer) }
               : { label: 'Leave server', Icon: LogOut, danger: true, onSelect: () => askServerAction('leave', sheetServer) }
+          ]}
+        />
+      )}
+
+      {serverItemSheet && (
+        <ActionSheet
+          aria-label={`${serverItemSheet.item.name} options`}
+          onClose={() => setServerItemSheet(null)}
+          header={<>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-element)] text-gray-400">
+              {serverItemSheet.type === 'category' ? <FolderPlus size={18} aria-hidden="true" /> : serverItemSheet.item.type === 'voice' ? <Volume2 size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
+            </span>
+            <p className="truncate type-title font-semibold text-[var(--text-main)]">{serverItemSheet.item.name}</p>
+          </>}
+          items={serverItemSheet.type === 'category' ? [
+            { label: 'Create channel', Icon: Hash, onSelect: () => openChannelModal(serverItemSheet.item.id) },
+            { label: 'Edit category', Icon: Pencil, onSelect: () => openEditServerItemModal('category', serverItemSheet.item) },
+            { label: 'Delete category', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('category', serverItemSheet.item) }
+          ] : [
+            // Voice channels carry no read pointer, so they get no read toggle.
+            serverItemSheet.item.type !== 'voice' && (unreadChannels.has(serverItemSheet.item.id)
+              ? { label: 'Mark as read', Icon: CheckCheck, onSelect: () => props.setChannelRead(serverItemSheet.item, true) }
+              : { label: 'Mark as unread', Icon: MailOpen, onSelect: () => props.setChannelRead(serverItemSheet.item, false) }),
+            canManageServer && { label: 'Edit channel', Icon: Pencil, onSelect: () => openEditServerItemModal('channel', serverItemSheet.item) },
+            canManageServer && { label: 'Delete channel', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('channel', serverItemSheet.item) }
           ]}
         />
       )}

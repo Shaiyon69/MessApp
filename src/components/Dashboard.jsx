@@ -710,6 +710,18 @@ export default function Dashboard({ session }) {
     joinVoiceChannel(channel)
   }, [joinVoiceChannel])
 
+  /* Unlike DMs, a channel read pointer is nobody else's receipt, so both
+     directions write `channel_reads` and follow the user to other devices:
+     read moves the pointer to now, unread drops the row. */
+  const setChannelRead = useCallback(async (channel, read) => {
+    setUnreadChannelIds(current => read ? current.filter(id => id !== channel.id) : current.includes(channel.id) ? current : [...current, channel.id])
+    const query = supabase.from('channel_reads')
+    const { error } = read
+      ? await query.upsert({ profile_id: session.user.id, channel_id: channel.id, last_read_at: new Date().toISOString() })
+      : await query.delete().eq('profile_id', session.user.id).eq('channel_id', channel.id)
+    if (error) toast.error(read ? 'Could not mark as read' : 'Could not mark as unread')
+  }, [session.user.id])
+
   const openActiveVoiceChannel = useCallback(() => {
     if (!activeVoiceSession) return
     const server = servers.find(item => item.id === activeVoiceSession.serverId) || activeServer
@@ -2117,6 +2129,7 @@ export default function Dashboard({ session }) {
         serverCategories={serverCategories}
         serverChannelsLoading={serverChannelsLoading}
         unreadChannelIds={unreadChannelIds}
+        setChannelRead={setChannelRead}
         canManageActiveServer={canManageActiveServer}
         fetchServers={fetchServers}
         handleCreateChannel={handleCreateChannel}
