@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildNotifications } from './notifications.js'
+import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from './notifications.js'
 
 test('friend requests are listed newest first', () => {
   const items = buildNotifications({
@@ -31,4 +31,32 @@ test('items without a timestamp sort last rather than to the top', () => {
 
 test('no sources yields an empty feed', () => {
   assert.deepEqual(buildNotifications(), [])
+})
+
+test('feed rows merge with requests and count unread', () => {
+  const items = buildNotifications({
+    friendRequests: [{ id: 'r1', created_at: '2026-01-02T00:00:00Z', profiles: {} }],
+    feed: [
+      { id: 'n1', kind: 'mention', created_at: '2026-01-03T00:00:00Z', read_at: null, actor: { username: 'sam' } },
+      { id: 'n2', kind: 'reply', created_at: '2026-01-01T00:00:00Z', read_at: '2026-01-01T01:00:00Z' }
+    ]
+  })
+  assert.deepEqual(items.map(i => i.id), ['feed-n1', 'request-r1', 'feed-n2'])
+  assert.equal(items[0].type, 'mention')
+  assert.equal(countUnreadNotifications(items), 2)
+})
+
+test('a feed row jumps to its channel message', () => {
+  const target = notificationJumpTarget({
+    message_id: 'm1', channel_id: 'c1', created_at: '2026-01-01T00:00:00Z',
+    channel: { name: 'general', categories: { server_id: 's1' } }
+  })
+  assert.deepEqual(target, {
+    id: 'm1', created_at: '2026-01-01T00:00:00Z',
+    __search: { type: 'channel', channelId: 'c1', channelName: 'general', serverId: 's1' }
+  })
+})
+
+test('a thread reply jumps to its root', () => {
+  assert.equal(notificationJumpTarget({ message_id: 'm2', channel_id: 'c1', message: { thread_root_id: 'm1' } }).id, 'm1')
 })

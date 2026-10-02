@@ -31,7 +31,7 @@ import { normalizeProfileBaseName } from '../lib/security'
 import { downloadFile } from '../lib/downloadFile'
 import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
-import { buildNotifications } from '../lib/notifications'
+import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
 import {
@@ -226,6 +226,8 @@ export default function Dashboard({ session }) {
   /* The Android back listener is registered once, so it reads handleBack
      through a ref rather than re-subscribing on every render. */
   const handleBackRef = useRef(() => {})
+  // Declared below the feed that uses it; the feed reads it through this ref.
+  const selectSearchResultRef = useRef(null)
   const serverMembersCacheRef = useRef(new Map())
   const serversFetchRef = useRef(null)
   const dmsFetchRef = useRef(null)
@@ -1151,9 +1153,45 @@ export default function Dashboard({ session }) {
 
   handleBackRef.current = handleBack
 
+  /* Stored mentions and replies. Any change for this user refetches the newest
+     page; a missing table (not yet deployed) just leaves the feed empty.
+     ponytail: newest 50, no paging. */
+  const [notificationFeed, setNotificationFeed] = useState([])
+  const fetchNotificationFeed = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('id, kind, created_at, read_at, message_id, channel_id, actor:profiles!notifications_actor_id_fkey(username, avatar_url, unique_tag), message:messages(content, created_at, is_deleted, thread_root_id), channel:channels(name, categories(server_id))')
+      .eq('recipient_id', session.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (error) return debug.warn('SUPABASE_ERROR', { operation: 'notification-feed', code: error.code })
+    setNotificationFeed(data || [])
+  }, [session.user.id])
+  useEffect(() => {
+    void fetchNotificationFeed()
+    const feedSub = supabase.channel('notification-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, fetchNotificationFeed)
+      .subscribe()
+    return () => { supabase.removeChannel(feedSub) }
+  }, [fetchNotificationFeed, session.user.id])
+  // Opening the tab reads everything on it, like a DM thread does.
+  useEffect(() => {
+    if (view !== 'home' || homeTab !== 'notifications' || !notificationFeed.some(row => !row.read_at)) return
+    const readAt = new Date().toISOString()
+    setNotificationFeed(current => current.map(row => (row.read_at ? row : { ...row, read_at: readAt })))
+    void supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', session.user.id).is('read_at', null)
+  }, [view, homeTab, notificationFeed, session.user.id])
+  const openNotification = useCallback((row) => {
+    if (row.message?.is_deleted) return toast.error('That message was deleted.')
+    selectSearchResultRef.current?.(notificationJumpTarget(row))
+  }, [])
+
   /* The bottom bar badge. Same derivation the notifications tab renders, so
      the count and the list can never disagree. */
-  const notificationCount = useMemo(() => buildNotifications({ friendRequests }).length, [friendRequests])
+  const notificationCount = useMemo(
+    () => countUnreadNotifications(buildNotifications({ friendRequests, feed: notificationFeed })),
+    [friendRequests, notificationFeed]
+  )
 
   const handleConversationThemeChange = async (requestedThemeId) => {
     const themeId = normalizeConversationThemeId(requestedThemeId)
@@ -1939,6 +1977,7 @@ export default function Dashboard({ session }) {
     }
     setPendingSearchJump(message)
   }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.scrollToMessage, dms, selectDm, servers])
+  selectSearchResultRef.current = selectSearchResult
 
   useEffect(() => {
     if (!pendingSearchJump || !chatManagerProps.initialMessagesLoaded) return
@@ -2208,6 +2247,8 @@ export default function Dashboard({ session }) {
         handleDeleteServer={handleDeleteServer}
         onVoiceParticipantSelect={focusVoiceParticipant}
         friendRequests={friendRequests}
+        notificationFeed={notificationFeed}
+        openNotification={openNotification}
         onlineFriends={onlineFriends}
         allFriends={allFriends}
         selectDm={selectDm}

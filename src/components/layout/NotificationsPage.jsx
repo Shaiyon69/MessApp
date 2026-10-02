@@ -2,13 +2,14 @@
  * The notification feed. Replaces the old "pending friend requests" tab, which
  * wore a bell icon but only ever showed one kind of thing.
  *
- * Everything here is derived from state Dashboard already holds — see
- * src/lib/notifications.js for what that does and does not buy us.
+ * Friend requests and stored mentions/replies, both held by Dashboard — see
+ * src/lib/notifications.js for how they merge.
  */
 import { Capacitor } from '@capacitor/core'
-import { Bell, Check, UserPlus, X } from 'lucide-react'
+import { AtSign, Bell, Check, CornerDownRight, UserPlus, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { buildNotifications } from '../../lib/notifications'
+import { stripEffects } from '../../lib/messageEffects'
 
 function relativeTime(timestamp) {
   if (!timestamp) return ''
@@ -22,7 +23,7 @@ function relativeTime(timestamp) {
 }
 
 export default function NotificationsPage(props) {
-  const items = buildNotifications({ friendRequests: props.friendRequests })
+  const items = buildNotifications({ friendRequests: props.friendRequests, feed: props.notificationFeed })
 
   /* Native only: the web build already plays a sound in the open tab, so the
      browser permission prompt buys nothing there.
@@ -60,7 +61,30 @@ export default function NotificationsPage(props) {
       )}
 
       <div className="space-y-2">
-        {items.map(item => (
+        {items.map(item => item.type !== 'friend_request' ? (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => props.openNotification?.(item.row)}
+            className="dashboard-list-row group flex w-full items-center gap-4 rounded-2xl p-3 text-left transition-all"
+          >
+            <StatusAvatar url={item.profile?.avatar_url} username={item.profile?.username} showStatus={false} className="h-10 w-10" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 type-snippet text-[var(--text-muted)]">
+                {item.type === 'mention' ? <AtSign size={12} aria-hidden="true" /> : <CornerDownRight size={12} aria-hidden="true" />}
+                <span className="truncate">
+                  <span className="font-bold text-[var(--text-main)]">{item.profile?.username || 'Someone'}</span>
+                  {item.type === 'mention' ? ' mentioned you' : ' replied to you'}
+                  {item.row.channel?.name ? ` in #${item.row.channel.name}` : ''}
+                </span>
+                {item.timestamp && <span className="shrink-0" aria-hidden="true">· {relativeTime(item.timestamp)}</span>}
+              </div>
+              <p className="truncate type-body text-[var(--text-main)]">
+                {item.row.message?.is_deleted ? <span className="italic text-[var(--text-muted)]">Message deleted</span> : stripEffects(item.row.message?.content || '')}
+              </p>
+            </div>
+          </button>
+        ) : (
           <div key={item.id} className="dashboard-list-row group flex items-center justify-between gap-3 rounded-2xl p-3 transition-all">
             <div className="flex min-w-0 items-center gap-4">
               <StatusAvatar url={item.profile?.avatar_url} username={item.profile?.username} showStatus={false} className="h-10 w-10" />
