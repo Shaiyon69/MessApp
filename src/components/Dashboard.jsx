@@ -70,6 +70,7 @@ import StatusAvatar from './ui/StatusAvatar'
 import { CornerDownLeft, Hash, Users } from 'lucide-react'
 import { debug } from '../lib/debug'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
+import { isTimedOut } from '../lib/serverModeration'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -156,6 +157,16 @@ const logUiFreezeDebug = (event, payload = {}) => {
     ...payload,
     stack: debugStack()
   })
+}
+
+const SERVER_MEMBER_COLUMNS = 'server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)'
+
+// ponytail: retries without timed_out_until (42703 = undefined column) so the
+// member list survives until the timeout migration is deployed; drop after.
+const selectServerMembers = async (serverId) => {
+  const query = columns => supabase.from('server_members').select(columns).eq('server_id', serverId)
+  const result = await query(`${SERVER_MEMBER_COLUMNS}, timed_out_until`)
+  return result.error?.code === '42703' ? query(SERVER_MEMBER_COLUMNS) : result
 }
 
 export default function Dashboard({ session }) {
@@ -1139,7 +1150,7 @@ export default function Dashboard({ session }) {
 
     if (view !== 'server' || !activeServer?.id) return
     if (!canManageActiveServer) {
-      toast.error('Only server moderators can change the server theme.')
+      toast.error('Only server admins can change the server theme.')
       return
     }
     if (conversationThemeSchemaAvailableRef.current === false) {
@@ -1361,10 +1372,7 @@ export default function Dashboard({ session }) {
     }
 
     let active = true
-    supabase
-      .from('server_members')
-      .select('server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)')
-      .eq('server_id', activeServer.id)
+    selectServerMembers(activeServer.id)
       .then(({ data, error }) => {
         if (error) {
           console.warn('[SERVER_MEMBERS]', { operation: 'load', code: error.code, message: error.message })
@@ -1380,10 +1388,7 @@ export default function Dashboard({ session }) {
 
   const refreshActiveServerMembers = useCallback(async () => {
     if (!activeServer?.id) return []
-    const { data, error } = await supabase
-      .from('server_members')
-      .select('server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)')
-      .eq('server_id', activeServer.id)
+    const { data, error } = await selectServerMembers(activeServer.id)
     if (error) throw error
     const members = data || []
     serverMembersCacheRef.current.set(activeServer.id, members)
@@ -1931,8 +1936,16 @@ export default function Dashboard({ session }) {
   const quickSwitcherBase = allFriends
 
   const activeDmPeerId = activeDm?.profiles?.id
-  const isBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
-  const blockReason = activeDmPeerId && blockedByUsersSet.has(activeDmPeerId) ? 'This user has blocked you.' : 'You blocked this user.'
+  // ponytail: read from the member list loaded with the server, so a timeout
+  // issued mid-session shows only after a member refresh; until then the send
+  // is refused by RLS. A lapsed timeout clears on the next render.
+  const myServerMember = view === 'server' ? serverMembers.find(member => member.profile_id === session.user.id) : null
+  const isTimedOutHere = isTimedOut(myServerMember)
+  const isDmBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
+  const isBlocked = isDmBlocked || isTimedOutHere
+  const blockReason = isTimedOutHere
+    ? `You are timed out in this server until ${new Date(myServerMember.timed_out_until).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}.`
+    : activeDmPeerId && blockedByUsersSet.has(activeDmPeerId) ? 'This user has blocked you.' : 'You blocked this user.'
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
   const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 

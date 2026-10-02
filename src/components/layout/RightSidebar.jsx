@@ -11,7 +11,7 @@ import ServerIcon from '../ui/ServerIcon'
 import { safeMediaUrl } from '../../lib/security'
 import { downloadFile } from '../../lib/downloadFile'
 import { supabase } from '../../supabaseClient'
-import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverModeration'
+import { SERVER_ROLES, TIMEOUT_OPTIONS, canBanMember, canModerateMember, canModerateMessages, describeModerationEvent, isTimedOut } from '../../lib/serverModeration'
 import { NOTIFICATION_LEVELS, createServerNotificationPreferencesRepository, notificationLevelOf } from '../../lib/serverNotificationPreferences'
 import { debug } from '../../lib/debug'
 import { formatMessageTime } from '../../lib/messageTime'
@@ -125,6 +125,9 @@ export default function RightSidebar({
   const [moderationError, setModerationError] = useState('')
   const [openInfoSections, setOpenInfoSections] = useState(() => new Set())
   const [serverLevel, setServerLevel] = useState('all')
+  const [moderationLog, setModerationLog] = useState(null)
+  const canViewModerationLog = canModerateMessages(activeServerRole)
+  const moderationLogOpen = openInfoSections.has('moderation-log')
   const [serverNotificationsAvailable, setServerNotificationsAvailable] = useState(
     serverNotificationPreferences.isAvailable()
   )
@@ -151,6 +154,32 @@ export default function RightSidebar({
       })
     return () => { active = false }
   }, [activeServer?.id, currentUserId])
+
+  useEffect(() => {
+    setModerationLog(null)
+  }, [activeServer?.id])
+
+  useEffect(() => {
+    if (!moderationLogOpen || !canViewModerationLog || !activeServer?.id) return
+    let active = true
+    // ponytail: newest 50 only, no paging; add a "load older" cursor if logs outgrow it.
+    supabase
+      .rpc('get_server_moderation_log', { target_server_id: activeServer.id, max_rows: 50 })
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) {
+          debug.warn('SERVER_MODERATION', { operation: 'load-log', message: error.message })
+          setModerationLog({ error: true })
+          return
+        }
+        setModerationLog((data || []).map(row => ({
+          ...row,
+          actor: { username: row.actor_username },
+          target: { username: row.target_username }
+        })))
+      })
+    return () => { active = false }
+  }, [moderationLogOpen, canViewModerationLog, activeServer?.id])
 
   const toggleInfoSection = id => {
     setOpenInfoSections(current => (
@@ -192,20 +221,22 @@ export default function RightSidebar({
     setModerationError('')
   }
 
-  const runMemberAction = async (action, role = null) => {
+  const runMemberAction = async (action, value = null) => {
     if (!activeServer?.id || !moderatingMember?.profile_id) return
     setModerationBusy(action)
     setModerationError('')
     try {
-      const args = action === 'role'
-        ? { target_server_id: activeServer.id, target_profile_id: moderatingMember.profile_id, new_role: role }
-        : action === 'ban'
-          ? { target_server_id: activeServer.id, target_profile_id: moderatingMember.profile_id, ban_reason: moderationReason.trim() || null }
-          : { target_server_id: activeServer.id, target_profile_id: moderatingMember.profile_id, kick_reason: moderationReason.trim() || null }
-      const rpc = action === 'role' ? 'set_server_member_role' : action === 'ban' ? 'ban_server_member' : 'kick_server_member'
+      const target = { target_server_id: activeServer.id, target_profile_id: moderatingMember.profile_id }
+      const reason = moderationReason.trim() || null
+      const [rpc, args, done] = {
+        role: ['set_server_member_role', { ...target, new_role: value }, `Role changed to ${value}`],
+        ban: ['ban_server_member', { ...target, ban_reason: reason }, 'Member banned'],
+        kick: ['kick_server_member', { ...target, kick_reason: reason }, 'Member removed'],
+        timeout: ['timeout_server_member', { ...target, duration_minutes: value, timeout_reason: reason }, value ? 'Member timed out' : 'Timeout lifted']
+      }[action]
       const { error } = await supabase.rpc(rpc, args)
       if (error) throw error
-      toast.success(action === 'role' ? `Role changed to ${role}` : action === 'ban' ? 'Member banned' : 'Member removed')
+      toast.success(done)
       try {
         await onServerMembersChanged?.()
       } catch (refreshError) {
@@ -389,7 +420,7 @@ export default function RightSidebar({
                         <StatusAvatar url={profile.avatar_url} username={profile.username} status={status} className="h-10 w-10" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate type-title font-bold text-[var(--text-main)]">{profile.username || 'Unknown user'}</p>
-                          <p className="truncate type-snippet capitalize text-[var(--text-muted)]">{member.role || 'member'} · {getPresenceLabel?.(profile.id) || 'Offline'}</p>
+                          <p className="truncate type-snippet text-[var(--text-muted)]"><span className="capitalize">{member.role || 'member'}</span> · {isTimedOut(member) ? 'Timed out' : getPresenceLabel?.(profile.id) || 'Offline'}</p>
                         </div>
                         {canManageMember && (
                           <button type="button" onClick={() => setModeratingMember(member)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]" aria-label={`Moderate ${profile.username || 'member'}`}>
@@ -402,6 +433,25 @@ export default function RightSidebar({
                   {serverMembers.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">No members found.</p>}
                 </div>
               </AccordionSection>
+
+              {canViewModerationLog && (
+                <AccordionSection id="moderation-log" label="Moderation log" open={moderationLogOpen} onToggle={toggleInfoSection}>
+                  {moderationLog === null && <Loader2 size={18} className="mx-auto my-2 animate-spin text-[var(--text-muted)]" aria-label="Loading moderation log" />}
+                  {moderationLog?.error && <p role="alert" className="py-2 type-body text-red-400">Could not load the moderation log.</p>}
+                  {Array.isArray(moderationLog) && moderationLog.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">No moderation actions yet.</p>}
+                  {Array.isArray(moderationLog) && moderationLog.length > 0 && (
+                    <ul className="space-y-2">
+                      {moderationLog.map(event => (
+                        <li key={event.id} className="rounded-xl bg-[var(--bg-element)] p-3">
+                          <p className="type-body font-medium text-[var(--text-main)]">{describeModerationEvent(event)}</p>
+                          {event.reason && <p className="mt-0.5 type-label italic text-[var(--text-muted)]">“{event.reason}”</p>}
+                          <p className="mt-1 type-meta text-[var(--text-muted)]">{formatMessageTime(event.created_at)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </AccordionSection>
+              )}
 
               <AccordionSection id="media" label="Media, files and links" open={openInfoSections.has('media')} onToggle={toggleInfoSection}>
                 <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-[var(--bg-element)] p-1">
@@ -484,6 +534,24 @@ export default function RightSidebar({
                   <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Reason (optional)</span>
                   <textarea value={moderationReason} onChange={event => setModerationReason(event.target.value.slice(0, 500))} rows={2} placeholder="Visible in the moderation log" className="w-full resize-none rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-element)] px-3 py-2 type-body text-[var(--text-main)] outline-none focus:border-[var(--theme-base)]" />
                 </label>
+
+                <div className="mt-4">
+                  <p className="mb-2 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">
+                    {isTimedOut(moderatingMember) ? `Timed out until ${new Date(moderatingMember.timed_out_until).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}` : 'Time out'}
+                  </p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {TIMEOUT_OPTIONS.map(option => (
+                      <button key={option.minutes} type="button" onClick={() => runMemberAction('timeout', option.minutes)} disabled={Boolean(moderationBusy)} className="rounded-xl bg-[var(--bg-element)] px-1 py-2 type-label font-bold text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)] disabled:opacity-40">
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {isTimedOut(moderatingMember) && (
+                    <button type="button" onClick={() => runMemberAction('timeout', 0)} disabled={Boolean(moderationBusy)} className="mt-2 w-full rounded-xl bg-[var(--theme-20)] py-2 type-label font-bold text-[var(--theme-base)] disabled:opacity-40">
+                      {moderationBusy === 'timeout' ? <Loader2 size={14} className="mx-auto animate-spin" /> : 'Lift timeout'}
+                    </button>
+                  )}
+                </div>
 
                 {moderationError && <p role="alert" className="mt-2 type-label text-red-400">{moderationError}</p>}
 
