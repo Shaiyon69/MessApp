@@ -70,6 +70,7 @@ import StatusAvatar from './ui/StatusAvatar'
 import { CornerDownLeft, Hash, Users } from 'lucide-react'
 import { debug } from '../lib/debug'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
+import { activeStatusNote, cleanStatusNote, readStatusNote } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
 
 const sortDmsByLastMessage = (items) => {
@@ -217,6 +218,9 @@ export default function Dashboard({ session }) {
   
   const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
   const [userStatus, setUserStatus] = useState(() => localStorage.getItem(`user_status_${session.user.id}`) || 'online')
+  const statusNoteKey = `status_note_${session.user.id}`
+  const [statusNote, setStatusNote] = useState(() => readStatusNote(statusNoteKey))
+  const statusText = activeStatusNote(statusNote)
   
   /* The Android back listener is registered once, so it reads handleBack
      through a ref rather than re-subscribing on every render. */
@@ -673,6 +677,15 @@ export default function Dashboard({ session }) {
 
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
   useEffect(() => { localStorage.setItem(`user_status_${session.user.id}`, userStatus) }, [userStatus, session.user.id])
+  useEffect(() => {
+    try {
+      if (statusNote) localStorage.setItem(statusNoteKey, JSON.stringify(statusNote))
+      else localStorage.removeItem(statusNoteKey)
+    } catch (_error) { /* storage full or blocked: the note just won't survive a reload */ }
+    if (!statusNote?.expiresAt) return undefined
+    const timer = setTimeout(() => setStatusNote(null), Math.max(statusNote.expiresAt - Date.now(), 0))
+    return () => clearTimeout(timer)
+  }, [statusNote, statusNoteKey])
 
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
@@ -880,12 +893,12 @@ export default function Dashboard({ session }) {
       for (const presence of presences) {
         if (!presence.user_id) continue
         const status = ['online', 'idle', 'dnd'].includes(presence.status) ? presence.status : 'online'
-        nextPresence[presence.user_id] = { status, online_at: presence.online_at || null }
+        nextPresence[presence.user_id] = { status, online_at: presence.online_at || null, status_text: cleanStatusNote(presence.status_text) }
       }
       setOnlineUsers([...new Set(activeUserIds)])
       setUserPresence(nextPresence)
     }).subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id, status: userStatus, online_at: new Date().toISOString() })
+      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id, status: userStatus, status_text: statusText, online_at: new Date().toISOString() })
     })
     
     const requestsSub = supabase.channel('public:friendships').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
@@ -987,8 +1000,8 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     if (!presenceChannelRef.current) return
-    void presenceChannelRef.current.track({ user_id: session.user.id, status: userStatus, online_at: new Date().toISOString() })
-  }, [session.user.id, userStatus])
+    void presenceChannelRef.current.track({ user_id: session.user.id, status: userStatus, status_text: statusText, online_at: new Date().toISOString() })
+  }, [session.user.id, userStatus, statusText])
 
   useEffect(() => {
     const roomSub = supabase.channel('dm-rooms-updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_rooms' }, (payload) => {
@@ -1911,13 +1924,16 @@ export default function Dashboard({ session }) {
     if (!profileId) return 'offline'
     return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) ? 'online' : 'offline')
   }, [onlineUsersSet, userPresence])
+  // A custom status note stands in for the plain "Online" wherever presence is labelled.
   const getPresenceLabel = useCallback((profileId) => {
     const status = getPresenceStatus(profileId)
+    const note = status !== 'offline' && userPresence[profileId]?.status_text
+    if (note) return note
     if (status === 'dnd') return 'Do Not Disturb'
     if (status === 'idle') return 'Idle'
     if (status === 'online') return 'Online'
     return 'Offline'
-  }, [getPresenceStatus])
+  }, [getPresenceStatus, userPresence])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => {
@@ -2127,6 +2143,8 @@ export default function Dashboard({ session }) {
         myBanner={myBanner}
         userStatus={userStatus}
         setUserStatus={setUserStatus}
+        statusNote={statusNote}
+        setStatusNote={setStatusNote}
         setSettingsModalConfig={setSettingsModalConfig}
         notificationCount={notificationCount}
         handleBack={handleBack}

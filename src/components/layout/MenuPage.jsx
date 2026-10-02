@@ -15,6 +15,7 @@ import StatusAvatar from '../ui/StatusAvatar'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import { safeMediaUrl } from '../../lib/security'
 import { signOutAndReset } from '../../lib/signOut'
+import { STATUS_NOTE_DURATIONS, STATUS_NOTE_MAX, activeStatusNote, cleanStatusNote, statusNoteExpiry } from '../../lib/statusNote'
 
 const STATUS_OPTIONS = [
   { id: 'online', label: 'Online', color: '#23a559' },
@@ -78,6 +79,16 @@ export default function MenuPage(props) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+  const [noteDraft, setNoteDraft] = useState(null)
+  const [noteDuration, setNoteDuration] = useState(0)
+  const statusText = activeStatusNote(props.statusNote)
+
+  const saveStatusNote = (event) => {
+    event.preventDefault()
+    const text = cleanStatusNote(noteDraft)
+    props.setStatusNote?.(text ? { text, expiresAt: statusNoteExpiry(STATUS_NOTE_DURATIONS[noteDuration].ms) } : null)
+    setNoteDraft(null)
+  }
 
   const currentStatus = props.userStatus || 'online'
   const currentOption = STATUS_OPTIONS.find(option => option.id === currentStatus) || STATUS_OPTIONS[0]
@@ -162,6 +173,28 @@ export default function MenuPage(props) {
             {props.myPronouns && <span className="shrink-0 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1.5 py-0.5 type-meta text-[var(--text-muted)]">{props.myPronouns}</span>}
           </div>
           <p className="truncate font-mono type-label text-[var(--text-muted)]">{props.myTag}</p>
+          {noteDraft === null ? (
+            <button type="button" onClick={() => setNoteDraft(statusText)} className="mt-0.5 block max-w-full truncate text-left type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">
+              {statusText || 'Set a custom status'}
+            </button>
+          ) : (
+            <form onSubmit={saveStatusNote} className="mt-1 flex flex-wrap items-center gap-1.5">
+              <input
+                autoFocus
+                value={noteDraft}
+                onChange={event => setNoteDraft(event.target.value)}
+                maxLength={STATUS_NOTE_MAX}
+                placeholder="What's up?"
+                aria-label="Custom status"
+                className="min-w-0 flex-1 rounded-lg bg-[var(--bg-element)] px-2 py-1.5 type-label text-[var(--text-main)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              />
+              <select value={noteDuration} onChange={event => setNoteDuration(Number(event.target.value))} aria-label="Clear after" className="rounded-lg bg-[var(--bg-element)] px-2 py-1.5 type-label text-[var(--text-main)]">
+                {STATUS_NOTE_DURATIONS.map((option, index) => <option key={option.label} value={index}>{option.label}</option>)}
+              </select>
+              <button type="submit" className="rounded-lg bg-[var(--app-accent)] px-3 py-1.5 type-label font-bold text-white">Save</button>
+              <button type="button" onClick={() => setNoteDraft(null)} className="rounded-lg px-2 py-1.5 type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">Cancel</button>
+            </form>
+          )}
         </div>
       </div>
 
