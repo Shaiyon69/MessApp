@@ -18,7 +18,8 @@ import { useRef } from 'react'
 const LONG_PRESS_MS = 450
 const MOVE_CANCEL_PX = 10
 
-export default function useLongPress(onLongPress) {
+// `mouse: true` also arms the timer for a held left mouse button.
+export default function useLongPress(onLongPress, { mouse = false } = {}) {
   const timer = useRef(null)
   const start = useRef(null)
   const activated = useRef(false)
@@ -46,7 +47,8 @@ export default function useLongPress(onLongPress) {
          click that ends the press can land on the menu's own backdrop instead
          of this row, so onClickCapture never runs to clear it. */
       activated.current = false
-      if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
+      const held = event.pointerType === 'touch' || event.pointerType === 'pen' || (mouse && event.button === 0)
+      if (!held) return
       if (event.target?.closest?.('[data-no-long-press]')) return
       cancel()
       start.current = { x: event.clientX, y: event.clientY }

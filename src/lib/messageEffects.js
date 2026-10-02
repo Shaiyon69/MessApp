@@ -10,7 +10,7 @@
 
 export const WORD_EFFECTS = ['big', 'small', 'shake', 'nod', 'explode', 'ripple', 'bloom', 'jitter']
 export const BUBBLE_EFFECTS = ['slam', 'loud', 'gentle']
-export const SCREEN_EFFECTS = ['confetti', 'balloons', 'fireworks']
+export const SCREEN_EFFECTS = ['confetti', 'balloons', 'fireworks', 'lasers', 'love', 'celebration']
 
 // Word effects animated letter by letter; the rest move the span as one piece.
 export const LETTER_EFFECTS = new Set(['explode', 'ripple', 'bloom', 'jitter'])
@@ -24,6 +24,22 @@ export function parseMessageEffect(text) {
   if (typeof text !== 'string') return { effect: null, text }
   const match = PREFIX.exec(text)
   return match ? { effect: match[1], text: text.slice(match[0].length) } : { effect: null, text }
+}
+
+// iMessage's trigger phrases: saying one plays the effect with no markup.
+// Lunar New Year is checked before plain New Year so it wins.
+const KEYWORD_EFFECTS = [
+  [/\bhappy (lunar|chinese) new year\b/i, 'celebration'],
+  [/\bhappy new year\b/i, 'fireworks'],
+  [/\bhappy (birthday|bday)\b/i, 'balloons'],
+  [/\bcongrat(s|ulations)\b/i, 'confetti'],
+  [/\bpew ?pew\b/i, 'lasers']
+]
+
+/** Screen effect a plain message earns from its wording, or null. */
+export function keywordEffect(text) {
+  if (typeof text !== 'string') return null
+  return KEYWORD_EFFECTS.find(([pattern]) => pattern.test(text))?.[1] ?? null
 }
 
 export function withMessageEffect(text, effect) {

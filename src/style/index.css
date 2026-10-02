@@ -3235,13 +3235,82 @@ iframe {
 @keyframes msgFxGentle { 0% { transform: scale(0.6); opacity: 0.3; } 100% { transform: none; opacity: 1; } }
 
 .screen-fx { position: fixed; inset: 0; z-index: 60; overflow: hidden; pointer-events: none; }
-.screen-fx > span { position: absolute; left: var(--x); font-size: calc(1.8rem * var(--scale)); animation-delay: var(--delay); animation-fill-mode: both; }
-.screen-fx-confetti > span { top: -3rem; animation: screenFxFall 2.6s ease-in var(--delay) both; }
-.screen-fx-balloons > span { bottom: -4rem; animation: screenFxRise 3s ease-in var(--delay) both; }
-.screen-fx-fireworks > span { top: calc(35vh + var(--drift)); animation: screenFxBurst 1.4s ease-out var(--delay) both; }
-@keyframes screenFxFall { to { transform: translate(var(--drift), 110vh) rotate(var(--spin)); } }
-@keyframes screenFxRise { to { transform: translate(var(--drift), -115vh) rotate(calc(var(--spin) / 8)); } }
-@keyframes screenFxBurst { 0% { transform: scale(0); opacity: 1; } 70% { opacity: 1; } 100% { transform: scale(2.4) translateY(1rem); opacity: 0; } }
+.screen-fx > span { position: absolute; }
+/* Fireworks and lasers play in the dark, like iMessage. */
+.screen-fx-fireworks::before, .screen-fx-lasers::before { content: ''; position: absolute; inset: 0; background: #000; animation: screenFxDim 4s ease both; }
+@keyframes screenFxDim { 0%, 100% { opacity: 0; } 12%, 82% { opacity: 0.6; } }
+
+.screen-fx-confetti > span {
+  top: -2rem; left: var(--x); width: var(--w); height: calc(var(--w) * 1.6);
+  background: var(--c); border-radius: 2px;
+  animation: screenFxFall var(--dur) cubic-bezier(.3,.1,.6,1) var(--delay) both;
+}
+@keyframes screenFxFall { to { transform: translate(var(--drift), 110vh) rotate(var(--spin)) rotateY(1080deg); } }
+
+.screen-fx-balloons > span {
+  bottom: calc(-1.2 * var(--size) - 4rem); left: var(--x); width: var(--size); height: calc(var(--size) * 1.2);
+  border-radius: 50% 50% 48% 52% / 55% 55% 45% 45%;
+  background: radial-gradient(circle at 32% 28%, rgb(255 255 255 / 0.55), transparent 30%), var(--c);
+  box-shadow: inset -6px -8px 14px rgb(0 0 0 / 0.18);
+  animation: screenFxRise var(--dur) ease-in var(--delay) both;
+}
+.screen-fx-balloons > span::before { content: ''; position: absolute; left: 50%; bottom: -6px; width: 10px; height: 8px; background: var(--c); transform: translateX(-50%); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.screen-fx-balloons > span::after { content: ''; position: absolute; left: 50%; top: calc(100% + 2px); width: 1px; height: 4rem; background: rgb(128 128 128 / 0.6); }
+@keyframes screenFxRise {
+  0% { transform: translate(0, 0) rotate(0); }
+  50% { transform: translate(var(--sway), -65vh) rotate(4deg); }
+  100% { transform: translate(calc(var(--sway) * -0.5), -135vh) rotate(-3deg); }
+}
+
+.screen-fx-fireworks > span { left: var(--x); top: var(--y); }
+.screen-fx-fireworks > span > i {
+  position: absolute; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 6px 2px var(--c);
+  animation: screenFxSpark 1.5s cubic-bezier(.1,.7,.3,1) var(--delay) both;
+}
+@keyframes screenFxSpark {
+  0% { transform: rotate(var(--a)) translateY(0) scale(1); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: rotate(var(--a)) translateY(-22vmin) scale(0.3); opacity: 0; }
+}
+
+.screen-fx-lasers > span {
+  left: 50%; top: 50%; width: 160vmax; height: 3px; border-radius: 2px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--c), transparent 70%); box-shadow: 0 0 12px 2px var(--c);
+  animation: screenFxSweep 0.8s ease-in-out var(--delay) 4 alternate both, screenFxBeam 3.6s linear both;
+}
+@keyframes screenFxSweep { from { transform: rotate(var(--a)); } to { transform: rotate(calc(var(--a) + 40deg)); } }
+@keyframes screenFxBeam { 0%, 100% { opacity: 0; } 10%, 85% { opacity: 1; } }
+
+.screen-fx-love > .screen-fx-heart { left: 50%; top: 45%; font-size: 9rem; line-height: 1; animation: screenFxHeart 3.4s ease both; }
+@keyframes screenFxHeart {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  15% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  25%, 45%, 65% { transform: translate(-50%, -50%) scale(0.95); }
+  35%, 55% { transform: translate(-50%, -50%) scale(1.1); }
+  85% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+}
+.screen-fx-love > span:not(.screen-fx-heart) {
+  bottom: -3rem; left: var(--x); font-size: calc(1.4rem * var(--scale));
+  animation: screenFxFloat var(--dur) ease-out var(--delay) both;
+}
+@keyframes screenFxFloat {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(var(--drift), -80vh) scale(1); opacity: 0; }
+}
+
+.screen-fx-celebration > span {
+  right: 0; top: 0; width: var(--size); height: var(--size); border-radius: 50%;
+  background: #ffd65a; box-shadow: 0 0 8px 2px #ffb800;
+  animation: screenFxShower 2.2s cubic-bezier(.15,.6,.4,1) var(--delay) both;
+}
+@keyframes screenFxShower {
+  0% { transform: rotate(var(--a)) translateX(0); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: rotate(var(--a)) translateX(var(--d)); opacity: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .fx, .fx > span, .msg-fx-slam, .msg-fx-loud, .msg-fx-gentle { animation: none; }

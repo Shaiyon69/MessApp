@@ -18,7 +18,7 @@ import { downloadFile } from '../../lib/downloadFile'
 import { blurComposer } from '../../lib/composerFocus'
 import { formatMessageTime } from '../../lib/messageTime'
 import { hasMarkdown } from '../../lib/markdownText'
-import { BUBBLE_EFFECTS, LETTER_EFFECTS, SCREEN_EFFECTS, SCREEN_EFFECT_EVENT, claimFreshEffect, parseMessageEffect, stripEffects } from '../../lib/messageEffects'
+import { BUBBLE_EFFECTS, LETTER_EFFECTS, SCREEN_EFFECTS, SCREEN_EFFECT_EVENT, claimFreshEffect, keywordEffect, parseMessageEffect, stripEffects } from '../../lib/messageEffects'
 
 // Each pulls a large dependency (refractor, remark/micromark, emoji-picker-react)
 // that is only needed once a message actually contains a code block or markup,
@@ -689,7 +689,7 @@ export const MemoizedMessage = React.memo(({
     return {
       previewLinks: previews,
       renderedContent: stripPreviewLinks(text, links.filter(link => previewUrls.has(link.url))),
-      messageEffect: effect
+      messageEffect: effect ?? keywordEffect(stripEffects(text))
     }
   }, [m.content, m.is_deleted])
   // Decided once at mount: only a message that just arrived plays its effect,
