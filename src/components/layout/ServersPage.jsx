@@ -6,7 +6,7 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { Bell, BellOff, Camera, CheckCheck, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
+import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
@@ -14,7 +14,7 @@ import { supabase } from '../../supabaseClient'
 import useLongPress from '../../hooks/useLongPress'
 import useStoredSet from '../../hooks/useStoredSet'
 import ActionSheet from '../ui/ActionSheet'
-import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
+import { NOTIFICATION_LEVELS, createServerNotificationPreferencesRepository, notificationLevelOf } from '../../lib/serverNotificationPreferences'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
@@ -57,7 +57,7 @@ export default function ServersPage(props) {
   /* The options sheet: opened from the detail bar's ⋮ for the active server, or
      by holding a row in the server list for that row's server. */
   const [sheetServer, setSheetServer] = useState(null)
-  const [sheetServerMuted, setSheetServerMuted] = useState(null)
+  const [sheetServerLevel, setSheetServerLevel] = useState(null)
   const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
   const [serverItemSheet, setServerItemSheet] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
@@ -96,24 +96,24 @@ export default function ServersPage(props) {
 
   // null = unknown or the preferences table is not deployed; the row hides.
   useEffect(() => {
-    setSheetServerMuted(null)
+    setSheetServerLevel(null)
     if (!sheetServer?.id || !props.session?.user?.id) return undefined
     let active = true
     serverNotificationPreferences.load(sheetServer.id, props.session.user.id).then(({ data, error, unavailable }) => {
-      if (active && !unavailable && !error) setSheetServerMuted(Boolean(data?.muted))
+      if (active && !unavailable && !error) setSheetServerLevel(notificationLevelOf(data))
     })
     return () => { active = false }
   }, [sheetServer?.id, props.session?.user?.id])
 
-  const toggleSheetServerMute = async (server, nextMuted) => {
+  const setSheetServerNotificationLevel = async (server, level) => {
     const { error, unavailable } = await serverNotificationPreferences.upsert({
       server_id: server.id,
       profile_id: props.session.user.id,
-      muted: nextMuted,
+      level,
       updated_at: new Date().toISOString()
     })
-    if (error || unavailable) return toast.error('Could not update mute preference')
-    toast.success(nextMuted ? 'Server muted' : 'Server unmuted')
+    if (error || unavailable) return toast.error('Could not update notifications')
+    toast.success(`Notifications: ${NOTIFICATION_LEVELS[level].label}`)
   }
   /* The server menu has no category picker, so Create Channel drops into the
      first category — same default the per-category button would give. */
@@ -774,9 +774,12 @@ export default function ServersPage(props) {
             pinnedServers.has(sheetServer.id)
               ? { label: 'Unpin', Icon: PinOff, onSelect: () => togglePinnedServer(sheetServer.id, false) }
               : { label: 'Pin', Icon: Pin, onSelect: () => togglePinnedServer(sheetServer.id, true) },
-            sheetServerMuted !== null && (sheetServerMuted
-              ? { label: 'Unmute', Icon: Bell, onSelect: () => toggleSheetServerMute(sheetServer, false) }
-              : { label: 'Mute', Icon: BellOff, onSelect: () => toggleSheetServerMute(sheetServer, true) }),
+            // Tapping steps all, mentions, muted; the label names the current level.
+            sheetServerLevel !== null && {
+              label: `Notifications: ${NOTIFICATION_LEVELS[sheetServerLevel].label}`,
+              Icon: sheetServerLevel === 'none' ? BellOff : sheetServerLevel === 'mentions' ? AtSign : Bell,
+              onSelect: () => setSheetServerNotificationLevel(sheetServer, NOTIFICATION_LEVELS[sheetServerLevel].next)
+            },
             { label: 'Add members', Icon: UserPlus, onSelect: () => copyInviteCode(sheetServer) },
             /* Channel/category/edit mutations target Dashboard's activeServer, so
                they only appear for the server that is open. RLS still gates them. */

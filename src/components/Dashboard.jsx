@@ -31,7 +31,7 @@ import { normalizeProfileBaseName } from '../lib/security'
 import { downloadFile } from '../lib/downloadFile'
 import { applySurfaceTint, applyThemeMode } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
-import { buildNotifications } from '../lib/notifications'
+import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
 import {
@@ -67,9 +67,12 @@ import {
 import { createVoiceChannelClient } from '../lib/voiceChannelClient'
 import { getIceServers } from '../lib/iceServers'
 import StatusAvatar from './ui/StatusAvatar'
-import { CornerDownLeft, Hash, Users } from 'lucide-react'
+import { AtSign, CornerDownLeft, Hash, Users } from 'lucide-react'
+import ActionSheet from './ui/ActionSheet'
 import { debug } from '../lib/debug'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
+import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
+import { isTimedOut } from '../lib/serverModeration'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -158,6 +161,16 @@ const logUiFreezeDebug = (event, payload = {}) => {
   })
 }
 
+const SERVER_MEMBER_COLUMNS = 'server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)'
+
+// ponytail: retries without timed_out_until (42703 = undefined column) so the
+// member list survives until the timeout migration is deployed; drop after.
+const selectServerMembers = async (serverId) => {
+  const query = columns => supabase.from('server_members').select(columns).eq('server_id', serverId)
+  const result = await query(`${SERVER_MEMBER_COLUMNS}, timed_out_until`)
+  return result.error?.code === '42703' ? query(SERVER_MEMBER_COLUMNS) : result
+}
+
 export default function Dashboard({ session }) {
   const serverListCacheKey = `server_list_${session.user.id}`
   const dmListCacheKey = `dm_list_${session.user.id}`
@@ -206,10 +219,15 @@ export default function Dashboard({ session }) {
   
   const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
   const [userStatus, setUserStatus] = useState(() => localStorage.getItem(`user_status_${session.user.id}`) || 'online')
+  const statusNoteKey = `status_note_${session.user.id}`
+  const [statusNote, setStatusNote] = useState(() => readStatusNote(statusNoteKey))
+  const statusText = activeStatusNote(statusNote)
   
   /* The Android back listener is registered once, so it reads handleBack
      through a ref rather than re-subscribing on every render. */
   const handleBackRef = useRef(() => {})
+  // Declared below the feed that uses it; the feed reads it through this ref.
+  const selectSearchResultRef = useRef(null)
   const serverMembersCacheRef = useRef(new Map())
   const serversFetchRef = useRef(null)
   const dmsFetchRef = useRef(null)
@@ -223,6 +241,16 @@ export default function Dashboard({ session }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setShowQuickSwitcher(open => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
   
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('')
@@ -247,6 +275,12 @@ export default function Dashboard({ session }) {
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
   const [reportTarget, setReportTarget] = useState(null)
+  // Forwarding: forwardText opens the destination sheet; pendingForward carries
+  // the text to the destination's composer, which fills once that chat is open.
+  // The user then sends it through the normal path, so a DM forward is
+  // encrypted for its own room and ciphertext never crosses rooms.
+  const [forwardText, setForwardText] = useState(null)
+  const [pendingForward, setPendingForward] = useState(null)
   const [channelSettingsName, setChannelSettingsName] = useState('')
   const profileCacheKey = `profile_cache_${session.user.id}`
   const [profileOverride, setProfileOverride] = useState(() => {
@@ -662,6 +696,30 @@ export default function Dashboard({ session }) {
 
   useEffect(() => { localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(restrictedUsers)) }, [restrictedUsers, session.user.id])
   useEffect(() => { localStorage.setItem(`user_status_${session.user.id}`, userStatus) }, [userStatus, session.user.id])
+  useEffect(() => {
+    try {
+      if (statusNote) localStorage.setItem(statusNoteKey, JSON.stringify(statusNote))
+      else localStorage.removeItem(statusNoteKey)
+    } catch (_error) { /* storage full or blocked: the note just won't survive a reload */ }
+    if (!statusNote?.expiresAt) return undefined
+    const timer = setTimeout(() => setStatusNote(null), Math.max(statusNote.expiresAt - Date.now(), 0))
+    return () => clearTimeout(timer)
+  }, [statusNote, statusNoteKey])
+  // The profile copy is what another device set; it wins over this device's
+  // cached note. Fails quietly until the status columns are deployed.
+  useEffect(() => {
+    let active = true
+    supabase.from('profiles').select('status_text, status_expires_at').eq('id', session.user.id).maybeSingle()
+      .then(({ data, error }) => {
+        if (active && !error && data) setStatusNote(statusNoteFromProfile(data))
+      })
+    return () => { active = false }
+  }, [session.user.id])
+  const saveStatusNote = useCallback((note) => {
+    setStatusNote(note)
+    void supabase.from('profiles').update(statusNoteToProfile(note)).eq('id', session.user.id)
+      .then(({ error }) => { if (error) debug.warn('SUPABASE_ERROR', { operation: 'status-note-sync', code: error.code }) })
+  }, [session.user.id])
 
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
@@ -869,12 +927,12 @@ export default function Dashboard({ session }) {
       for (const presence of presences) {
         if (!presence.user_id) continue
         const status = ['online', 'idle', 'dnd'].includes(presence.status) ? presence.status : 'online'
-        nextPresence[presence.user_id] = { status, online_at: presence.online_at || null }
+        nextPresence[presence.user_id] = { status, online_at: presence.online_at || null, status_text: cleanStatusNote(presence.status_text) }
       }
       setOnlineUsers([...new Set(activeUserIds)])
       setUserPresence(nextPresence)
     }).subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id, status: userStatus, online_at: new Date().toISOString() })
+      if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id, status: userStatus, status_text: statusText, online_at: new Date().toISOString() })
     })
     
     const requestsSub = supabase.channel('public:friendships').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
@@ -976,8 +1034,8 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     if (!presenceChannelRef.current) return
-    void presenceChannelRef.current.track({ user_id: session.user.id, status: userStatus, online_at: new Date().toISOString() })
-  }, [session.user.id, userStatus])
+    void presenceChannelRef.current.track({ user_id: session.user.id, status: userStatus, status_text: statusText, online_at: new Date().toISOString() })
+  }, [session.user.id, userStatus, statusText])
 
   useEffect(() => {
     const roomSub = supabase.channel('dm-rooms-updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_rooms' }, (payload) => {
@@ -1095,9 +1153,45 @@ export default function Dashboard({ session }) {
 
   handleBackRef.current = handleBack
 
+  /* Stored mentions and replies. Any change for this user refetches the newest
+     page; a missing table (not yet deployed) just leaves the feed empty.
+     ponytail: newest 50, no paging. */
+  const [notificationFeed, setNotificationFeed] = useState([])
+  const fetchNotificationFeed = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('id, kind, created_at, read_at, message_id, channel_id, actor:profiles!notifications_actor_id_fkey(username, avatar_url, unique_tag), message:messages(content, created_at, is_deleted, thread_root_id), channel:channels(name, categories(server_id))')
+      .eq('recipient_id', session.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (error) return debug.warn('SUPABASE_ERROR', { operation: 'notification-feed', code: error.code })
+    setNotificationFeed(data || [])
+  }, [session.user.id])
+  useEffect(() => {
+    void fetchNotificationFeed()
+    const feedSub = supabase.channel('notification-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, fetchNotificationFeed)
+      .subscribe()
+    return () => { supabase.removeChannel(feedSub) }
+  }, [fetchNotificationFeed, session.user.id])
+  // Opening the tab reads everything on it, like a DM thread does.
+  useEffect(() => {
+    if (view !== 'home' || homeTab !== 'notifications' || !notificationFeed.some(row => !row.read_at)) return
+    const readAt = new Date().toISOString()
+    setNotificationFeed(current => current.map(row => (row.read_at ? row : { ...row, read_at: readAt })))
+    void supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', session.user.id).is('read_at', null)
+  }, [view, homeTab, notificationFeed, session.user.id])
+  const openNotification = useCallback((row) => {
+    if (row.message?.is_deleted) return toast.error('That message was deleted.')
+    selectSearchResultRef.current?.(notificationJumpTarget(row))
+  }, [])
+
   /* The bottom bar badge. Same derivation the notifications tab renders, so
      the count and the list can never disagree. */
-  const notificationCount = useMemo(() => buildNotifications({ friendRequests }).length, [friendRequests])
+  const notificationCount = useMemo(
+    () => countUnreadNotifications(buildNotifications({ friendRequests, feed: notificationFeed })),
+    [friendRequests, notificationFeed]
+  )
 
   const handleConversationThemeChange = async (requestedThemeId) => {
     const themeId = normalizeConversationThemeId(requestedThemeId)
@@ -1139,7 +1233,7 @@ export default function Dashboard({ session }) {
 
     if (view !== 'server' || !activeServer?.id) return
     if (!canManageActiveServer) {
-      toast.error('Only server moderators can change the server theme.')
+      toast.error('Only server admins can change the server theme.')
       return
     }
     if (conversationThemeSchemaAvailableRef.current === false) {
@@ -1361,10 +1455,7 @@ export default function Dashboard({ session }) {
     }
 
     let active = true
-    supabase
-      .from('server_members')
-      .select('server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)')
-      .eq('server_id', activeServer.id)
+    selectServerMembers(activeServer.id)
       .then(({ data, error }) => {
         if (error) {
           console.warn('[SERVER_MEMBERS]', { operation: 'load', code: error.code, message: error.message })
@@ -1380,10 +1471,7 @@ export default function Dashboard({ session }) {
 
   const refreshActiveServerMembers = useCallback(async () => {
     if (!activeServer?.id) return []
-    const { data, error } = await supabase
-      .from('server_members')
-      .select('server_id, profile_id, role, joined_at, profiles!server_members_profile_id_fkey(id, username, unique_tag, avatar_url, bio, pronouns)')
-      .eq('server_id', activeServer.id)
+    const { data, error } = await selectServerMembers(activeServer.id)
     if (error) throw error
     const members = data || []
     serverMembersCacheRef.current.set(activeServer.id, members)
@@ -1889,6 +1977,7 @@ export default function Dashboard({ session }) {
     }
     setPendingSearchJump(message)
   }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.scrollToMessage, dms, selectDm, servers])
+  selectSearchResultRef.current = selectSearchResult
 
   useEffect(() => {
     if (!pendingSearchJump || !chatManagerProps.initialMessagesLoaded) return
@@ -1906,13 +1995,16 @@ export default function Dashboard({ session }) {
     if (!profileId) return 'offline'
     return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) ? 'online' : 'offline')
   }, [onlineUsersSet, userPresence])
+  // A custom status note stands in for the plain "Online" wherever presence is labelled.
   const getPresenceLabel = useCallback((profileId) => {
     const status = getPresenceStatus(profileId)
+    const note = status !== 'offline' && userPresence[profileId]?.status_text
+    if (note) return note
     if (status === 'dnd') return 'Do Not Disturb'
     if (status === 'idle') return 'Idle'
     if (status === 'online') return 'Online'
     return 'Offline'
-  }, [getPresenceStatus])
+  }, [getPresenceStatus, userPresence])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => {
@@ -1931,8 +2023,16 @@ export default function Dashboard({ session }) {
   const quickSwitcherBase = allFriends
 
   const activeDmPeerId = activeDm?.profiles?.id
-  const isBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
-  const blockReason = activeDmPeerId && blockedByUsersSet.has(activeDmPeerId) ? 'This user has blocked you.' : 'You blocked this user.'
+  // ponytail: read from the member list loaded with the server, so a timeout
+  // issued mid-session shows only after a member refresh; until then the send
+  // is refused by RLS. A lapsed timeout clears on the next render.
+  const myServerMember = view === 'server' ? serverMembers.find(member => member.profile_id === session.user.id) : null
+  const isTimedOutHere = isTimedOut(myServerMember)
+  const isDmBlocked = Boolean(activeDmPeerId && (blockedUsersSet.has(activeDmPeerId) || blockedByUsersSet.has(activeDmPeerId)))
+  const isBlocked = isDmBlocked || isTimedOutHere
+  const blockReason = isTimedOutHere
+    ? `You are timed out in this server until ${new Date(myServerMember.timed_out_until).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}.`
+    : activeDmPeerId && blockedByUsersSet.has(activeDmPeerId) ? 'This user has blocked you.' : 'You blocked this user.'
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
   const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 
@@ -2114,6 +2214,8 @@ export default function Dashboard({ session }) {
         myBanner={myBanner}
         userStatus={userStatus}
         setUserStatus={setUserStatus}
+        statusNote={statusNote}
+        setStatusNote={saveStatusNote}
         setSettingsModalConfig={setSettingsModalConfig}
         notificationCount={notificationCount}
         handleBack={handleBack}
@@ -2121,6 +2223,9 @@ export default function Dashboard({ session }) {
         dmsLoading={dmsLoading}
         appThemeMode={appThemeMode}
         setShowQuickSwitcher={setShowQuickSwitcher}
+        onForwardMessage={setForwardText}
+        pendingForward={pendingForward}
+        clearPendingForward={() => setPendingForward(null)}
         servers={servers}
         serversLoading={serversLoading}
         activeServer={activeServer}
@@ -2142,6 +2247,8 @@ export default function Dashboard({ session }) {
         handleDeleteServer={handleDeleteServer}
         onVoiceParticipantSelect={focusVoiceParticipant}
         friendRequests={friendRequests}
+        notificationFeed={notificationFeed}
+        openNotification={openNotification}
         onlineFriends={onlineFriends}
         allFriends={allFriends}
         selectDm={selectDm}
@@ -2229,6 +2336,37 @@ export default function Dashboard({ session }) {
           onReportTarget={setReportTarget}
         />
         </Suspense>
+      )}
+
+      {forwardText !== null && (
+        <ActionSheet
+          aria-label="Forward message"
+          onClose={() => setForwardText(null)}
+          header={<p className="type-title font-semibold text-[var(--text-main)]">Forward to</p>}
+          items={[
+            ...dms.map(dm => ({
+              label: dm.profiles.username,
+              Icon: AtSign,
+              onSelect: () => {
+                setPendingForward({ chatKey: `home:${dm.dm_room_id}`, text: forwardText })
+                setView('home')
+                selectDm(dm)
+              }
+            })),
+            // ponytail: only the open server's channels are loaded; forwarding to
+            // another server means opening it first.
+            ...(view === 'server' ? serverCategories : []).flatMap(category => (category.channels || [])
+              .filter(channel => channel.type !== 'voice')
+              .map(channel => ({
+                label: `#${channel.name}`,
+                Icon: Hash,
+                onSelect: () => {
+                  setPendingForward({ chatKey: `server:${channel.id}`, text: forwardText })
+                  selectChannel(channel)
+                }
+              })))
+          ]}
+        />
       )}
 
       {showQuickSwitcher && (

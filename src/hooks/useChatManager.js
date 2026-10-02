@@ -2141,6 +2141,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const visibleMessages = useMemo(() => validMessages.filter(m => {
     if (localDeletedMessages.includes(m.id)) return false;
     if (m.is_unreadable) return false;
+    // ponytail: thread replies are fetched with the channel and hidden here, so
+    // a page heavy with thread traffic shows fewer channel messages. Filter in
+    // the query once every deployment has the thread_root_id column.
+    if (m.thread_root_id) return false;
     const contentString = typeof m.content === 'object' && m.content !== null ? JSON.stringify(m.content) : String(m.content);
     if (contentString.includes('Encrypted Message')) return false;
     if (contentString.includes('"ciphertext"')) return false;

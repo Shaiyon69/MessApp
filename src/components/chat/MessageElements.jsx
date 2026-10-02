@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer, Forward, MessagesSquare } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
@@ -18,7 +18,9 @@ import { downloadFile } from '../../lib/downloadFile'
 import { blurComposer } from '../../lib/composerFocus'
 import { formatMessageTime } from '../../lib/messageTime'
 import { hasMarkdown } from '../../lib/markdownText'
-import { BUBBLE_EFFECTS, LETTER_EFFECTS, SCREEN_EFFECTS, SCREEN_EFFECT_EVENT, claimFreshEffect, parseMessageEffect, stripEffects } from '../../lib/messageEffects'
+import { isPollContent } from '../../lib/polls'
+import { PollCard } from './Poll'
+import { BUBBLE_EFFECTS, LETTER_EFFECTS, SCREEN_EFFECTS, SCREEN_EFFECT_EVENT, claimFreshEffect, keywordEffect, parseMessageEffect, stripEffects } from '../../lib/messageEffects'
 
 // Each pulls a large dependency (refractor, remark/micromark, emoji-picker-react)
 // that is only needed once a message actually contains a code block or markup,
@@ -608,7 +610,7 @@ export const MemoizedMessage = React.memo(({
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
-  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false, myMention = ''
+  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, onForwardMessage, onOpenThread, canModerateMessage = false, myMention = ''
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMoreReactions, setShowMoreReactions] = useState(false)
@@ -689,7 +691,7 @@ export const MemoizedMessage = React.memo(({
     return {
       previewLinks: previews,
       renderedContent: stripPreviewLinks(text, links.filter(link => previewUrls.has(link.url))),
-      messageEffect: effect
+      messageEffect: effect ?? keywordEffect(stripEffects(text))
     }
   }, [m.content, m.is_deleted])
   // Decided once at mount: only a message that just arrived plays its effect,
@@ -1522,12 +1524,28 @@ export const MemoizedMessage = React.memo(({
                     <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
                       {visibleContent.trim()}
                     </div>
-                  ) : hasVisibleContent && !showCaptionBelowMedia && (
-                    <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
-                      <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                        {messageBody}
+                  ) : hasVisibleContent && !showCaptionBelowMedia && (() => {
+                    const bubble = (
+                      <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
+                        <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                          {messageBody}
+                        </div>
                       </div>
-                    </div>
+                    )
+                    return m.channel_id && isPollContent(m.content) && !String(m.id).startsWith('local-')
+                      ? <PollCard messageId={m.id} currentUserId={currentUserId} alignRight={alignRight}>{bubble}</PollCard>
+                      : bubble
+                  })()}
+
+                  {onOpenThread && m.thread_reply_count > 0 && (
+                    <button
+                      type="button"
+                      onClick={(event) => { event.stopPropagation(); onOpenThread(m.id) }}
+                      className={`mt-1 flex items-center gap-1.5 rounded-full px-2.5 py-1 type-label font-bold text-[var(--theme-base)] hover:bg-[var(--theme-20)] ${alignRight ? 'ml-auto' : 'mr-auto'}`}
+                    >
+                      <MessagesSquare size={13} aria-hidden="true" />
+                      {m.thread_reply_count === 1 ? '1 reply' : `${m.thread_reply_count} replies`}
+                    </button>
                   )}
 
                   {hasAttachments && (
@@ -2096,6 +2114,12 @@ export const MemoizedMessage = React.memo(({
                     </button>
 	                    {hasVisibleContent && (
 	                      <button type="button" data-reaction-action="copy" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { navigator.clipboard.writeText(stripEffects(visibleContent)).then(() => toast.success('Copied!'), () => toast.error('Copy failed')); closeActionMenu('action_copy'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Copy" aria-label="Copy message text"><Copy size={15} aria-hidden="true" /></button>
+	                    )}
+	                    {hasVisibleContent && onForwardMessage && (
+	                      <button type="button" data-reaction-action="forward" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { onForwardMessage(stripEffects(visibleContent)); closeActionMenu('action_forward'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Forward" aria-label="Forward message"><Forward size={15} aria-hidden="true" /></button>
+	                    )}
+	                    {onOpenThread && !String(m.id).startsWith('local-') && (
+	                      <button type="button" data-reaction-action="thread" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { onOpenThread(m.id); closeActionMenu('action_thread'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Reply in thread" aria-label="Reply in thread"><MessagesSquare size={15} aria-hidden="true" /></button>
 	                    )}
 	                    {isMe && !hasAttachments && (
 	                      <button type="button" data-reaction-action="edit" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>

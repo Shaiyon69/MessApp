@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { applyWordEffect, claimFreshEffect, parseMessageEffect, remarkWordEffects, stripEffects, withMessageEffect } from './messageEffects.js'
+import { applyWordEffect, claimFreshEffect, keywordEffect, parseMessageEffect, remarkWordEffects, stripEffects, withMessageEffect } from './messageEffects.js'
 
 const paragraph = (...children) => ({ type: 'root', children: [{ type: 'paragraph', children }] })
 const text = value => ({ type: 'text', value })
@@ -63,5 +63,17 @@ describe('remarkWordEffects', () => {
   it('leaves code alone', () => {
     const tree = run(paragraph({ type: 'inlineCode', value: '{big|x}' }))
     assert.equal(tree.children[0].children[0].type, 'inlineCode')
+  })
+})
+
+describe('keywordEffect', () => {
+  it('maps iMessage trigger phrases to screen effects', () => {
+    assert.equal(keywordEffect('Happy Birthday!! 🎂'), 'balloons')
+    assert.equal(keywordEffect('congrats on the job'), 'confetti')
+    assert.equal(keywordEffect('PEW PEW'), 'lasers')
+    assert.equal(keywordEffect('happy new year'), 'fireworks')
+    assert.equal(keywordEffect('happy lunar new year'), 'celebration')
+    assert.equal(keywordEffect('unhappy birthdays'), null)
+    assert.equal(keywordEffect('hello'), null)
   })
 })
