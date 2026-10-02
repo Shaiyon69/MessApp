@@ -239,6 +239,16 @@ export default function Dashboard({ session }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setShowQuickSwitcher(open => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
   
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('')
