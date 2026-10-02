@@ -34,6 +34,7 @@ import {
   normalizeVoiceMessageMimeType
 } from '../../lib/voiceMessages'
 import { getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
+import { createDraftStore } from '../../lib/drafts'
 
 // Kept out of the boot bundle — each is only mounted behind a user action
 // (opening a picker, editing media, joining a voice channel).
@@ -481,10 +482,13 @@ useEffect(() => {
   /* Drafts are saved per conversation on every keystroke rather than on the way
      out: the composer lives inside a keyed subtree, so by the time an effect
      cleanup could run for the old conversation the textarea has already been
-     replaced and there is nothing left to read.
-     ponytail: in memory, so drafts die on reload. Surviving that means writing
-     DM plaintext to localStorage, which is a privacy call to make on purpose. */
-  const draftsRef = useRef(new Map())
+     replaced and there is nothing left to read. See lib/drafts.js for why DM
+     plaintext in localStorage is acceptable here. */
+  const userId = props.session.user.id
+  const drafts = useMemo(
+    () => createDraftStore(typeof localStorage === 'undefined' ? null : localStorage, `drafts_${userId}`),
+    [userId]
+  )
 
   // The field is uncontrolled, so every path that changes its value has to say
   // so: React never sees the text and cannot size the box on its own.
@@ -493,8 +497,7 @@ useEffect(() => {
     resizeComposer(input)
     const text = input?.value || ''
     if (!props.editingMessageId) {
-      if (text) draftsRef.current.set(activeChatKey, text)
-      else draftsRef.current.delete(activeChatKey)
+      drafts.set(activeChatKey, text)
     }
     setComposerHasText(Boolean(text.trim()))
     // Servers only: a DM has one other person in it, so there is nobody to pick.
@@ -538,7 +541,7 @@ useEffect(() => {
   useEffect(() => {
     const input = props.messageInputRef.current
     if (!input || props.editingMessageId) return
-    input.value = draftsRef.current.get(activeChatKey) || ''
+    input.value = drafts.get(activeChatKey)
     resizeComposer(input)
     setComposerHasText(Boolean(input.value.trim()))
     // eslint-disable-next-line react-hooks/exhaustive-deps
