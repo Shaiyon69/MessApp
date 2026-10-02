@@ -41,6 +41,7 @@ import { createDraftStore } from '../../lib/drafts'
 // (opening a picker, editing media, joining a voice channel).
 const GifPickerPopout = lazy(() => import('../modals/GifPickerPopout'))
 const ComposerDrawer = lazy(() => import('../chat/ComposerDrawer'))
+const ThreadPanel = lazy(() => import('../chat/ThreadPanel'))
 const SfuScreenShare = lazy(() => import('../screen-share/SfuScreenShare'))
 const MediaEditorModal = lazy(() => import('../media/MediaEditorModal'))
 
@@ -68,6 +69,7 @@ export default function ChatArea(props) {
   const drawerPinnedToBottomRef = useRef(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showPollComposer, setShowPollComposer] = useState(false);
+  const [openThreadId, setOpenThreadId] = useState(null);
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
   const [voiceControlsOpen, setVoiceControlsOpen] = useState(false);
@@ -135,6 +137,8 @@ export default function ChatArea(props) {
   const validMessagesById = useMemo(() => new Map(props.validMessages.map(message => [message.id, message])), [props.validMessages])
   const editingMessage = props.editingMessageId ? validMessagesById.get(props.editingMessageId) : null
   const activeChatKey = `${props.view}:${props.activeChannel?.id || props.activeDm?.dm_room_id || 'none'}`
+  // A thread belongs to one channel; leaving the channel closes it.
+  useEffect(() => { setOpenThreadId(null) }, [activeChatKey])
   const isInitialPositionReady = positionedChatKey === activeChatKey
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
   const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
@@ -1105,6 +1109,7 @@ useEffect(() => {
 	                      setMessageActionMenuPosition={props.setMessageActionMenuPosition}
 	                      onReportMessage={props.onReportMessage}
 	                      onForwardMessage={props.onForwardMessage}
+	                      onOpenThread={props.view === 'server' ? setOpenThreadId : undefined}
 	                    />
                   )
                 })}
@@ -1612,6 +1617,16 @@ useEffect(() => {
                       </button>
                     </div>
                   </form>
+                  {openThreadId && props.view === 'server' && props.activeChannel?.id && (
+                    <Suspense fallback={null}>
+                      <ThreadPanel
+                        root={validMessagesById.get(openThreadId)}
+                        channelId={props.activeChannel.id}
+                        currentUserId={props.session.user.id}
+                        onClose={() => setOpenThreadId(null)}
+                      />
+                    </Suspense>
+                  )}
                   {showPollComposer && props.activeChannel?.id && (
                     <PollComposer channelId={props.activeChannel.id} onClose={() => setShowPollComposer(false)} />
                   )}
