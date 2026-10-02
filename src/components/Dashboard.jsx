@@ -67,7 +67,8 @@ import {
 import { createVoiceChannelClient } from '../lib/voiceChannelClient'
 import { getIceServers } from '../lib/iceServers'
 import StatusAvatar from './ui/StatusAvatar'
-import { CornerDownLeft, Hash, Users } from 'lucide-react'
+import { AtSign, CornerDownLeft, Hash, Users } from 'lucide-react'
+import ActionSheet from './ui/ActionSheet'
 import { debug } from '../lib/debug'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote } from '../lib/statusNote'
@@ -262,6 +263,12 @@ export default function Dashboard({ session }) {
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState('')
   const [confirmAction, setConfirmAction] = useState(null) 
   const [reportTarget, setReportTarget] = useState(null)
+  // Forwarding: forwardText opens the destination sheet; pendingForward carries
+  // the text to the destination's composer, which fills once that chat is open.
+  // The user then sends it through the normal path, so a DM forward is
+  // encrypted for its own room and ciphertext never crosses rooms.
+  const [forwardText, setForwardText] = useState(null)
+  const [pendingForward, setPendingForward] = useState(null)
   const [channelSettingsName, setChannelSettingsName] = useState('')
   const profileCacheKey = `profile_cache_${session.user.id}`
   const [profileOverride, setProfileOverride] = useState(() => {
@@ -2152,6 +2159,9 @@ export default function Dashboard({ session }) {
         dmsLoading={dmsLoading}
         appThemeMode={appThemeMode}
         setShowQuickSwitcher={setShowQuickSwitcher}
+        onForwardMessage={setForwardText}
+        pendingForward={pendingForward}
+        clearPendingForward={() => setPendingForward(null)}
         servers={servers}
         serversLoading={serversLoading}
         activeServer={activeServer}
@@ -2260,6 +2270,37 @@ export default function Dashboard({ session }) {
           onReportTarget={setReportTarget}
         />
         </Suspense>
+      )}
+
+      {forwardText !== null && (
+        <ActionSheet
+          aria-label="Forward message"
+          onClose={() => setForwardText(null)}
+          header={<p className="type-title font-semibold text-[var(--text-main)]">Forward to</p>}
+          items={[
+            ...dms.map(dm => ({
+              label: dm.profiles.username,
+              Icon: AtSign,
+              onSelect: () => {
+                setPendingForward({ chatKey: `home:${dm.dm_room_id}`, text: forwardText })
+                setView('home')
+                selectDm(dm)
+              }
+            })),
+            // ponytail: only the open server's channels are loaded; forwarding to
+            // another server means opening it first.
+            ...(view === 'server' ? serverCategories : []).flatMap(category => (category.channels || [])
+              .filter(channel => channel.type !== 'voice')
+              .map(channel => ({
+                label: `#${channel.name}`,
+                Icon: Hash,
+                onSelect: () => {
+                  setPendingForward({ chatKey: `server:${channel.id}`, text: forwardText })
+                  selectChannel(channel)
+                }
+              })))
+          ]}
+        />
       )}
 
       {showQuickSwitcher && (

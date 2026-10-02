@@ -547,6 +547,19 @@ useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatKey])
 
+  // A forward lands as a quote in the destination's composer, once that
+  // conversation is the open one; the draft effect above has already run.
+  useEffect(() => {
+    const input = props.messageInputRef.current
+    if (!input || !props.pendingForward || props.pendingForward.chatKey !== activeChatKey) return
+    const quote = props.pendingForward.text.split('\n').map(line => `> ${line}`).join('\n')
+    input.value = input.value ? `${input.value}\n${quote}\n` : `${quote}\n`
+    props.clearPendingForward?.()
+    syncComposer()
+    input.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatKey, props.pendingForward])
+
   // Edit mode loads text into the field without an input event of its own.
   useEffect(() => {
     resizeComposer(props.messageInputRef.current)
@@ -1087,6 +1100,7 @@ useEffect(() => {
 	                      setMessageActionMenuId={props.setMessageActionMenuId}
 	                      setMessageActionMenuPosition={props.setMessageActionMenuPosition}
 	                      onReportMessage={props.onReportMessage}
+	                      onForwardMessage={props.onForwardMessage}
 	                    />
                   )
                 })}

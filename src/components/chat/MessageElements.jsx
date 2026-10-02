@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer, Forward } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
@@ -608,7 +608,7 @@ export const MemoizedMessage = React.memo(({
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
   peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
-  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, canModerateMessage = false, myMention = ''
+  setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, onForwardMessage, canModerateMessage = false, myMention = ''
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [showMoreReactions, setShowMoreReactions] = useState(false)
@@ -2096,6 +2096,9 @@ export const MemoizedMessage = React.memo(({
                     </button>
 	                    {hasVisibleContent && (
 	                      <button type="button" data-reaction-action="copy" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { navigator.clipboard.writeText(stripEffects(visibleContent)).then(() => toast.success('Copied!'), () => toast.error('Copy failed')); closeActionMenu('action_copy'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Copy" aria-label="Copy message text"><Copy size={15} aria-hidden="true" /></button>
+	                    )}
+	                    {hasVisibleContent && onForwardMessage && (
+	                      <button type="button" data-reaction-action="forward" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { onForwardMessage(stripEffects(visibleContent)); closeActionMenu('action_forward'); }} className="message-action-button text-gray-500 hover:text-[var(--theme-base)] md:hover:bg-[var(--border-subtle)]" title="Forward" aria-label="Forward message"><Forward size={15} aria-hidden="true" /></button>
 	                    )}
 	                    {isMe && !hasAttachments && (
 	                      <button type="button" data-reaction-action="edit" style={reactionInputMode === 'touch' ? TOUCH_ACTION_STYLE : undefined} onClick={() => { setEditingMessageId(m.id); setEditContent(m.content); closeActionMenu('action_edit'); }} className="message-action-button text-gray-500 hover:text-[var(--text-main)] md:hover:bg-[var(--border-subtle)]" title="Edit" aria-label="Edit"><Pen size={15} aria-hidden="true" /></button>
