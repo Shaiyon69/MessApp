@@ -1,10 +1,9 @@
 /**
- * Custom status text ("Studying until 5"), carried in the global-presence
- * payload beside the online/idle/dnd status rather than in a profiles column:
- * like the presence dot it only means something while the user is online.
- *
- * ponytail: stored per device in localStorage, so a second device does not see
- * the note until it is set there too. Move to a profiles column if that bites.
+ * Custom status text ("Studying until 5"), carried to other users in the
+ * global-presence payload beside the online/idle/dnd status: like the presence
+ * dot it only means something while the user is online. The user's own devices
+ * share it through profiles.status_text / status_expires_at, and localStorage
+ * keeps it on screen before that read lands.
  */
 export const STATUS_NOTE_MAX = 80
 
@@ -46,3 +45,16 @@ export const readStatusNote = key => {
     return null
   }
 }
+
+/** profiles row (status_text, status_expires_at) to a note, or null. */
+export const statusNoteFromProfile = row => {
+  const note = row?.status_text
+    ? { text: row.status_text, expiresAt: row.status_expires_at ? Date.parse(row.status_expires_at) : null }
+    : null
+  return activeStatusNote(note) ? note : null
+}
+
+export const statusNoteToProfile = note => ({
+  status_text: activeStatusNote(note) || null,
+  status_expires_at: note?.expiresAt ? new Date(note.expiresAt).toISOString() : null
+})

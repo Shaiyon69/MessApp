@@ -71,7 +71,7 @@ import { AtSign, CornerDownLeft, Hash, Users } from 'lucide-react'
 import ActionSheet from './ui/ActionSheet'
 import { debug } from '../lib/debug'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
-import { activeStatusNote, cleanStatusNote, readStatusNote } from '../lib/statusNote'
+import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
 
 const sortDmsByLastMessage = (items) => {
@@ -703,6 +703,21 @@ export default function Dashboard({ session }) {
     const timer = setTimeout(() => setStatusNote(null), Math.max(statusNote.expiresAt - Date.now(), 0))
     return () => clearTimeout(timer)
   }, [statusNote, statusNoteKey])
+  // The profile copy is what another device set; it wins over this device's
+  // cached note. Fails quietly until the status columns are deployed.
+  useEffect(() => {
+    let active = true
+    supabase.from('profiles').select('status_text, status_expires_at').eq('id', session.user.id).maybeSingle()
+      .then(({ data, error }) => {
+        if (active && !error && data) setStatusNote(statusNoteFromProfile(data))
+      })
+    return () => { active = false }
+  }, [session.user.id])
+  const saveStatusNote = useCallback((note) => {
+    setStatusNote(note)
+    void supabase.from('profiles').update(statusNoteToProfile(note)).eq('id', session.user.id)
+      .then(({ error }) => { if (error) debug.warn('SUPABASE_ERROR', { operation: 'status-note-sync', code: error.code }) })
+  }, [session.user.id])
 
   const selectDm = useCallback((dm) => {
     setActiveDm(dm)
@@ -2161,7 +2176,7 @@ export default function Dashboard({ session }) {
         userStatus={userStatus}
         setUserStatus={setUserStatus}
         statusNote={statusNote}
-        setStatusNote={setStatusNote}
+        setStatusNote={saveStatusNote}
         setSettingsModalConfig={setSettingsModalConfig}
         notificationCount={notificationCount}
         handleBack={handleBack}
