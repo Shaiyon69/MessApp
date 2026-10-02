@@ -5,14 +5,14 @@
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
-import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, ChevronDown, Link as LinkIcon } from 'lucide-react'
+import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, AtSign, ChevronDown, Link as LinkIcon } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import { safeMediaUrl } from '../../lib/security'
 import { downloadFile } from '../../lib/downloadFile'
 import { supabase } from '../../supabaseClient'
 import { SERVER_ROLES, canBanMember, canModerateMember } from '../../lib/serverModeration'
-import { createServerNotificationPreferencesRepository } from '../../lib/serverNotificationPreferences'
+import { NOTIFICATION_LEVELS, createServerNotificationPreferencesRepository, notificationLevelOf } from '../../lib/serverNotificationPreferences'
 import { debug } from '../../lib/debug'
 import { formatMessageTime } from '../../lib/messageTime'
 import { stripEffects } from '../../lib/messageEffects'
@@ -124,14 +124,14 @@ export default function RightSidebar({
   const [moderationBusy, setModerationBusy] = useState('')
   const [moderationError, setModerationError] = useState('')
   const [openInfoSections, setOpenInfoSections] = useState(() => new Set())
-  const [serverMuted, setServerMuted] = useState(false)
+  const [serverLevel, setServerLevel] = useState('all')
   const [serverNotificationsAvailable, setServerNotificationsAvailable] = useState(
     serverNotificationPreferences.isAvailable()
   )
 
   useEffect(() => {
     if (!activeServer?.id || !currentUserId) {
-      setServerMuted(false)
+      setServerLevel('all')
       return
     }
     let active = true
@@ -147,7 +147,7 @@ export default function RightSidebar({
           return
         }
         setServerNotificationsAvailable(true)
-        setServerMuted(Boolean(data?.muted))
+        setServerLevel(notificationLevelOf(data))
       })
     return () => { active = false }
   }, [activeServer?.id, currentUserId])
@@ -158,37 +158,32 @@ export default function RightSidebar({
     ))
   }
 
-  const toggleServerMute = async () => {
+  const cycleServerLevel = async () => {
     if (!activeServer?.id) return
     if (!serverNotificationsAvailable) {
-      toast.error('Server mute needs the pending database update.')
+      toast.error('Server notifications need the pending database update.')
       return
     }
-    const nextMuted = !serverMuted
-    setServerMuted(nextMuted)
+    const previous = serverLevel
+    const next = NOTIFICATION_LEVELS[previous].next
+    setServerLevel(next)
     const { error, unavailable } = await serverNotificationPreferences.upsert({
       server_id: activeServer.id,
       profile_id: currentUserId,
-      muted: nextMuted,
+      level: next,
       updated_at: new Date().toISOString()
     })
-    if (unavailable) {
-      setServerMuted(!nextMuted)
-      setServerNotificationsAvailable(false)
-      toast.error('Server mute needs the pending database update.')
-      return
-    }
-    if (error) {
-      setServerMuted(!nextMuted)
-      if (!serverNotificationPreferences.isAvailable()) {
+    if (error || unavailable) {
+      setServerLevel(previous)
+      if (unavailable || !serverNotificationPreferences.isAvailable()) {
         setServerNotificationsAvailable(false)
-        toast.error('Server mute needs the pending database update.')
+        toast.error('Server notifications need the pending database update.')
       } else {
-        toast.error('Could not update mute preference')
+        toast.error('Could not update notifications')
       }
       return
     }
-    toast.success(nextMuted ? 'Server muted' : 'Server unmuted')
+    toast.success(`Notifications: ${NOTIFICATION_LEVELS[next].label}`)
   }
 
   const closeModeration = () => {
@@ -284,11 +279,11 @@ export default function RightSidebar({
             </div>
 
             <div className="flex justify-center gap-8 px-5 py-4">
-              <button type="button" onClick={toggleServerMute} disabled={!serverNotificationsAvailable} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50" aria-pressed={serverMuted} title={serverNotificationsAvailable ? undefined : 'Database update required'}>
-                <span className={`grid h-11 w-11 place-items-center rounded-full transition-colors ${serverMuted ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-main)] group-hover:bg-[var(--bg-element-hover)]'}`}>
-                  {serverMuted ? <BellOff size={20} /> : <Bell size={20} />}
+              <button type="button" onClick={cycleServerLevel} disabled={!serverNotificationsAvailable} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Notifications: ${NOTIFICATION_LEVELS[serverLevel].label}. Change`} title={serverNotificationsAvailable ? undefined : 'Database update required'}>
+                <span className={`grid h-11 w-11 place-items-center rounded-full transition-colors ${serverLevel !== 'all' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-main)] group-hover:bg-[var(--bg-element-hover)]'}`}>
+                  {serverLevel === 'none' ? <BellOff size={20} /> : serverLevel === 'mentions' ? <AtSign size={20} /> : <Bell size={20} />}
                 </span>
-                {serverNotificationsAvailable ? (serverMuted ? 'Unmute' : 'Mute') : 'Unavailable'}
+                {serverNotificationsAvailable ? (serverLevel === 'all' ? 'Notify' : serverLevel === 'mentions' ? 'Mentions' : 'Muted') : 'Unavailable'}
               </button>
               <button type="button" onClick={() => toggleRightSidebar?.('search')} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)]">
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--bg-element)] text-[var(--text-main)] transition-colors group-hover:bg-[var(--bg-element-hover)]">

@@ -1,3 +1,13 @@
+// Mirrors the server_notification_preferences.level check constraint. No row
+// means 'all'. The push edge function applies the same three levels.
+export const NOTIFICATION_LEVELS = {
+  all: { label: 'All messages', next: 'mentions' },
+  mentions: { label: 'Only @mentions', next: 'none' },
+  none: { label: 'Muted', next: 'all' }
+}
+
+export const notificationLevelOf = row => (NOTIFICATION_LEVELS[row?.level] ? row.level : 'all')
+
 export const isMissingServerNotificationTable = error => (
   error?.code === 'PGRST205' ||
   `${error?.message || ''} ${error?.details || ''}`.includes('server_notification_preferences')
@@ -32,7 +42,7 @@ export const createServerNotificationPreferencesRepository = (
     const request = Promise.resolve(
       client
         .from('server_notification_preferences')
-        .select('muted')
+        .select('level')
         .eq('server_id', serverId)
         .eq('profile_id', profileId)
         .maybeSingle()

@@ -357,8 +357,12 @@ footer {
     <li>A database trigger calls the <code>send-message-push</code> Edge Function after a
     message insert, and after a pending friend-request insert.</li>
     <li>The function reloads the message and membership data with the service role, derives
-    recipients from DM or server membership, excludes the sender, blocked users, and muted
-    server members, and claims an idempotent delivery event.</li>
+    recipients from DM or server membership, excludes the sender and blocked users, applies
+    each member's per-server level (<code>server_notification_preferences.level</code>:
+    <code>all</code>, <code>mentions</code>, or <code>none</code>), and claims an idempotent
+    delivery event. For server channels only, the function reads the plaintext message to
+    find <code>@mentions</code>; a mentioned member is told "X mentioned you", and nothing
+    from the message body reaches the provider.</li>
     <li>Devices that reported this conversation on screen within the last 90 seconds are
     dropped from the send, so a message you are already reading raises no notification. That
     report is written only while the app is visible and it expires, so a force-quit app
