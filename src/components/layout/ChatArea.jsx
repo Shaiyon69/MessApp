@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock } from 'lucide-react'
+import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -25,6 +25,7 @@ import { blurComposer, resizeComposer, enterSends } from '../../lib/composerFocu
 import { applyMention, findMentionQuery, matchMembers, normalizeMention } from '../../lib/mentions'
 import { applyWordEffect, stripEffects } from '../../lib/messageEffects'
 import ScreenEffect from '../chat/ScreenEffect'
+import { PollComposer } from '../chat/Poll'
 import { getPendingFileFingerprint } from '../../hooks/useChatManager'
 import { primeVideoPreview } from '../../lib/videoPreview'
 import {
@@ -66,6 +67,7 @@ export default function ChatArea(props) {
   const [composerDrawerTab, setComposerDrawerTab] = useState('emoji');
   const drawerPinnedToBottomRef = useRef(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
   const [voiceControlsOpen, setVoiceControlsOpen] = useState(false);
@@ -717,7 +719,9 @@ useEffect(() => {
     { id: 'photo', label: 'Photo', Icon: Camera, open: () => openFilePicker(cameraPhotoInputRef) },
     { id: 'video', label: 'Video', Icon: Video, open: () => openFilePicker(cameraVideoInputRef) },
     { id: 'file', label: 'File', Icon: Paperclip, open: () => openFilePicker(props.genericFileInputRef) },
-    { id: 'gif', label: 'GIF', Icon: Film, open: (event) => toggleGifPicker(event) }
+    { id: 'gif', label: 'GIF', Icon: Film, open: (event) => toggleGifPicker(event) },
+    // Server channels only: a DM poll would store its options in plaintext.
+    ...(props.view === 'server' ? [{ id: 'poll', label: 'Poll', Icon: BarChart3, open: () => setShowPollComposer(true) }] : [])
   ]
 
   const quickActions = {
@@ -1608,6 +1612,9 @@ useEffect(() => {
                       </button>
                     </div>
                   </form>
+                  {showPollComposer && props.activeChannel?.id && (
+                    <PollComposer channelId={props.activeChannel.id} onClose={() => setShowPollComposer(false)} />
+                  )}
                   {showInputEmojiPicker && (
                     <Suspense fallback={<div className="mt-2 h-[45dvh] max-h-[26rem] min-h-[16rem]" />}>
                       <ComposerDrawer

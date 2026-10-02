@@ -18,6 +18,8 @@ import { downloadFile } from '../../lib/downloadFile'
 import { blurComposer } from '../../lib/composerFocus'
 import { formatMessageTime } from '../../lib/messageTime'
 import { hasMarkdown } from '../../lib/markdownText'
+import { isPollContent } from '../../lib/polls'
+import { PollCard } from './Poll'
 import { BUBBLE_EFFECTS, LETTER_EFFECTS, SCREEN_EFFECTS, SCREEN_EFFECT_EVENT, claimFreshEffect, keywordEffect, parseMessageEffect, stripEffects } from '../../lib/messageEffects'
 
 // Each pulls a large dependency (refractor, remark/micromark, emoji-picker-react)
@@ -1522,13 +1524,18 @@ export const MemoizedMessage = React.memo(({
                     <div className={`text-5xl md:text-6xl py-1 w-fit ${alignRight ? 'ml-auto text-right' : 'mr-auto text-left'} transition-transform active:scale-[0.95] md:active:scale-100 cursor-default select-none`} style={{ lineHeight: '1.2' }}>
                       {visibleContent.trim()}
                     </div>
-                  ) : hasVisibleContent && !showCaptionBelowMedia && (
-                    <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
-                      <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                        {messageBody}
+                  ) : hasVisibleContent && !showCaptionBelowMedia && (() => {
+                    const bubble = (
+                      <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
+                        <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                          {messageBody}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )
+                    return m.channel_id && isPollContent(m.content) && !String(m.id).startsWith('local-')
+                      ? <PollCard messageId={m.id} currentUserId={currentUserId} alignRight={alignRight}>{bubble}</PollCard>
+                      : bubble
+                  })()}
 
                   {hasAttachments && (
                     <div className={`${mediaAttachments.length > 1 ? 'grid grid-cols-2 gap-1 max-w-[min(86vw,520px)]' : 'flex flex-col gap-1'} ${hasVisibleContent ? 'mt-1' : ''} w-full ${mediaAttachments.length > 1 ? '' : alignRight ? 'items-end' : 'items-start'}`}>
