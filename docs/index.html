@@ -344,6 +344,32 @@ footer {
   already-open conversation from showing a row the server would no longer hand out. Rows are
   hidden, not reclaimed — <code>public.delete_expired_messages()</code> is a
   <code>service_role</code> entry point with no scheduler wired to it yet.</p>
+  <h3>Polls</h3>
+  <p>Server channels only — a DM poll would store its options in plaintext. The
+  <code>create_poll</code> RPC inserts an ordinary message whose content reads
+  <code>📊 &lt;question&gt;</code> plus a <code>polls</code> row keyed by that message, so
+  previews, search, push, and deletion treat it as a message. <code>vote_poll</code> replaces
+  the caller's <code>poll_votes</code>; both RPCs repeat the membership and timeout checks a
+  message insert gets. <code>src/components/chat/Poll.jsx</code> renders the card once the
+  <code>polls</code> row loads and follows votes on its own <code>poll:&lt;messageId&gt;</code>
+  Realtime channel.</p>
+  <h3>Threads</h3>
+  <p>A server-channel message with <code>thread_root_id</code> set is a thread reply. The
+  integrity trigger requires the root to be a top-level message in the same channel, and an
+  insert trigger bumps the root's <code>thread_reply_count</code> and
+  <code>thread_last_reply_at</code>, which reach the channel through the root's Realtime
+  update. <code>useChatManager</code> hides thread replies from the channel list;
+  <code>ThreadPanel</code> loads and sends them (plain text only) over a
+  <code>thread:&lt;rootId&gt;</code> channel.</p>
+  <h3>Notification feed</h3>
+  <p>The <code>notify_channel_message</code> trigger writes a <code>notifications</code> row for
+  each server-channel reply, thread reply, and <code>@mention</code> (one row per recipient
+  per message). DMs are excluded because the server cannot read their content. The
+  notifications tab merges these with pending friend requests
+  (<code>src/lib/notifications.js</code>) and marks the stored rows read when opened.</p>
+  <h3>Custom status</h3>
+  <p>The note travels to other users in the global presence payload, and to the user's own
+  devices through <code>profiles.status_text</code> / <code>status_expires_at</code>.</p>
 </section>
 
 <section id="push">
@@ -357,8 +383,12 @@ footer {
     <li>A database trigger calls the <code>send-message-push</code> Edge Function after a
     message insert, and after a pending friend-request insert.</li>
     <li>The function reloads the message and membership data with the service role, derives
-    recipients from DM or server membership, excludes the sender, blocked users, and muted
-    server members, and claims an idempotent delivery event.</li>
+    recipients from DM or server membership, excludes the sender and blocked users, applies
+    each member's per-server level (<code>server_notification_preferences.level</code>:
+    <code>all</code>, <code>mentions</code>, or <code>none</code>), and claims an idempotent
+    delivery event. For server channels only, the function reads the plaintext message to
+    find <code>@mentions</code>; a mentioned member is told "X mentioned you", and nothing
+    from the message body reaches the provider.</li>
     <li>Devices that reported this conversation on screen within the last 90 seconds are
     dropped from the send, so a message you are already reading raises no notification. That
     report is written only while the app is visible and it expires, so a force-quit app
@@ -485,6 +515,8 @@ footer {
       <tr><td><code>dm_rooms</code> and DM membership</td><td>Direct-conversation identity and participants</td></tr>
       <tr><td><code>servers</code>, <code>server_members</code>, <code>categories</code>, <code>channels</code></td><td>Community hierarchy and roles</td></tr>
       <tr><td><code>messages</code>, <code>message_attachments</code>, <code>message_reactions</code></td><td>Conversation content and related state</td></tr>
+      <tr><td><code>polls</code>, <code>poll_votes</code></td><td>Server-channel polls, written only through RPCs</td></tr>
+      <tr><td><code>notifications</code></td><td>Stored mentions and replies, written by a message trigger</td></tr>
       <tr><td>Read and receipt records</td><td>Per-user channel or DM visibility progress</td></tr>
       <tr><td>Call and voice data, Realtime channels</td><td>Signaling and voice-session coordination</td></tr>
       <tr><td><code>push_devices</code> and delivery events</td><td>Opted-in installations and idempotent notification delivery</td></tr>

@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, Sparkles } from 'lucide-react'
+import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -20,11 +20,12 @@ import { debug } from '../../lib/debug'
 import { openDmEntry } from '../../lib/chatActions'
 import useLongPress from '../../hooks/useLongPress'
 import { DISAPPEARING_OPTIONS, describeExpiry } from '../../lib/messageExpiry'
-import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_DEAD_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
+import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
 import { blurComposer, resizeComposer, enterSends } from '../../lib/composerFocus'
 import { applyMention, findMentionQuery, matchMembers, normalizeMention } from '../../lib/mentions'
-import { BUBBLE_EFFECTS, SCREEN_EFFECTS, WORD_EFFECTS, applyWordEffect, stripEffects } from '../../lib/messageEffects'
+import { applyWordEffect, stripEffects } from '../../lib/messageEffects'
 import ScreenEffect from '../chat/ScreenEffect'
+import { PollComposer } from '../chat/Poll'
 import { getPendingFileFingerprint } from '../../hooks/useChatManager'
 import { primeVideoPreview } from '../../lib/videoPreview'
 import {
@@ -34,14 +35,13 @@ import {
   normalizeVoiceMessageMimeType
 } from '../../lib/voiceMessages'
 import { getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
-
-// ponytail: effect picker off until there's a design worth shipping; flip to bring it back.
-const COMPOSER_EFFECTS_ENABLED = false
+import { createDraftStore } from '../../lib/drafts'
 
 // Kept out of the boot bundle — each is only mounted behind a user action
 // (opening a picker, editing media, joining a voice channel).
 const GifPickerPopout = lazy(() => import('../modals/GifPickerPopout'))
-const ChatEmojiPicker = lazy(() => import('../chat/ChatEmojiPicker'))
+const ComposerDrawer = lazy(() => import('../chat/ComposerDrawer'))
+const ThreadPanel = lazy(() => import('../chat/ThreadPanel'))
 const SfuScreenShare = lazy(() => import('../screen-share/SfuScreenShare'))
 const MediaEditorModal = lazy(() => import('../media/MediaEditorModal'))
 
@@ -65,7 +65,11 @@ export default function ChatArea(props) {
      survives a back press, so it cannot stand in for this. */
   const [serversPanelView, setServersPanelView] = useState(() => (props.activeServer ? 'detail' : 'list'));
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
+  const [composerDrawerTab, setComposerDrawerTab] = useState('emoji');
+  const drawerPinnedToBottomRef = useRef(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
+  const [openThreadId, setOpenThreadId] = useState(null);
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState([]);
   const [voiceControlsOpen, setVoiceControlsOpen] = useState(false);
@@ -133,6 +137,8 @@ export default function ChatArea(props) {
   const validMessagesById = useMemo(() => new Map(props.validMessages.map(message => [message.id, message])), [props.validMessages])
   const editingMessage = props.editingMessageId ? validMessagesById.get(props.editingMessageId) : null
   const activeChatKey = `${props.view}:${props.activeChannel?.id || props.activeDm?.dm_room_id || 'none'}`
+  // A thread belongs to one channel; leaving the channel closes it.
+  useEffect(() => { setOpenThreadId(null) }, [activeChatKey])
   const isInitialPositionReady = positionedChatKey === activeChatKey
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
   const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
@@ -373,8 +379,17 @@ export default function ChatArea(props) {
     blurComposer();
     props.setShowGifPicker(false);
     setShowAttachMenu(false);
+    drawerPinnedToBottomRef.current = !props.showLatestMessagesButton;
     setShowInputEmojiPicker(prev => !prev);
   };
+
+  // The drawer takes its height from the thread; keep the newest message in
+  // view if the reader was already at the bottom.
+  useLayoutEffect(() => {
+    const container = props.scrollContainerRef.current
+    if (showInputEmojiPicker && drawerPinnedToBottomRef.current && container) container.scrollTop = container.scrollHeight
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInputEmojiPicker])
 
   const toggleGifPicker = (e) => {
     e.preventDefault();
@@ -473,10 +488,13 @@ useEffect(() => {
   /* Drafts are saved per conversation on every keystroke rather than on the way
      out: the composer lives inside a keyed subtree, so by the time an effect
      cleanup could run for the old conversation the textarea has already been
-     replaced and there is nothing left to read.
-     ponytail: in memory, so drafts die on reload. Surviving that means writing
-     DM plaintext to localStorage, which is a privacy call to make on purpose. */
-  const draftsRef = useRef(new Map())
+     replaced and there is nothing left to read. See lib/drafts.js for why DM
+     plaintext in localStorage is acceptable here. */
+  const userId = props.session.user.id
+  const drafts = useMemo(
+    () => createDraftStore(typeof localStorage === 'undefined' ? null : localStorage, `drafts_${userId}`),
+    [userId]
+  )
 
   // The field is uncontrolled, so every path that changes its value has to say
   // so: React never sees the text and cannot size the box on its own.
@@ -485,8 +503,7 @@ useEffect(() => {
     resizeComposer(input)
     const text = input?.value || ''
     if (!props.editingMessageId) {
-      if (text) draftsRef.current.set(activeChatKey, text)
-      else draftsRef.current.delete(activeChatKey)
+      drafts.set(activeChatKey, text)
     }
     setComposerHasText(Boolean(text.trim()))
     // Servers only: a DM has one other person in it, so there is nobody to pick.
@@ -515,27 +532,39 @@ useEffect(() => {
   };
 
   // A textarea keeps its selection after blur, so the menu tap still knows
-  // which words were picked.
-  const insertWordEffect = (effect) => {
+  // which words were picked. Picking an effect sends right away; while editing
+  // it only rewrites the draft, since the save reads editContent state.
+  const sendWithWordEffect = (effect) => {
     const input = props.messageInputRef.current
-    if (!input) return
+    if (!input?.value.trim()) return
     const next = applyWordEffect(input.value, input.selectionStart ?? 0, input.selectionEnd ?? 0, effect)
-    if (props.editingMessageId) props.setEditContent(next.text)
-    else input.value = next.text
-    input.focus()
-    requestAnimationFrame(() => input.setSelectionRange(next.caret, next.caret))
-    syncComposer()
+    if (props.editingMessageId) return props.setEditContent(next.text)
+    input.value = next.text
+    input.form?.requestSubmit()
   };
 
   // Switching conversations remounts the composer empty; put the draft back.
   useEffect(() => {
     const input = props.messageInputRef.current
     if (!input || props.editingMessageId) return
-    input.value = draftsRef.current.get(activeChatKey) || ''
+    input.value = drafts.get(activeChatKey)
     resizeComposer(input)
     setComposerHasText(Boolean(input.value.trim()))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatKey])
+
+  // A forward lands as a quote in the destination's composer, once that
+  // conversation is the open one; the draft effect above has already run.
+  useEffect(() => {
+    const input = props.messageInputRef.current
+    if (!input || !props.pendingForward || props.pendingForward.chatKey !== activeChatKey) return
+    const quote = props.pendingForward.text.split('\n').map(line => `> ${line}`).join('\n')
+    input.value = input.value ? `${input.value}\n${quote}\n` : `${quote}\n`
+    props.clearPendingForward?.()
+    syncComposer()
+    input.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatKey, props.pendingForward])
 
   // Edit mode loads text into the field without an input event of its own.
   useEffect(() => {
@@ -551,13 +580,12 @@ useEffect(() => {
 
   /* Hold the send button and a radial of send combinations opens around it: drag
      onto a wedge and release to send with it, all in one gesture. Releasing
-     without leaving the button falls back to the full options menu, which is
-     still where the persistent toggles and the longer lifetimes live. */
+     without picking a wedge just closes it. */
   const bindSendOptions = useLongPress(() => {
     blurComposer();
     const press = sendPressRef.current;
-    // Mouse and right-click have nothing to drag: go straight to the menu, and
-    // on the mic there is no menu to go to — a click will record instead.
+    // Right-click has nothing to drag: go straight to the menu, and on the mic
+    // there is no menu to go to — a click will record instead.
     if (!press) { if (!sendIsVoice) setSendOptionsOpen(true); return; }
     press.held = true;
     if (press.voice) {
@@ -577,7 +605,7 @@ useEffect(() => {
        ordinary tap: a captured pointer retargets its click to this wrapper, so
        the submit button never sees it and nothing sends. */
     press.element?.setPointerCapture?.(press.pointerId);
-  });
+  }, { mouse: true });
 
   /* The three states the voice gesture can be in. A released hold is a locked
      take, and so is the tap-to-record path — both leave voiceHold null while
@@ -616,10 +644,10 @@ useEffect(() => {
   const sendGesture = {
     ...sendOptionHandlers,
     onPointerDown: (event) => {
-      const tracked = (event.pointerType === 'touch' || event.pointerType === 'pen')
+      const tracked = (event.pointerType === 'touch' || event.pointerType === 'pen' || event.button === 0)
         && !event.target?.closest?.('[data-no-long-press]');
       sendPressRef.current = tracked
-        ? { x: event.clientX, y: event.clientY, held: false, voice: sendIsVoice, hint: null, index: null, moved: 0, pointerId: event.pointerId, element: event.currentTarget }
+        ? { x: event.clientX, y: event.clientY, held: false, voice: sendIsVoice, hint: null, index: null, pointerId: event.pointerId, element: event.currentTarget }
         : null;
       sendOptionHandlers.onPointerDown(event);
     },
@@ -628,7 +656,6 @@ useEffect(() => {
       const press = sendPressRef.current;
       if (!press?.held) return;
       const dy = press.y - event.clientY;
-      press.moved = Math.max(press.moved, Math.hypot(event.clientX - press.x, dy));
       if (press.voice) {
         const hint = pickVoiceHold(event.clientX - press.x, dy);
         if (hint !== press.hint) {
@@ -660,14 +687,8 @@ useEffect(() => {
         return;
       }
       const choice = SEND_RADIAL_OPTIONS[radialHit(press, event)];
-      // Held but barely moved: the thumb wanted the menu, not a wedge.
-      const wantsMenu = Boolean(press?.held) && !choice && press.moved < SEND_RADIAL_DEAD_PX;
       sendOptionHandlers.onPointerUp(event);
       endSendPress();
-      /* Only the drag gesture decides the menu. A mouse never fills sendPressRef,
-         so without this guard the pointerup closed the menu that the same
-         right-click had just opened through onContextMenu. */
-      if (press) setSendOptionsOpen(wantsMenu);
       if (!choice) return;
       props.handleSendMessage(null, {
         forceSpoiler: choice.spoiler,
@@ -687,7 +708,8 @@ useEffect(() => {
       const newPos = start + emojiData.emoji.length;
       input.selectionStart = input.selectionEnd = newPos;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.focus();
+      // On touch, focus would raise the keyboard and close the drawer mid-pick.
+      if (enterSends()) input.focus();
     }
   };
 
@@ -701,7 +723,9 @@ useEffect(() => {
     { id: 'photo', label: 'Photo', Icon: Camera, open: () => openFilePicker(cameraPhotoInputRef) },
     { id: 'video', label: 'Video', Icon: Video, open: () => openFilePicker(cameraVideoInputRef) },
     { id: 'file', label: 'File', Icon: Paperclip, open: () => openFilePicker(props.genericFileInputRef) },
-    { id: 'gif', label: 'GIF', Icon: Film, open: (event) => toggleGifPicker(event) }
+    { id: 'gif', label: 'GIF', Icon: Film, open: (event) => toggleGifPicker(event) },
+    // Server channels only: a DM poll would store its options in plaintext.
+    ...(props.view === 'server' ? [{ id: 'poll', label: 'Poll', Icon: BarChart3, open: () => setShowPollComposer(true) }] : [])
   ]
 
   const quickActions = {
@@ -1084,6 +1108,8 @@ useEffect(() => {
 	                      setMessageActionMenuId={props.setMessageActionMenuId}
 	                      setMessageActionMenuPosition={props.setMessageActionMenuPosition}
 	                      onReportMessage={props.onReportMessage}
+	                      onForwardMessage={props.onForwardMessage}
+	                      onOpenThread={props.view === 'server' ? setOpenThreadId : undefined}
 	                    />
                   )
                 })}
@@ -1107,7 +1133,7 @@ useEffect(() => {
                   You cannot reply to this conversation. {props.blockReason}
                 </div>
               ) : (
-                <div className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
+                <div ref={emojiPickerRef} className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
                   {props.typingUsers.length > 0 && (
                     <div className="absolute -top-5 left-6 flex items-center gap-2 type-meta font-bold text-[var(--theme-base)] animate-fade-in pointer-events-none z-20">
                       <div className="flex items-center gap-1 px-1">
@@ -1445,22 +1471,7 @@ useEffect(() => {
                         rows={1} 
                         style={{ minHeight: '44px' }} 
                       />
-                      <div ref={emojiPickerRef} className="flex items-center justify-center h-[44px] w-[44px] shrink-0">
-                        {showInputEmojiPicker && (
-                          <div 
-                            className="premium-menu fixed bottom-20 right-2 sm:absolute sm:bottom-full sm:right-0 md:right-4 sm:mb-2 z-[100] rounded-xl overflow-hidden"
-                            onTouchStartCapture={() => { blurComposer(); }}
-                          >
-                            <Suspense fallback={<div style={{ width: 320, height: 380 }} />}>
-                              <ChatEmojiPicker
-                                width={typeof window !== 'undefined' && window.innerWidth < 360 ? Math.min(window.innerWidth - 16, 320) : 320}
-                                height={380}
-                                searchDisabled={true}
-                                onEmojiClick={handleEmojiSelect}
-                              />
-                            </Suspense>
-                          </div>
-                        )}
+                      <div className="flex items-center justify-center h-[44px] w-[44px] shrink-0">
                         {/* The glyph is a smiley — it already draws a circle. A
                             button border here reads as a doubled outline, so this
                             one control goes borderless. */}
@@ -1471,7 +1482,9 @@ useEffect(() => {
                           disabled={props.isUploading}
                           style={{ borderColor: 'transparent' }}
                           className={`w-[44px] h-[44px] flex items-center justify-center rounded-full transition-colors cursor-pointer ${showInputEmojiPicker ? 'bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'premium-icon-button'}`}
-                          title="Insert Emoji"
+                          title="Emoji and effects"
+                          aria-label="Emoji and effects"
+                          aria-expanded={showInputEmojiPicker}
                         >
                           <SmilePlus size={20} aria-hidden="true" />
                         </button>
@@ -1558,46 +1571,6 @@ useEffect(() => {
                             ))}
                           </div>
 
-                          {/* iMessage-style effects. Text effects wrap the
-                              selected words (or the whole draft); send effects
-                              ride on the next message only. Hidden until the
-                              picker earns its place; received effects still render. */}
-                          {COMPOSER_EFFECTS_ENABLED && <>
-                          <div className="grid grid-cols-2 gap-0.5 border-t border-[var(--border-subtle)] px-1 pt-1.5" role="group" aria-label="Text effects">
-                            <Sparkles size={14} className="col-span-2 mx-auto text-[var(--text-muted)]" aria-hidden="true" />
-                            {WORD_EFFECTS.map(effect => (
-                              <button
-                                key={effect}
-                                type="button"
-                                data-no-long-press
-                                onClick={() => insertWordEffect(effect)}
-                                className="rounded-md py-1 text-center type-meta font-bold capitalize text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]"
-                                role="menuitem"
-                                aria-label={`Apply ${effect} effect to selected text`}
-                              >
-                                {effect}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="grid grid-cols-2 gap-0.5 border-t border-[var(--border-subtle)] px-1 pt-1.5 pb-0.5" role="group" aria-label="Send with effect">
-                            <Send size={14} className="col-span-2 mx-auto text-[var(--text-muted)]" aria-hidden="true" />
-                            {[...BUBBLE_EFFECTS, ...SCREEN_EFFECTS].map(effect => (
-                              <button
-                                key={effect}
-                                type="button"
-                                data-no-long-press
-                                onClick={() => props.setComposerEffect(props.composerEffect === effect ? null : effect)}
-                                disabled={Boolean(props.editingMessageId)}
-                                className={`rounded-md py-1 text-center type-meta font-bold capitalize transition-colors disabled:opacity-40 ${props.composerEffect === effect ? 'bg-[var(--bg-element)] text-[var(--text-main)] ring-1 ring-inset ring-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
-                                role="menuitemradio"
-                                aria-checked={props.composerEffect === effect}
-                                aria-label={`Send with ${effect} effect`}
-                              >
-                                {effect}
-                              </button>
-                            ))}
-                          </div>
-                          </>}
                         </div>
                       )}
 
@@ -1644,6 +1617,32 @@ useEffect(() => {
                       </button>
                     </div>
                   </form>
+                  {openThreadId && props.view === 'server' && props.activeChannel?.id && (
+                    <Suspense fallback={null}>
+                      <ThreadPanel
+                        root={validMessagesById.get(openThreadId)}
+                        channelId={props.activeChannel.id}
+                        currentUserId={props.session.user.id}
+                        onClose={() => setOpenThreadId(null)}
+                      />
+                    </Suspense>
+                  )}
+                  {showPollComposer && props.activeChannel?.id && (
+                    <PollComposer channelId={props.activeChannel.id} onClose={() => setShowPollComposer(false)} />
+                  )}
+                  {showInputEmojiPicker && (
+                    <Suspense fallback={<div className="mt-2 h-[45dvh] max-h-[26rem] min-h-[16rem]" />}>
+                      <ComposerDrawer
+                        tab={composerDrawerTab}
+                        onTabChange={setComposerDrawerTab}
+                        onEmojiSelect={handleEmojiSelect}
+                        onWordEffect={sendWithWordEffect}
+                        composerEffect={props.composerEffect}
+                        onComposerEffect={props.setComposerEffect}
+                        sendEffectsDisabled={Boolean(props.editingMessageId)}
+                      />
+                    </Suspense>
+                  )}
                 </div>
               )}
             </>
