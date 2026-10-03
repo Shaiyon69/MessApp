@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download MessApp</title>
+  <meta name="description" content="Download MessApp for Windows, Linux and Android.">
+  <link rel="icon" href="messapp-mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600..800&family=Nunito:wght@400..800&display=swap" rel="stylesheet">
+  <style>
+    /* Tokens mirror src/style/index.css; see design.md. */
+    :root {
+      color-scheme: dark;
+      --bg-base: #000000;
+      --bg-element: #101218;
+      --bg-element-hover: #171a22;
+      --border-subtle: #20242e;
+      --border-hover: #2e3440;
+      --text-main: #eef0f4;
+      --text-muted: #838b9a;
+      --accent: #3b82f6;
+      --accent-bright: #60a5fa;
+      --accent-contrast: #ffffff;
+      --accent-10: #3b82f61a;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        color-scheme: light;
+        --bg-base: #fbfcfe;
+        --bg-element: #f1f4f9;
+        --bg-element-hover: #e6ebf3;
+        --border-subtle: #d8dee8;
+        --border-hover: #bcc5d3;
+        --text-main: #1b1f27;
+        --text-muted: #5c6472;
+        --accent: #2563eb;
+        --accent-bright: #1d4ed8;
+        --accent-10: #2563eb1a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px; background: var(--bg-base); color: var(--text-main);
+      font-family: 'Nunito', system-ui, sans-serif; font-size: 15px;
+    }
+    a { color: inherit; text-decoration: none; }
+    .card {
+      width: 100%; max-width: 896px; display: flex; border: 1px solid var(--border-subtle); border-radius: 24px; overflow: hidden;
+    }
+    .hero { flex: 1; padding: 56px; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: 48px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .1em; font-size: 14px; }
+    .brand img { width: 36px; height: 36px; }
+    h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: clamp(36px, 6vw, 56px); line-height: 1.1; letter-spacing: -.02em; margin: 48px 0 16px; }
+    h1 span { color: var(--accent-bright); }
+    .lede { color: var(--text-muted); font-size: 18px; line-height: 1.6; max-width: 24rem; margin: 0; }
+    .meta { display: flex; align-items: center; gap: 24px; color: var(--text-muted); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .meta i { width: 32px; height: 1px; background: var(--border-hover); }
+    .panel { flex: 1; padding: 40px; display: flex; flex-direction: column; justify-content: center; }
+    h2 { font-size: 24px; font-weight: 700; margin: 0 0 8px; letter-spacing: -.01em; }
+    .sub { color: var(--text-muted); margin: 0 0 24px; }
+    .platform { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .platform.mine { border-color: var(--accent); }
+    .platform header { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 12px; }
+    .platform header em { margin-left: auto; font-style: normal; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-bright); }
+    .files { display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn {
+      height: 40px; padding: 0 16px; border-radius: 12px; display: inline-flex; align-items: center; gap: 8px;
+      font-weight: 700; font-size: 13px; border: 1px solid var(--border-subtle); background: var(--bg-element);
+      transition: background .2s, border-color .2s, transform .1s;
+    }
+    .btn:hover { background: var(--bg-element-hover); border-color: var(--border-hover); }
+    .btn:active { transform: scale(.95); }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .mine .btn { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+    .mine .btn:hover { background: var(--accent-bright); }
+    .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+    .wide { width: 100%; height: 48px; justify-content: center; font-size: 14px; margin-top: 12px; }
+    .link { display: block; text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 16px; }
+    .link:hover { color: var(--text-main); }
+    @media (max-width: 767px) {
+      .card { flex-direction: column; }
+      .hero { padding: 32px 24px; border-right: 0; border-bottom: 1px solid var(--border-subtle); gap: 0; }
+      h1 { margin-top: 24px; }
+      .lede, .meta { display: none; }
+      .panel { padding: 24px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <section class="hero">
+      <div>
+        <div class="brand"><img src="messapp-mark.svg" alt="">MESSAPP</div>
+        <h1>Take it<br><span>anywhere.</span></h1>
+        <p class="lede">Servers, channels, DMs and calls, on your desktop and phone. Or keep using it in the browser.</p>
+      </div>
+      <div class="meta"><span id="tag">Beta</span><i></i><span>MessApp</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>Download</h2>
+      <p class="sub" id="status">Finding the latest release…</p>
+      <div id="platforms"></div>
+      <a class="btn wide" href="https://messapp-tau.vercel.app">Open in Browser</a>
+      <a class="link" href="https://github.com/Shaiyon69/MessApp/releases">All releases ↗</a>
+    </section>
+  </main>
+
+  <script>
+    const PLATFORMS = [
+      { id: 'windows', name: 'Windows', files: [['Installer (.exe)', '.exe']] },
+      { id: 'linux', name: 'Linux', files: [['AppImage', '.AppImage'], ['Debian (.deb)', '.deb']] },
+      { id: 'android', name: 'Android', files: [['APK', '.apk']] },
+    ]
+    const ua = navigator.userAgent
+    const mine = /android/i.test(ua) ? 'android' : /windows/i.test(ua) ? 'windows' : /linux/i.test(ua) ? 'linux' : null
+
+    function render(assets) {
+      const root = document.getElementById('platforms')
+      for (const p of PLATFORMS) {
+        const box = document.createElement('div')
+        box.className = 'platform' + (p.id === mine ? ' mine' : '')
+        const head = document.createElement('header')
+        head.textContent = p.name
+        if (p.id === mine) head.append(Object.assign(document.createElement('em'), { textContent: 'Your device' }))
+        const files = document.createElement('div')
+        files.className = 'files'
+        for (const [label, ext] of p.files) {
+          const asset = assets.find(a => a.name.endsWith(ext))
+          const a = document.createElement('a')
+          a.className = 'btn'
+          a.textContent = '↓ ' + label
+          if (asset) a.href = asset.browser_download_url
+          else a.setAttribute('aria-disabled', 'true')
+          files.append(a)
+        }
+        box.append(head, files)
+        root.append(box)
+      }
+    }
+
+    // Releases are prereleases, so /releases/latest would skip them; take the newest.
+    fetch('https://api.github.com/repos/Shaiyon69/MessApp/releases?per_page=1')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(([release]) => {
+        const version = release.tag_name.replace(/^MessApp_/, '')
+        document.getElementById('tag').textContent = version
+        document.getElementById('status').textContent = `Version ${version.replace(/^v/, '')}. iOS is not available yet.`
+        render(release.assets)
+      })
+      .catch(() => {
+        document.getElementById('status').textContent = 'Could not load the latest release. Use All releases below.'
+        render([])
+      })
+  </script>
+</body>
+</html>
