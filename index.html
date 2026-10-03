@@ -47,100 +47,153 @@
       font-family: 'Nunito', system-ui, sans-serif; font-size: 15px;
     }
     a { color: inherit; text-decoration: none; }
-    .card {
-      width: 100%; max-width: 896px; display: flex; border: 1px solid var(--border-subtle); border-radius: 24px; overflow: hidden;
-    }
-    .hero { flex: 1; padding: 56px; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; justify-content: space-between; gap: 48px; }
+    svg { flex-shrink: 0; }
+    .card { width: 100%; max-width: 960px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border-subtle); border-radius: 24px; overflow: hidden; }
+
+    /* Left: brand, pitch, feature grid */
+    .hero { padding: 40px; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 28px; }
     .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .1em; font-size: 14px; }
-    .brand img { width: 36px; height: 36px; }
-    h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: clamp(36px, 6vw, 56px); line-height: 1.1; letter-spacing: -.02em; margin: 48px 0 16px; }
+    .logo { width: 40px; height: 40px; border-radius: 12px; background: #000; border: 1px solid rgba(255,255,255,.1); display: grid; place-items: center; }
+    .logo img { width: 36px; height: 36px; }
+    .tag { margin-left: auto; font-size: 11px; letter-spacing: .12em; color: var(--accent-bright); background: var(--accent-10); padding: 4px 10px; border-radius: 999px; }
+    h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: clamp(36px, 5vw, 52px); line-height: 1.05; letter-spacing: -.02em; margin: 0 0 12px; }
     h1 span { color: var(--accent-bright); }
-    .lede { color: var(--text-muted); font-size: 18px; line-height: 1.6; max-width: 24rem; margin: 0; }
-    .meta { display: flex; align-items: center; gap: 24px; color: var(--text-muted); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    .meta i { width: 32px; height: 1px; background: var(--border-hover); }
-    .panel { flex: 1; padding: 40px; display: flex; flex-direction: column; justify-content: center; }
-    h2 { font-size: 24px; font-weight: 700; margin: 0 0 8px; letter-spacing: -.01em; }
-    .sub { color: var(--text-muted); margin: 0 0 24px; }
-    .platform { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-    .platform.mine { border-color: var(--accent); }
-    .platform header { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 12px; }
-    .platform header em { margin-left: auto; font-style: normal; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-bright); }
-    .files { display: flex; flex-wrap: wrap; gap: 8px; }
+    .lede { color: var(--text-muted); font-size: 16px; line-height: 1.55; margin: 0; }
+    .features { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border-subtle); border: 1px solid var(--border-subtle); border-radius: 14px; overflow: hidden; margin-top: auto; }
+    .features li { background: var(--bg-base); padding: 14px; display: flex; gap: 10px; align-items: flex-start; }
+    .features svg { color: var(--accent-bright); margin-top: 2px; }
+    .features b { display: block; font-size: 14px; }
+    .features small { color: var(--text-muted); font-size: 12.5px; line-height: 1.4; }
+
+    /* Right: one full-width row per file */
+    .panel { padding: 40px; display: flex; flex-direction: column; gap: 10px; }
+    .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+    h2 { font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+    .sub { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+    .row {
+      display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 14px;
+      border: 1px solid var(--border-subtle); border-radius: 14px; transition: border-color .2s, background .2s;
+    }
+    .row:hover { border-color: var(--border-hover); background: var(--bg-element); }
+    .row.mine { border-color: var(--accent); background: var(--accent-10); }
+    .icon { width: 40px; height: 40px; border-radius: 10px; background: var(--bg-element); border: 1px solid var(--border-subtle); display: grid; place-items: center; color: var(--text-muted); }
+    .mine .icon { color: var(--accent-bright); border-color: var(--accent); }
+    .info { flex: 1; min-width: 0; }
+    .info b { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+    .info em { font-style: normal; font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-bright); }
+    .info small { display: block; color: var(--text-muted); font-size: 12.5px; margin-top: 1px; }
     .btn {
-      height: 40px; padding: 0 16px; border-radius: 12px; display: inline-flex; align-items: center; gap: 8px;
+      height: 40px; padding: 0 16px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
       font-weight: 700; font-size: 13px; border: 1px solid var(--border-subtle); background: var(--bg-element);
       transition: background .2s, border-color .2s, transform .1s;
     }
     .btn:hover { background: var(--bg-element-hover); border-color: var(--border-hover); }
     .btn:active { transform: scale(.95); }
     .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .mine .btn { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
-    .mine .btn:hover { background: var(--accent-bright); }
+    .mine .btn, .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+    .mine .btn:hover, .btn.primary:hover { background: var(--accent-bright); }
     .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
-    .wide { width: 100%; height: 48px; justify-content: center; font-size: 14px; margin-top: 12px; }
-    .link { display: block; text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 16px; }
-    .link:hover { color: var(--text-main); }
+    .actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: auto; padding-top: 6px; }
+    .actions .btn { height: 48px; font-size: 14px; }
+    .note { color: var(--text-muted); font-size: 12.5px; text-align: center; margin: 0; }
+
     @media (max-width: 767px) {
-      .card { flex-direction: column; }
-      .hero { padding: 32px 24px; border-right: 0; border-bottom: 1px solid var(--border-subtle); gap: 0; }
-      h1 { margin-top: 24px; }
-      .lede, .meta { display: none; }
-      .panel { padding: 24px; }
+      .card { grid-template-columns: 1fr; }
+      .hero { padding: 24px; border-right: 0; border-bottom: 1px solid var(--border-subtle); gap: 20px; }
+      .panel { padding: 20px; }
+      .sub { display: none; }
     }
-    @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+    @media (max-width: 480px) { .row .btn { width: 40px; padding: 0; } .row .label { display: none; } .info b { flex-wrap: wrap; column-gap: 8px; row-gap: 0; } }
+    @media (max-width: 380px) { .features { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .btn, .row { transition: none; } }
   </style>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+      <symbol id="i-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 10l5 5 5-5M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-hash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5"/></symbol>
+      <symbol id="i-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    </defs>
+  </svg>
+
   <main class="card">
     <section class="hero">
-      <div>
-        <div class="brand"><img src="messapp-mark.svg" alt="">MESSAPP</div>
-        <h1>Take it<br><span>anywhere.</span></h1>
-        <p class="lede">Servers, channels, DMs and calls, on your desktop and phone. Or keep using it in the browser.</p>
+      <div class="brand">
+        <span class="logo"><img src="messapp-mark.svg" alt=""></span>MESSAPP
+        <span class="tag" id="tag">BETA</span>
       </div>
-      <div class="meta"><span id="tag">Beta</span><i></i><span>MessApp</span></div>
+      <div>
+        <h1>Take it <span>anywhere.</span></h1>
+        <p class="lede">The same MessApp on your desktop and phone. Your account, servers and messages follow you everywhere.</p>
+      </div>
+      <ul class="features">
+        <li><svg width="18" height="18"><use href="#i-lock"/></svg><div><b>Encrypted DMs</b><small>End-to-end, keys stay on device</small></div></li>
+        <li><svg width="18" height="18"><use href="#i-hash"/></svg><div><b>Servers</b><small>Channels, threads and polls</small></div></li>
+        <li><svg width="18" height="18"><use href="#i-mic"/></svg><div><b>Voice channels</b><small>Drop in, share your screen</small></div></li>
+        <li><svg width="18" height="18"><use href="#i-video"/></svg><div><b>Calls</b><small>1:1 voice and video</small></div></li>
+      </ul>
     </section>
 
     <section class="panel">
-      <h2>Download</h2>
-      <p class="sub" id="status">Finding the latest release…</p>
-      <div id="platforms"></div>
-      <a class="btn wide" href="https://messapp-tau.vercel.app">Open in Browser</a>
-      <a class="link" href="https://github.com/Shaiyon69/MessApp/releases">All releases ↗</a>
+      <div class="panel-head"><h2>Download</h2><span class="sub" id="status">Loading latest release…</span></div>
+      <div id="rows"></div>
+      <div class="actions">
+        <a class="btn" href="https://messapp-tau.vercel.app"><svg width="16" height="16"><use href="#i-globe"/></svg>Open in browser</a>
+        <a class="btn" href="https://github.com/Shaiyon69/MessApp/releases" aria-label="All releases" title="All releases"><svg width="16" height="16"><use href="#i-external"/></svg>All releases</a>
+      </div>
+      <p class="note">iOS is not available yet. Android builds install outside the Play Store.</p>
     </section>
   </main>
 
   <script>
-    const PLATFORMS = [
-      { id: 'windows', name: 'Windows', files: [['Installer (.exe)', '.exe']] },
-      { id: 'linux', name: 'Linux', files: [['AppImage', '.AppImage'], ['Debian (.deb)', '.deb']] },
-      { id: 'android', name: 'Android', files: [['APK', '.apk']] },
+    const FILES = [
+      { os: 'windows', name: 'Windows', kind: 'Installer · .exe', ext: '.exe', icon: 'monitor' },
+      { os: 'linux', name: 'Linux', kind: 'AppImage · any distro', ext: '.AppImage', icon: 'terminal' },
+      { os: 'linux', name: 'Linux', kind: 'Debian / Ubuntu · .deb', ext: '.deb', icon: 'package' },
+      { os: 'android', name: 'Android', kind: 'APK', ext: '.apk', icon: 'phone' },
     ]
     const ua = navigator.userAgent
     const mine = /android/i.test(ua) ? 'android' : /windows/i.test(ua) ? 'windows' : /linux/i.test(ua) ? 'linux' : null
+    const svg = (id, size) => {
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      s.setAttribute('width', size); s.setAttribute('height', size)
+      const u = document.createElementNS('http://www.w3.org/2000/svg', 'use')
+      u.setAttribute('href', '#i-' + id)
+      s.append(u)
+      return s
+    }
+    const el = (tag, cls, text) => Object.assign(document.createElement(tag), cls ? { className: cls } : {}, text ? { textContent: text } : {})
+    const mb = bytes => (bytes / 1048576).toFixed(1) + ' MB'
 
     function render(assets) {
-      const root = document.getElementById('platforms')
-      for (const p of PLATFORMS) {
-        const box = document.createElement('div')
-        box.className = 'platform' + (p.id === mine ? ' mine' : '')
-        const head = document.createElement('header')
-        head.textContent = p.name
-        if (p.id === mine) head.append(Object.assign(document.createElement('em'), { textContent: 'Your device' }))
-        const files = document.createElement('div')
-        files.className = 'files'
-        for (const [label, ext] of p.files) {
-          const asset = assets.find(a => a.name.endsWith(ext))
-          const a = document.createElement('a')
-          a.className = 'btn'
-          a.textContent = '↓ ' + label
-          if (asset) a.href = asset.browser_download_url
-          else a.setAttribute('aria-disabled', 'true')
-          files.append(a)
-        }
-        box.append(head, files)
-        root.append(box)
+      const root = document.getElementById('rows')
+      // Detected platform first.
+      for (const f of [...FILES].sort((a, b) => (b.os === mine) - (a.os === mine))) {
+        const asset = assets.find(a => a.name.endsWith(f.ext))
+        const row = el('div', 'row' + (f.os === mine ? ' mine' : ''))
+        const icon = el('span', 'icon'); icon.append(svg(f.icon, 20))
+        const info = el('div', 'info')
+        const title = el('b', '', f.name)
+        if (f.os === mine) title.append(el('em', '', 'Your device'))
+        info.append(title, el('small', '', asset ? `${f.kind} · ${mb(asset.size)}` : f.kind))
+        const btn = el('a', 'btn')
+        btn.append(svg('download', 16), el('span', 'label', 'Download'))
+        btn.setAttribute('aria-label', `Download for ${f.name}, ${f.kind}`)
+        if (asset) btn.href = asset.browser_download_url
+        else btn.setAttribute('aria-disabled', 'true')
+        row.append(icon, info, btn)
+        root.append(row)
       }
+      root.style.display = 'contents'
     }
 
     // Releases are prereleases, so /releases/latest would skip them; take the newest.
@@ -148,12 +201,13 @@
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(([release]) => {
         const version = release.tag_name.replace(/^MessApp_/, '')
-        document.getElementById('tag').textContent = version
-        document.getElementById('status').textContent = `Version ${version.replace(/^v/, '')}. iOS is not available yet.`
+        const date = new Date(release.published_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        document.getElementById('tag').textContent = version.toUpperCase()
+        document.getElementById('status').textContent = `${version} · ${date}`
         render(release.assets)
       })
       .catch(() => {
-        document.getElementById('status').textContent = 'Could not load the latest release. Use All releases below.'
+        document.getElementById('status').textContent = 'Could not load release'
         render([])
       })
   </script>
