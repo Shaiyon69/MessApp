@@ -14,6 +14,7 @@ import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import ForgotPassword from './components/ForgotPassword'
 import UpdatePassword from './components/UpdatePassword'
+import Download from './components/Download'
 import { applySurfaceTint, applyThemeMode, normalizeThemeMode } from './lib/theme'
 import { debug } from './lib/debug'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
@@ -151,7 +152,7 @@ export default function App() {
     )
   }
 
-  const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password'
+  const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password' || path === '/download'
 
   /* Same shell, no children: the background is already painted, so the app
      opens straight into the Dashboard for a signed-in user. */
@@ -171,7 +172,9 @@ export default function App() {
           {themeMode === 'dark' ? <Sun size={20} aria-hidden="true" /> : <Moon size={20} aria-hidden="true" />}
         </button>
       )}
-      {path === '/update-password' ? (
+      {path === '/download' ? (
+        <Download onBack={() => navigateTo('/')} />
+      ) : path === '/update-password' ? (
         <UpdatePassword onComplete={() => navigateTo('/')} />
       ) : path === '/forgot-password' ? (
         <ForgotPassword onBackToLogin={() => navigateTo('/')} />
