@@ -17,5 +17,5 @@ test('isLowPowerDevice flags phones, Save-Data and small machines only', () => {
   assert.equal(isLowPowerDevice({ hardwareConcurrency: 4 }, media(false)), true)
   assert.equal(isLowPowerDevice({ hardwareConcurrency: 8, deviceMemory: 2 }, media(false)), true)
   assert.equal(isLowPowerDevice({ hardwareConcurrency: 8, connection: { saveData: true } }, media(false)), true)
-  assert.equal(isLowPowerDevice(undefined), false)
+  assert.equal(isLowPowerDevice(null), false)
 })
