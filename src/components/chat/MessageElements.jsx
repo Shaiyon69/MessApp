@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer, Forward, MessagesSquare } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer, Forward, MessagesSquare, Gamepad2, ChevronLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
@@ -1423,12 +1423,20 @@ export const MemoizedMessage = React.memo(({
     }
   }, [clearLongPressTimer, m.id, messageActionMenuId])
 
+  // Say so instead of dropping it: a silent gap reads as a lost message.
   if (m.is_unreadable || (typeof m.content === 'string' && m.content.includes('[Encrypted Message]'))) {
-    return null
+    return (
+      <div id={`message-${m.id}`} className={`flex mt-1 ${alignRight ? 'justify-end ml-6 sm:ml-12 md:ml-20' : 'pl-10 mr-6 sm:mr-12 md:mr-20'}`}>
+        <p className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[var(--border-subtle)] px-3 py-1.5 type-meta italic text-[var(--text-muted)]">
+          <AlertCircle size={12} aria-hidden="true" />
+          Couldn't decrypt this message. It was sent to a key this device doesn't have.
+        </p>
+      </div>
+    )
   }
 
   return (
-    <div id={`message-${m.id}`} className={`flex gap-2 transition-all duration-300 ease-out transform ${showHeader ? 'mt-2.5 md:mt-3' : 'mt-0.5'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl shadow-[0_0_15px_var(--theme-20)] scale-[1.01] z-20' : ''} ${alignRight ? 'flex-row-reverse ml-6 sm:ml-12 md:ml-20' : 'mr-6 sm:mr-12 md:mr-20'}`}>
+    <div id={`message-${m.id}`} className={`flex gap-2 transition-all duration-300 ease-out transform ${showHeader ? 'mt-2.5 md:mt-3' : 'mt-0.5'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl ring-2 ring-[var(--theme-base)] z-20' : ''} ${alignRight ? 'flex-row-reverse ml-6 sm:ml-12 md:ml-20' : 'mr-6 sm:mr-12 md:mr-20'}`}>
       
       {showHeader ? (
         <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-8 w-8 mt-1 shadow-md ghost-border rounded-full shrink-0" />
@@ -1439,9 +1447,15 @@ export const MemoizedMessage = React.memo(({
       <div className={`flex flex-col w-full min-w-0 ${alignRight ? 'items-end' : ''}`}>
         
         {showHeader && (
-        <div className={`flex items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
-            <span className={`type-title font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
+        <div className={`flex min-w-0 max-w-full items-baseline gap-2 mb-1 ${alignRight ? 'flex-row-reverse' : ''}`}>
+            <span className={`min-w-0 truncate type-title font-bold tracking-tight ${isMe ? 'text-[var(--theme-base)]' : 'text-[var(--chat-text,var(--text-main))]'}`}>{m.profiles?.username}</span>
             <span className="type-meta text-gray-500 tabular-nums">{exactTime}</span>
+            {m.origin === 'chimaera' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-element)] px-2 py-0.5 type-meta font-semibold text-gray-400">
+                <Gamepad2 size={12} aria-hidden="true" />
+                Chimaera
+              </span>
+            )}
           </div>
         )}
         
@@ -1470,10 +1484,30 @@ export const MemoizedMessage = React.memo(({
             onPointerLeave={(event) => {
               if (event.pointerType === 'mouse') scheduleDesktopToolbarClose()
             }}
+            onFocus={keepDesktopToolbarOpen}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) scheduleDesktopToolbarClose()
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || !isDesktopHovered) return
+              event.stopPropagation()
+              setIsDesktopHovered(false)
+              bubbleRef.current?.focus()
+            }}
           >
-            
-            <div 
+
+            <div
               ref={bubbleRef}
+              tabIndex={0}
+              aria-label={`Message from ${m.profiles?.username || 'unknown'}. Press Enter for actions.`}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (event.key === 'Enter' || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                  event.preventDefault()
+                  keepDesktopToolbarOpen()
+                  requestAnimationFrame(() => actionMenuRef.current?.querySelector('button')?.focus())
+                }
+              }}
               className={`message-touch-target relative flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[min(72vw,36rem)] sm:max-w-[min(68vw,38rem)] shrink-0 min-w-0 cursor-pointer md:cursor-default ${isActionMenuOpen ? 'message-action-selected' : ''}`}
               style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined }}
               onPointerDown={handlePointerDown}
@@ -1526,7 +1560,7 @@ export const MemoizedMessage = React.memo(({
                     </div>
                   ) : hasVisibleContent && !showCaptionBelowMedia && (() => {
                     const bubble = (
-                      <div className={`px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
+                      <div className={`chat-bubble chat-glass${isMe ? ' chat-bubble-mine' : ''} px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all duration-300 ease-out transform active:scale-[0.98] md:active:scale-100 shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
                         <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                           {messageBody}
                         </div>
@@ -1779,7 +1813,7 @@ export const MemoizedMessage = React.memo(({
                         Spoiler caption — tap to reveal
                       </button>
                     ) : showCaptionBelowMedia ? (
-                      <div className={`mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
+                      <div className={`chat-bubble chat-glass${isMe ? ' chat-bubble-mine' : ''} mt-1.5 px-3 py-2 rounded-2xl max-w-full w-fit border text-left transition-all shadow-sm ${alignRight ? 'rounded-tr-md ml-auto' : 'rounded-tl-md mr-auto'}${bubbleEffectClass}`} style={bubbleStyle}>
                         <div className="type-body text-current markdown-body whitespace-pre-wrap [&>p]:mb-0 [&>p:not(:last-child)]:mb-2" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                           {messageBody}
                         </div>
@@ -1853,7 +1887,7 @@ export const MemoizedMessage = React.memo(({
                       {Object.entries(groupedReactions).map(([emoji, reactions], idx) => {
                         const hasReacted = reactions.some(r => r.profile_id === currentUserId)
                         return (
-                          <button key={`react-${m.id}-${idx}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg type-meta flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
+                          <button key={`react-${m.id}-${idx}`} type="button" aria-pressed={hasReacted} aria-label={`${emoji} ${reactions.length}, ${hasReacted ? 'remove your reaction' : 'react'}`} onClick={(e) => handleReactionButtonClick(e, emoji)} onTouchEnd={(e) => handleReactionButtonTouchEnd(e, emoji)} className={`px-1.5 py-0.5 rounded-lg type-meta flex items-center gap-0.5 border transition-colors cursor-pointer select-none ${hasReacted ? 'bg-[var(--theme-20)] border-[var(--theme-50)]' : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:bg-[var(--bg-base)]'}`}>
                             <span>{emoji}</span> <span className={`font-bold ${hasReacted ? 'text-[var(--text-main)]' : 'text-gray-400'}`}>{reactions.length}</span>
                           </button>
                         )
@@ -1884,7 +1918,7 @@ export const MemoizedMessage = React.memo(({
                   }
                   ${isActionMenuOpen || showReactionPicker || inlineDeleteMessageId === m.id
                     ? 'flex items-center opacity-100 pointer-events-auto scale-100'
-                    : 'flex items-center opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 scale-95 md:scale-100'
+                    : 'flex items-center opacity-0 pointer-events-none md:pointer-events-auto md:group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 group-focus-within/bubble:pointer-events-auto scale-95 md:scale-100'
                   }`}
                 style={isActionMenuOpen && reactionInputMode === 'touch' && actionMenuPosition ? {
                   position: 'fixed',
@@ -2082,15 +2116,15 @@ export const MemoizedMessage = React.memo(({
                     {inlineDeleteStep === 'confirm_everyone' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
                         <span className="px-1 type-meta font-bold text-red-400 whitespace-nowrap">{isMe ? 'Unsend?' : 'Remove?'}</span>
-	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, isMe ? 'everyone' : 'moderate'); closeActionMenu('action_delete_everyone'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer" aria-label={isMe ? 'Confirm unsend' : 'Confirm moderator removal'}><Check size={15}/></button>
-                        <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
+	                        <button type="button" data-reaction-action="delete-confirm-unsend" onClick={() => { executeInlineDelete(m, isMe ? 'everyone' : 'moderate'); closeActionMenu('action_delete_everyone'); }} className="flex min-h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-red-500/20 px-3 type-meta font-bold text-red-400 transition-colors hover:bg-red-500 hover:text-[var(--text-main)] cursor-pointer"><Check size={14} aria-hidden="true" />{isMe ? 'Unsend' : 'Remove'}</button>
+                        <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><ChevronLeft size={15} aria-hidden="true" /></button>
                       </div>
                     )}
                     {inlineDeleteStep === 'confirm_me' && (
                       <div className="flex min-w-max items-center gap-1 px-1">
                         <span className="px-1 type-meta font-bold text-gray-400 whitespace-nowrap">Hide?</span>
-	                        <button type="button" data-reaction-action="delete-confirm-hide" onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--text-main)]/10 text-[var(--text-main)] transition-colors hover:bg-[var(--text-main)]/20 cursor-pointer" aria-label="Confirm hide"><Check size={15}/></button>
-                        <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><X size={15}/></button>
+	                        <button type="button" data-reaction-action="delete-confirm-hide" onClick={() => { executeInlineDelete(m, 'me'); closeActionMenu('action_delete_me'); }} className="flex min-h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[var(--text-main)]/10 px-3 type-meta font-bold text-[var(--text-main)] transition-colors hover:bg-[var(--text-main)]/20 cursor-pointer"><Check size={14} aria-hidden="true" />Hide</button>
+                        <button type="button" data-reaction-action="delete-back" onClick={() => setInlineDeleteStep('options')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[var(--bg-element-hover)] hover:text-[var(--text-main)] cursor-pointer" aria-label="Back to delete options"><ChevronLeft size={15} aria-hidden="true" /></button>
                       </div>
                     )}
                   </div>

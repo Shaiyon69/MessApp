@@ -57,8 +57,8 @@ export default function ReportContentModal({ targetLabel = 'message', onSubmit, 
         </div>
 
         <div className="flex flex-col-reverse gap-3 border-t border-[var(--border-subtle)] p-4 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onClose} disabled={submitting} className="premium-secondary-button h-11 rounded-xl px-5 font-bold cursor-pointer disabled:opacity-50">Cancel</button>
-          <button type="submit" disabled={submitting || !reason} className="premium-danger-button flex h-11 items-center justify-center gap-2 rounded-xl px-5 font-bold cursor-pointer disabled:opacity-50">
+          <button type="button" onClick={onClose} disabled={submitting} className="premium-secondary-button h-11 px-5 font-bold cursor-pointer disabled:opacity-50">Cancel</button>
+          <button type="submit" disabled={submitting || !reason} className="premium-danger-button flex h-11 items-center justify-center gap-2 px-5 font-bold cursor-pointer disabled:opacity-50">
             {submitting ? <Loader2 size={18} className="animate-spin" /> : <Flag size={18} />}
             Submit report
           </button>

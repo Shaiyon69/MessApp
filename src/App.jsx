@@ -14,7 +14,10 @@ import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import ForgotPassword from './components/ForgotPassword'
 import UpdatePassword from './components/UpdatePassword'
-import { applySurfaceTint, applyThemeMode, normalizeThemeMode } from './lib/theme'
+import Download from './components/Download'
+import { applyGlassRefraction, applySurfaceTint, applyThemeMode, applyUiStyle, normalizeThemeMode } from './lib/theme'
+import { startLiquidGlass } from './lib/liquidGlass'
+import GlassBackdrop from './components/ui/GlassBackdrop'
 import { debug } from './lib/debug'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
 import { ACTIVE_CONVERSATION_QUERY, getActiveConversationId, publishPushNavigation } from './lib/pushNavigation'
@@ -30,11 +33,19 @@ export default function App() {
   const [showRegister, setShowRegister] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
   const [loginMessage, setLoginMessage] = useState('')
+  const [authEmail, setAuthEmail] = useState('')
+  const [resetExpired, setResetExpired] = useState(false)
+  // Read once at startup: supabase-js reports a dead reset link as #error_code=otp_expired
+  // on the update-password redirect, and the hash is stripped after getSession() settles.
+  const [resetLinkError] = useState(() => (
+    window.location.pathname === '/update-password' && new URLSearchParams(window.location.hash.slice(1)).has('error_code')
+  ))
   const [themeMode, setThemeMode] = useState(() => normalizeThemeMode(localStorage.getItem('appTheme') || 'dark'))
 
+  // The screen lives in history state so the address bar stays at '/'.
   const navigateTo = (nextPath) => {
-    window.history.pushState({}, '', nextPath)
-    setPath(window.location.pathname)
+    window.history.pushState({ path: nextPath }, '', '/')
+    setPath(nextPath)
   }
 
   const handleRegistrationComplete = (message) => {
@@ -45,7 +56,10 @@ export default function App() {
 
   useLayoutEffect(() => {
     setThemeMode(applyThemeMode(localStorage.getItem('appTheme') || 'dark'))
-    applySurfaceTint(localStorage.getItem('surfaceTint') || 'neutral')
+    applySurfaceTint(localStorage.getItem('surfaceTint') || 'blue')
+    applyUiStyle(localStorage.getItem('uiStyle'))
+    applyGlassRefraction(localStorage.getItem('glassRefraction'))
+    startLiquidGlass()
     document.documentElement.setAttribute('data-reduce-motion', String(localStorage.getItem('reduceMotion') === 'true'))
   }, [])
 
@@ -73,6 +87,8 @@ export default function App() {
       debug.error('APP_SESSION', { operation: 'initial-session', error })
     }).finally(() => {
       setSessionReady(true)
+      // supabase-js has consumed any #access_token by now; drop it and the entry path from the bar.
+      window.history.replaceState({ path: window.location.pathname }, '', '/')
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -105,7 +121,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const handlePopState = () => setPath(window.location.pathname)
+    const handlePopState = event => setPath(event.state?.path || '/')
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
@@ -124,15 +140,18 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
   }, [])
 
+  // Android back on a signed-out screen steps toward Login instead of closing the app.
   useEffect(() => {
-    const handlePointerMove = (event) => {
-      document.documentElement.style.setProperty('--ambient-x', `${event.clientX}px`)
-      document.documentElement.style.setProperty('--ambient-y', `${event.clientY}px`)
-    }
-
-    window.addEventListener('pointermove', handlePointerMove, { passive: true })
-    return () => window.removeEventListener('pointermove', handlePointerMove)
-  }, [])
+    if (!Capacitor.isNativePlatform() || session) return undefined
+    let handle
+    let removed = false
+    CapacitorApp.addListener('backButton', () => {
+      if (showRegister) setShowRegister(false)
+      else if (path !== '/') navigateTo('/')
+      else CapacitorApp.exitApp()
+    }).then(h => { if (removed) h.remove(); else handle = h })
+    return () => { removed = true; handle?.remove() }
+  }, [session, showRegister, path])
 
   if (supabaseConfigError) {
     return (
@@ -151,14 +170,15 @@ export default function App() {
     )
   }
 
-  const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password'
+  const isAuthSurface = !session || path === '/forgot-password' || path === '/update-password' || path === '/download'
 
   /* Same shell, no children: the background is already painted, so the app
      opens straight into the Dashboard for a signed-in user. */
   if (!sessionReady) return <div className="ambient-shell flex h-full w-full" />
 
   return (
-    <div className={`ambient-shell flex flex-col items-center justify-center h-full w-full font-sans ${isAuthSurface ? 'auth-shell' : 'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'}`}>
+    <div className={`ambient-shell flex flex-col items-center h-full w-full font-sans ${isAuthSurface ? 'auth-shell' : 'justify-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'}`}>
+      <GlassBackdrop />
       {!session && (
         <button
           type="button"
@@ -171,16 +191,22 @@ export default function App() {
           {themeMode === 'dark' ? <Sun size={20} aria-hidden="true" /> : <Moon size={20} aria-hidden="true" />}
         </button>
       )}
-      {path === '/update-password' ? (
-        <UpdatePassword onComplete={() => navigateTo('/')} />
+      {path === '/download' ? (
+        <Download onBack={() => navigateTo('/')} />
+      ) : path === '/update-password' ? (
+        <UpdatePassword
+          linkError={resetLinkError}
+          onComplete={(message) => { if (message) setLoginMessage(message); setShowRegister(false); navigateTo('/') }}
+          onRequestNewLink={() => { setResetExpired(true); navigateTo('/forgot-password') }}
+        />
       ) : path === '/forgot-password' ? (
-        <ForgotPassword onBackToLogin={() => navigateTo('/')} />
+        <ForgotPassword email={authEmail} onEmailChange={setAuthEmail} expiredLink={resetExpired} onBackToLogin={() => { setResetExpired(false); navigateTo('/') }} />
       ) : session ? (
         <Dashboard session={session} />
       ) : showRegister ? (
-        <Register switchToLogin={() => setShowRegister(false)} onRegistrationComplete={handleRegistrationComplete} />
+        <Register email={authEmail} onEmailChange={setAuthEmail} switchToLogin={() => setShowRegister(false)} onRegistrationComplete={handleRegistrationComplete} />
       ) : (
-        <Login switchToRegister={() => { setLoginMessage(''); setShowRegister(true) }} switchToForgotPassword={() => navigateTo('/forgot-password')} initialMessage={loginMessage} clearInitialMessage={() => setLoginMessage('')} />
+        <Login email={authEmail} onEmailChange={setAuthEmail} switchToRegister={() => { setLoginMessage(''); setShowRegister(true) }} switchToForgotPassword={() => navigateTo('/forgot-password')} initialMessage={loginMessage} clearInitialMessage={() => setLoginMessage('')} />
       )}
     </div>
   )

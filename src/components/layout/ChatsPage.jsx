@@ -7,6 +7,7 @@ import { useEffect } from 'react'
 import { Ban, EyeOff, MailOpen, MessageSquare, Pin, PinOff, Trash2 } from 'lucide-react'
 import useLongPress from '../../hooks/useLongPress'
 import useStoredSet from '../../hooks/useStoredSet'
+import useFirstReveal from '../../hooks/useFirstReveal'
 import ActionSheet from '../ui/ActionSheet'
 import StatusAvatar from '../ui/StatusAvatar'
 import { getConversationTheme, resolveConversationThemeId } from '../../lib/conversationThemes'
@@ -30,10 +31,11 @@ export default function ChatsPage(props) {
   const dms = [...props.dms].sort((a, b) => pinnedRooms.has(b.dm_room_id) - pinnedRooms.has(a.dm_room_id))
   const menuDm = dms.find(dm => props.dmActionMenuId === `chats-${dm.dm_room_id}`)
   const closeMenu = () => props.setDmActionMenuId(null)
+  const revealRow = useFirstReveal('chats', dms.length > 0)
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-24 pt-4 md:px-6 md:pt-6">
-      <div className="space-y-1">
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-[var(--dock-clear)] pt-4 md:px-6 md:pb-6 md:pt-6">
+      <div className="seg-group seg-plain">
         {props.dmsLoading && props.dms.length === 0 && Array.from({ length: 6 }, (_, index) => (
           <div key={`dm-skeleton-${index}`} className="flex min-h-16 items-center gap-3.5 px-3 py-2.5" aria-hidden="true">
             <div className="skeleton h-11 w-11 shrink-0 rounded-full" />
@@ -60,13 +62,14 @@ export default function ChatsPage(props) {
           const dmColor = getConversationTheme(dmThemeId, props.appThemeMode).palette.accent
           const presenceStatus = props.getPresenceStatus?.(dm.profiles.id) || (props.onlineUsersSet.has(dm.profiles.id) ? 'online' : 'offline')
           const isUnread = (dm.is_unread || manualUnread.has(dm.dm_room_id)) && !isActive
-          const messagePreview = dm.last_message_preview || (isUnread ? 'New message' : '')
+          const messagePreview = dm.last_message_preview || ''
 
+          const reveal = revealRow(i)
           return (
-            <div key={`dm-row-${dm.dm_room_id || i}`} className="long-press-target group relative flex items-center" {...bindLongPress(`chats-${dm.dm_room_id}`)}>
+            <div key={`dm-row-${dm.dm_room_id || i}`} data-selected={isActive || undefined} style={reveal.style} className={`seg-item long-press-target group relative p-0 ${reveal.className}`} {...bindLongPress(`chats-${dm.dm_room_id}`)}>
               <button
                 onClick={() => openDm(dm)}
-                className={`ios-sidebar-row min-h-16 flex-1 flex items-center gap-3.5 rounded-2xl border px-3 py-2.5 text-left outline-none transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'is-active' : isUnread ? 'border-transparent text-[var(--text-main)]' : 'border-transparent text-gray-400 hover:text-[var(--text-main)]'}`}
+                className={`m3-press min-h-16 flex-1 flex items-center gap-3.5 rounded-[inherit] px-3 py-2.5 text-left outline-none cursor-pointer hover:bg-[var(--state-hover)] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive || isUnread ? 'text-[var(--text-main)]' : 'text-gray-400 hover:text-[var(--text-main)]'}`}
               >
                 <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={presenceStatus} className="w-11 h-11" />
                 <div className="min-w-0 flex-1 pr-4">

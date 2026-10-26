@@ -74,3 +74,10 @@ test('theme schema errors are distinguished from permission and network errors',
   assert.equal(isConversationThemeSchemaError({ code: '42501', message: 'permission denied' }), false)
   assert.equal(isConversationThemeSchemaError({ message: 'Failed to fetch' }), false)
 })
+
+test('glass makes chat surfaces see-through and keeps accents solid', () => {
+  const style = getConversationThemeStyle('ocean', 'dark', { glass: true })
+  assert.match(style['--chat-bg-base'], /^color-mix\(in srgb, #[0-9a-f]{6} 12%, transparent\)$/i)
+  assert.match(style['--chat-bg-element'], /transparent\)$/)
+  assert.equal(style['--theme-base'], getConversationThemeStyle('ocean', 'dark')['--theme-base'])
+})

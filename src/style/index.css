@@ -1,76 +1,54 @@
 @import "tailwindcss";
+@import "./styles/glass.css";
+@import "./styles/nothing.css";
+@import "./styles/material.css";
 
 /* Self-hosted so the Capacitor and Tauri file:// shells render correctly
    offline with no cold-start round-trip to fonts.googleapis.com.
    Referenced from src/assets (not public/) so Vite rewrites the URLs to honor
-   base: './' in vite.config.js. Fraunces carries latin coverage only (app
-   chrome); Nunito keeps every subset because it renders user messages. */
+   base: './' in vite.config.js. One family for chrome and messages, as Orion
+   Store does. Space Grotesk has no Cyrillic; those glyphs fall back to the
+   system sans in the stack. */
 @font-face {
-  font-family: 'Fraunces';
+  font-family: 'Space Grotesk';
   font-style: normal;
-  font-weight: 600 800;
+  font-weight: 300 700;
   font-display: swap;
-  src: url('../assets/fonts/fraunces-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Fraunces';
-  font-style: normal;
-  font-weight: 600 800;
-  font-display: swap;
-  src: url('../assets/fonts/fraunces-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Nunito';
-  font-style: normal;
-  font-weight: 400 800;
-  font-display: swap;
-  src: url('../assets/fonts/nunito-cyrillic-ext.woff2') format('woff2');
-  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
-}
-
-@font-face {
-  font-family: 'Nunito';
-  font-style: normal;
-  font-weight: 400 800;
-  font-display: swap;
-  src: url('../assets/fonts/nunito-cyrillic.woff2') format('woff2');
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-
-@font-face {
-  font-family: 'Nunito';
-  font-style: normal;
-  font-weight: 400 800;
-  font-display: swap;
-  src: url('../assets/fonts/nunito-vietnamese.woff2') format('woff2');
+  src: url('../assets/fonts/space-grotesk-vietnamese.woff2') format('woff2');
   unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
 }
 
 @font-face {
-  font-family: 'Nunito';
+  font-family: 'Space Grotesk';
   font-style: normal;
-  font-weight: 400 800;
+  font-weight: 300 700;
   font-display: swap;
-  src: url('../assets/fonts/nunito-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  src: url('../assets/fonts/space-grotesk-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
-  font-family: 'Nunito';
+  font-family: 'Space Grotesk';
   font-style: normal;
-  font-weight: 400 800;
+  font-weight: 300 700;
   font-display: swap;
-  src: url('../assets/fonts/nunito-latin.woff2') format('woff2');
+  src: url('../assets/fonts/space-grotesk-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* Dot-matrix display face for the Nothing style. Only fetched when a rule
+   using it applies, so the other styles never load it. */
+@font-face {
+  font-family: 'Doto';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/doto-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 :root {
-  font-family: 'Nunito', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Space Grotesk', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
@@ -86,8 +64,10 @@
   --default-transition-duration: 200ms;
   --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 
-  --font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  /* Same family as --font-sans; kept as a role so heading call sites still
+     pick up the tighter tracking below. */
+  --font-display: var(--font-sans);
 
   --color-primary: #3b82f6;
 
@@ -99,6 +79,9 @@
   --color-gray-800: #1a1d26;
   --color-gray-700: #272b36;
   --color-gray-600: #414757;
+  /* Was missing, so text-gray-500 fell back to Tailwind's #6a7282 (~4.3:1 on
+     black), dimmer than the muted token design.md sets as the floor. */
+  --color-gray-500: var(--text-muted);
   --color-gray-400: #9aa2b3;
   --color-gray-300: #bcc3d0;
   --color-gray-200: #d5dae3;
@@ -133,6 +116,43 @@
   --radius-4xl: 2.5rem;
 }
 
+/* iOS-style continuous corners. Any superellipse past 1 eases curvature in
+   from zero at the tangent points, so edges flow into the curve instead of
+   snapping onto an arc. 1.5 keeps the corner footprint close to the plain
+   radius it replaces. Circles and pills stay round: a squircled avatar or
+   switch reads as a bug, not polish. WebKit (iOS) ignores corner-shape and
+   keeps plain arcs. */
+@supports (corner-shape: superellipse(1.5)) {
+  @layer base {
+    *,
+    *::before,
+    *::after {
+      corner-shape: superellipse(1.5);
+    }
+
+    [class*="rounded-full"],
+    .message-reply-swipe-affordance,
+    .message-action-button,
+    .premium-danger-button,
+    .mobile-nav-trigger,
+    .floating-mini-player-drag-proxy::before,
+    .voice-stage-stat,
+    .voice-stage-avatar-halo::before,
+    .voice-volume-slider::-webkit-slider-runnable-track,
+    .voice-volume-slider::-webkit-slider-thumb,
+    .screen-fx-balloons > span,
+    .screen-fx-fireworks > span > i,
+    .screen-fx-celebration > span,
+    .tonal-icon,
+    .m3-switch,
+    .m3-switch-thumb,
+    .m3-nav-indicator::before,
+    .dock .m3-nav-item {
+      corner-shape: round;
+    }
+  }
+}
+
 /* Material 3 motion and state layers. Elevation here is tonal — a higher
    surface-container step, not a shadow — which is why the OLED palette and M3
    agree with each other: both express depth through color, not light. */
@@ -143,6 +163,20 @@
   --m3-medium: 350ms;
   --m3-state-hover: 0.08;
   --m3-state-pressed: 0.12;
+
+  /* M3 Expressive springs sampled into linear() so CSS can overshoot and settle.
+     fast = spatial spring (damping 0.6, stiffness 800): presses, toggles, nav.
+     slow = spatial spring (damping 0.8, stiffness 200): entrances. Both play in
+     350ms, the design.md cap for motion a user triggers. */
+  --spring-fast: linear(0, 0.072, 0.238, 0.44, 0.638, 0.806, 0.934, 1.021, 1.071, 1.092, 1.093, 1.081, 1.063, 1.044, 1.026, 1.012, 1.002, 0.995, 0.992, 0.991, 0.992, 0.993, 0.995, 0.997, 1);
+  --spring-fast-duration: 350ms;
+  --spring-slow: linear(0, 0.037, 0.126, 0.242, 0.366, 0.488, 0.598, 0.695, 0.776, 0.843, 0.895, 0.934, 0.964, 0.985, 0.999, 1.007, 1.012, 1.015, 1.015, 1.014, 1.013, 1.011, 1.009, 1.007, 1);
+  --spring-slow-duration: 350ms;
+
+  /* Segmented groups: rounded ends, near-square joins, a hairline gap. */
+  --seg-outer: 20px;
+  --seg-inner: 4px;
+  --seg-gap: 2px;
 }
 
 /* The type scale, as tokens rather than seven copies of a breakpoint. Every text
@@ -210,6 +244,9 @@
   --app-accent-50: #3b82f680;
   --accent-glow: transparent;
   --border-accent: #1e40af;
+  /* M3 secondaryContainer pair: the active dock tab and selected rows. */
+  --accent-container: #1c2a45;
+  --on-accent-container: #c7d8f5;
   --surface-gradient: #08090c;
   --surface-strong: #0c0e12;
   --surface-section: #12141a;
@@ -219,6 +256,8 @@
   --surface-container-highest: #1c1f28;
   --state-hover: #12141a;
   --state-pressed: #1c1f28;
+  --status-success: #4ade80;
+  --status-danger: #f87171;
   /* Shadows are nearly invisible against #000; this one exists only to lift
      overlays off the content behind them. */
   --shadow-premium: 0 8px 24px rgba(0, 0, 0, 0.6);
@@ -251,11 +290,15 @@
   --accent: var(--app-accent);
   --accent-bright: #1d4ed8;
   --accent-contrast: #ffffff;
+  --status-success: #15803d;
+  --status-danger: #b91c1c;
   --app-accent-10: #2563eb1a;
   --app-accent-20: #2563eb33;
   --app-accent-50: #2563eb80;
   --accent-glow: transparent;
   --border-accent: rgba(37, 99, 235, 0.32);
+  --accent-container: #dbe5f8;
+  --on-accent-container: #1c3466;
   --surface-gradient: #ffffff;
   --surface-strong: #ffffff;
   --surface-section: #f1f4f9;
@@ -275,59 +318,955 @@
   --ambient-y: 12vh;
 }
 
-/* Tints keep --bg-base at #000000 and shift only what sits above it. */
-[data-theme="dark"][data-surface-tint="ocean"] {
-  --bg-surface: #06090f;
-  --bg-element: #0d1420;
-  --bg-element-hover: #141d2c;
-  --border-subtle: #1c2838;
-  --border-hover: #28374b;
-  --text-main: #eaf0f7;
-  --text-muted: #7d8ca1;
-  --surface-gradient: #06090f;
-  --surface-strong: #0a1017;
-  --surface-section: #101822;
-  --surface-container-low: #04070b;
-  --surface-container: #0a1017;
-  --surface-container-high: #121b26;
-  --surface-container-highest: #1a2634;
-  --state-hover: #101822;
-  --state-pressed: #1a2634;
-  --border-accent: #0369a1;
-  /* Cyan sits at the top of the ramp, so this tint flips --accent-contrast back
-     to a dark foreground. The token exists precisely so consumers need not care. */
-  --app-accent: #38bdf8;
-  --accent-bright: #7dd3fc;
-  --accent-contrast: #04121c;
-  --app-accent-10: #38bdf81a;
-  --app-accent-20: #38bdf833;
-  --app-accent-50: #38bdf880;
+/* Palettes, generated from Orion Store's Palettes.kt (material-color-utilities,
+   tonal spot). Dark is Orion's OLED scheme: true-black ground, tonal containers
+   above it. Blue is the default and lives in the base blocks above, so it has
+   no block here. Borders map to surfaceContainerHighest rather than M3's
+   outlineVariant, which would turn every hairline bright. Selected via
+   data-surface-tint (the storage key predates palettes). */
+[data-theme="dark"][data-surface-tint="orion"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0e0e12;
+  --bg-element: #151519;
+  --bg-element-hover: #1b1b20;
+  --border-subtle: #242328;
+  --border-hover: #484750;
+  --text-main: #e7e4f0;
+  --text-muted: #acaab5;
+  --app-accent: #c0c1ff;
+  --accent-bright: #e2e0ff;
+  --accent-contrast: #2a29ad;
+  --border-accent: #3f40c0;
+  --accent-container: #393953;
+  --on-accent-container: #bdbcdc;
+  --surface-gradient: #0e0e12;
+  --surface-strong: #151519;
+  --surface-section: #1b1b20;
+  --surface-container-low: #0e0e12;
+  --surface-container: #151519;
+  --surface-container-high: #1b1b20;
+  --surface-container-highest: #242328;
+  --state-hover: #151519;
+  --state-pressed: #242328;
+  --status-danger: #f97386;
+  --app-accent-10: #c0c1ff1a;
+  --app-accent-20: #c0c1ff33;
+  --app-accent-50: #c0c1ff80;
+  --text-subtle: rgba(231, 228, 240, 0.6);
 }
 
-[data-theme="dark"][data-surface-tint="steel"] {
-  --bg-surface: #0a0a0d;
-  --bg-element: #14141a;
-  --bg-element-hover: #1c1c24;
-  --border-subtle: #26262f;
-  --border-hover: #34343f;
-  --text-main: #eeeef2;
-  --text-muted: #8a8a97;
-  --surface-gradient: #0a0a0d;
-  --surface-strong: #0e0e12;
-  --surface-section: #16161c;
-  --surface-container-low: #050506;
-  --surface-container: #0e0e12;
-  --surface-container-high: #18181f;
-  --surface-container-highest: #212129;
-  --state-hover: #16161c;
-  --state-pressed: #212129;
-  --border-accent: #4338ca;
-  --app-accent: #818cf8;
-  --accent-bright: #a5b4fc;
-  --accent-contrast: #0b0b1a;
-  --app-accent-10: #818cf81a;
-  --app-accent-20: #818cf833;
-  --app-accent-50: #818cf880;
+[data-theme="light"][data-surface-tint="orion"] {
+  --bg-deep: #fcf8fe;
+  --bg-base: #fcf8fe;
+  --bg-top: #fcf8fe;
+  --bg-surface: #f6f2fb;
+  --bg-element: #f0ecf6;
+  --bg-element-hover: #eae7f1;
+  --border-subtle: #e4e1ed;
+  --border-hover: #b3b0bc;
+  --text-main: #32323b;
+  --text-muted: #5f5e68;
+  --app-accent: #4c4ecd;
+  --accent-bright: #02003d;
+  --accent-contrast: #fbf7ff;
+  --border-accent: #7478f8;
+  --accent-container: #e1e0ff;
+  --on-accent-container: #4f4f6a;
+  --surface-gradient: #f6f2fb;
+  --surface-strong: #f0ecf6;
+  --surface-section: #eae7f1;
+  --surface-container-low: #f6f2fb;
+  --surface-container: #f0ecf6;
+  --surface-container-high: #eae7f1;
+  --surface-container-highest: #e4e1ed;
+  --state-hover: #f0ecf6;
+  --state-pressed: #e4e1ed;
+  --status-danger: #a8364b;
+  --app-accent-10: #4c4ecd1a;
+  --app-accent-20: #4c4ecd33;
+  --app-accent-50: #4c4ecd80;
+  --text-subtle: rgba(50, 50, 59, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="ocean"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0b0f11;
+  --bg-element: #131619;
+  --bg-element-hover: #191c1f;
+  --border-subtle: #212427;
+  --border-hover: #42494f;
+  --text-main: #dfe6ee;
+  --text-muted: #a5acb3;
+  --app-accent: #89ceff;
+  --accent-bright: #002335;
+  --accent-contrast: #004564;
+  --border-accent: #00a8ee;
+  --accent-container: #263e4f;
+  --on-accent-container: #aac2d7;
+  --surface-gradient: #0b0f11;
+  --surface-strong: #131619;
+  --surface-section: #191c1f;
+  --surface-container-low: #0b0f11;
+  --surface-container: #131619;
+  --surface-container-high: #191c1f;
+  --surface-container-highest: #212427;
+  --state-hover: #131619;
+  --state-pressed: #212427;
+  --status-danger: #fa746f;
+  --app-accent-10: #89ceff1a;
+  --app-accent-20: #89ceff33;
+  --app-accent-50: #89ceff80;
+  --text-subtle: rgba(223, 230, 238, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="ocean"] {
+  --bg-deep: #f8f9fd;
+  --bg-base: #f8f9fd;
+  --bg-top: #f8f9fd;
+  --bg-surface: #f0f4f9;
+  --bg-element: #eaeef4;
+  --bg-element-hover: #e3e9ef;
+  --border-subtle: #dde3eb;
+  --border-hover: #acb3ba;
+  --text-main: #2c3339;
+  --text-muted: #596066;
+  --app-accent: #006592;
+  --accent-bright: #003b57;
+  --accent-contrast: #f5f9ff;
+  --border-accent: #31b8ff;
+  --accent-container: #cde6fb;
+  --on-accent-container: #3d5466;
+  --surface-gradient: #f0f4f9;
+  --surface-strong: #eaeef4;
+  --surface-section: #e3e9ef;
+  --surface-container-low: #f0f4f9;
+  --surface-container: #eaeef4;
+  --surface-container-high: #e3e9ef;
+  --surface-container-highest: #dde3eb;
+  --state-hover: #eaeef4;
+  --state-pressed: #dde3eb;
+  --status-danger: #a83836;
+  --app-accent-10: #0065921a;
+  --app-accent-20: #00659233;
+  --app-accent-50: #00659280;
+  --text-subtle: rgba(44, 51, 57, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="forest"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0c0f0b;
+  --bg-element: #131713;
+  --bg-element-hover: #191d18;
+  --border-subtle: #212520;
+  --border-hover: #424a41;
+  --text-main: #e0e8dc;
+  --text-muted: #a5ada2;
+  --app-accent: #87d991;
+  --accent-bright: #a3f6ac;
+  --accent-contrast: #004b1d;
+  --border-accent: #016027;
+  --accent-container: #2a412c;
+  --on-accent-container: #acc6aa;
+  --surface-gradient: #0c0f0b;
+  --surface-strong: #131713;
+  --surface-section: #191d18;
+  --surface-container-low: #0c0f0b;
+  --surface-container: #131713;
+  --surface-container-high: #191d18;
+  --surface-container-highest: #212520;
+  --state-hover: #131713;
+  --state-pressed: #212520;
+  --status-danger: #f97758;
+  --app-accent-10: #87d9911a;
+  --app-accent-20: #87d99133;
+  --app-accent-50: #87d99180;
+  --text-subtle: rgba(224, 232, 220, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="forest"] {
+  --bg-deep: #f8faf3;
+  --bg-base: #f8faf3;
+  --bg-top: #f8faf3;
+  --bg-surface: #f1f5ec;
+  --bg-element: #eaf0e6;
+  --bg-element-hover: #e4eae0;
+  --border-subtle: #dde5d9;
+  --border-hover: #acb4a9;
+  --text-main: #2d342c;
+  --text-muted: #596158;
+  --app-accent: #196d33;
+  --accent-bright: #13692f;
+  --accent-contrast: #e9ffe6;
+  --border-accent: #a2f6ab;
+  --accent-container: #ceeacd;
+  --on-accent-container: #405741;
+  --surface-gradient: #f1f5ec;
+  --surface-strong: #eaf0e6;
+  --surface-section: #e4eae0;
+  --surface-container-low: #f1f5ec;
+  --surface-container: #eaf0e6;
+  --surface-container-high: #e4eae0;
+  --surface-container-highest: #dde5d9;
+  --state-hover: #eaf0e6;
+  --state-pressed: #dde5d9;
+  --status-danger: #a73b21;
+  --app-accent-10: #196d331a;
+  --app-accent-20: #196d3333;
+  --app-accent-50: #196d3380;
+  --text-subtle: rgba(45, 52, 44, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="sunset"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #130d0a;
+  --bg-element: #1b1411;
+  --bg-element-hover: #211a16;
+  --border-subtle: #2a221e;
+  --border-hover: #54453d;
+  --text-main: #f8e1d6;
+  --text-muted: #bca79d;
+  --app-accent: #ffb690;
+  --accent-bright: #ffffff;
+  --accent-contrast: #6e2d00;
+  --border-accent: #b54e00;
+  --accent-container: #543422;
+  --on-accent-container: #e5b59d;
+  --surface-gradient: #130d0a;
+  --surface-strong: #1b1411;
+  --surface-section: #211a16;
+  --surface-container-low: #130d0a;
+  --surface-container: #1b1411;
+  --surface-container-high: #211a16;
+  --surface-container-highest: #2a221e;
+  --state-hover: #1b1411;
+  --state-pressed: #2a221e;
+  --status-danger: #f97758;
+  --app-accent-10: #ffb6901a;
+  --app-accent-20: #ffb69033;
+  --app-accent-50: #ffb69080;
+  --text-subtle: rgba(248, 225, 214, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="sunset"] {
+  --bg-deep: #fff8f6;
+  --bg-base: #fff8f6;
+  --bg-top: #fff8f6;
+  --bg-surface: #fff1eb;
+  --bg-element: #feeae1;
+  --bg-element-hover: #f9e4db;
+  --border-subtle: #f5ded3;
+  --border-hover: #c3aea4;
+  --text-main: #3d2f29;
+  --text-muted: #6d5c54;
+  --app-accent: #9e4400;
+  --accent-bright: #4e1e00;
+  --accent-contrast: #fff7f5;
+  --border-accent: #f77f37;
+  --accent-container: #ffdbca;
+  --on-accent-container: #6d4937;
+  --surface-gradient: #fff1eb;
+  --surface-strong: #feeae1;
+  --surface-section: #f9e4db;
+  --surface-container-low: #fff1eb;
+  --surface-container: #feeae1;
+  --surface-container-high: #f9e4db;
+  --surface-container-highest: #f5ded3;
+  --state-hover: #feeae1;
+  --state-pressed: #f5ded3;
+  --status-danger: #a73b21;
+  --app-accent-10: #9e44001a;
+  --app-accent-20: #9e440033;
+  --app-accent-50: #9e440080;
+  --text-subtle: rgba(61, 47, 41, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="rose"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #130d0f;
+  --bg-element: #1a1416;
+  --bg-element-hover: #211a1c;
+  --border-subtle: #292224;
+  --border-hover: #524449;
+  --text-main: #f5e0e6;
+  --text-muted: #b9a6ab;
+  --app-accent: #ffb0cd;
+  --accent-bright: #ffdae5;
+  --accent-contrast: #7b124a;
+  --border-accent: #93285d;
+  --accent-container: #52323e;
+  --on-accent-container: #e0b3c2;
+  --surface-gradient: #130d0f;
+  --surface-strong: #1a1416;
+  --surface-section: #211a1c;
+  --surface-container-low: #130d0f;
+  --surface-container: #1a1416;
+  --surface-container-high: #211a1c;
+  --surface-container-highest: #292224;
+  --state-hover: #1a1416;
+  --state-pressed: #292224;
+  --status-danger: #f97386;
+  --app-accent-10: #ffb0cd1a;
+  --app-accent-20: #ffb0cd33;
+  --app-accent-50: #ffb0cd80;
+  --text-subtle: rgba(245, 224, 230, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="rose"] {
+  --bg-deep: #fff8f8;
+  --bg-base: #fff8f8;
+  --bg-top: #fff8f8;
+  --bg-surface: #fff0f3;
+  --bg-element: #fce9ee;
+  --bg-element-hover: #f7e3e8;
+  --border-subtle: #f2dde3;
+  --border-hover: #c0adb2;
+  --text-main: #3c2f33;
+  --text-muted: #6b5b60;
+  --app-accent: #a3356a;
+  --accent-bright: #64003a;
+  --accent-contrast: #fff7f7;
+  --border-accent: #fb7bb3;
+  --accent-container: #ffd9e4;
+  --on-accent-container: #6a4855;
+  --surface-gradient: #fff0f3;
+  --surface-strong: #fce9ee;
+  --surface-section: #f7e3e8;
+  --surface-container-low: #fff0f3;
+  --surface-container: #fce9ee;
+  --surface-container-high: #f7e3e8;
+  --surface-container-highest: #f2dde3;
+  --state-hover: #fce9ee;
+  --state-pressed: #f2dde3;
+  --status-danger: #a8364b;
+  --app-accent-10: #a3356a1a;
+  --app-accent-20: #a3356a33;
+  --app-accent-50: #a3356a80;
+  --text-subtle: rgba(60, 47, 51, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="mono"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0c0e12;
+  --bg-element: #141619;
+  --bg-element-hover: #1a1c1f;
+  --border-subtle: #222427;
+  --border-hover: #444850;
+  --text-main: #e2e5ef;
+  --text-muted: #a7abb4;
+  --app-accent: #c5c6cc;
+  --accent-bright: #e2e3e9;
+  --accent-contrast: #3e4045;
+  --border-accent: #505258;
+  --accent-container: #393b40;
+  --on-accent-container: #bdbfc5;
+  --surface-gradient: #0c0e12;
+  --surface-strong: #141619;
+  --surface-section: #1a1c1f;
+  --surface-container-low: #0c0e12;
+  --surface-container: #141619;
+  --surface-container-high: #1a1c1f;
+  --surface-container-highest: #222427;
+  --state-hover: #141619;
+  --state-pressed: #222427;
+  --status-danger: #fa746f;
+  --app-accent-10: #c5c6cc1a;
+  --app-accent-20: #c5c6cc33;
+  --app-accent-50: #c5c6cc80;
+  --text-subtle: rgba(226, 229, 239, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="mono"] {
+  --bg-deep: #f9f9fe;
+  --bg-base: #f9f9fe;
+  --bg-top: #f9f9fe;
+  --bg-surface: #f2f3fa;
+  --bg-element: #ebeef5;
+  --bg-element-hover: #e5e8f0;
+  --border-subtle: #dfe2ec;
+  --border-hover: #aeb2bb;
+  --text-main: #2e333a;
+  --text-muted: #5b5f67;
+  --app-accent: #5d5f64;
+  --accent-bright: #595b61;
+  --accent-contrast: #f8f9ff;
+  --border-accent: #e1e2e8;
+  --accent-container: #e1e2e8;
+  --on-accent-container: #4f5257;
+  --surface-gradient: #f2f3fa;
+  --surface-strong: #ebeef5;
+  --surface-section: #e5e8f0;
+  --surface-container-low: #f2f3fa;
+  --surface-container: #ebeef5;
+  --surface-container-high: #e5e8f0;
+  --surface-container-highest: #dfe2ec;
+  --state-hover: #ebeef5;
+  --state-pressed: #dfe2ec;
+  --status-danger: #a83836;
+  --app-accent-10: #5d5f641a;
+  --app-accent-20: #5d5f6433;
+  --app-accent-50: #5d5f6480;
+  --text-subtle: rgba(46, 51, 58, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="grape"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0f0d12;
+  --bg-element: #161519;
+  --bg-element-hover: #1d1b1f;
+  --border-subtle: #252328;
+  --border-hover: #4a4650;
+  --text-main: #eae3ef;
+  --text-muted: #afa9b4;
+  --app-accent: #d0bcff;
+  --accent-bright: #eadeff;
+  --accent-contrast: #4b249b;
+  --border-accent: #5e3aae;
+  --accent-container: #3f3751;
+  --on-accent-container: #c5bada;
+  --surface-gradient: #0f0d12;
+  --surface-strong: #161519;
+  --surface-section: #1d1b1f;
+  --surface-container-low: #0f0d12;
+  --surface-container: #161519;
+  --surface-container-high: #1d1b1f;
+  --surface-container-highest: #252328;
+  --state-hover: #161519;
+  --state-pressed: #252328;
+  --status-danger: #f97386;
+  --app-accent-10: #d0bcff1a;
+  --app-accent-20: #d0bcff33;
+  --app-accent-50: #d0bcff80;
+  --text-subtle: rgba(234, 227, 239, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="grape"] {
+  --bg-deep: #fdf7fe;
+  --bg-base: #fdf7fe;
+  --bg-top: #fdf7fe;
+  --bg-surface: #f8f1fa;
+  --bg-element: #f2ecf5;
+  --bg-element-hover: #ece6f0;
+  --border-subtle: #e7e0ec;
+  --border-hover: #b6b0bb;
+  --text-main: #34313a;
+  --text-muted: #615d67;
+  --app-accent: #6b48bc;
+  --accent-bright: #310079;
+  --accent-contrast: #fdf7ff;
+  --border-accent: #a986fe;
+  --accent-container: #e9ddff;
+  --on-accent-container: #564d69;
+  --surface-gradient: #f8f1fa;
+  --surface-strong: #f2ecf5;
+  --surface-section: #ece6f0;
+  --surface-container-low: #f8f1fa;
+  --surface-container: #f2ecf5;
+  --surface-container-high: #ece6f0;
+  --surface-container-highest: #e7e0ec;
+  --state-hover: #f2ecf5;
+  --state-pressed: #e7e0ec;
+  --status-danger: #a8364b;
+  --app-accent-10: #6b48bc1a;
+  --app-accent-20: #6b48bc33;
+  --app-accent-50: #6b48bc80;
+  --text-subtle: rgba(52, 49, 58, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="mint"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0b0f0d;
+  --bg-element: #121714;
+  --bg-element-hover: #181d1a;
+  --border-subtle: #202522;
+  --border-hover: #414a44;
+  --text-main: #dee8df;
+  --text-muted: #a3aea6;
+  --app-accent: #6fdba9;
+  --accent-bright: #000000;
+  --accent-contrast: #004a31;
+  --border-accent: #038b5f;
+  --accent-container: #244133;
+  --on-accent-container: #a6c7b3;
+  --surface-gradient: #0b0f0d;
+  --surface-strong: #121714;
+  --surface-section: #181d1a;
+  --surface-container-low: #0b0f0d;
+  --surface-container: #121714;
+  --surface-container-high: #181d1a;
+  --surface-container-highest: #202522;
+  --state-hover: #121714;
+  --state-pressed: #202522;
+  --status-danger: #fa746f;
+  --app-accent-10: #6fdba91a;
+  --app-accent-20: #6fdba933;
+  --app-accent-50: #6fdba980;
+  --text-subtle: rgba(222, 232, 223, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="mint"] {
+  --bg-deep: #f7faf5;
+  --bg-base: #f7faf5;
+  --bg-top: #f7faf5;
+  --bg-surface: #eff5ef;
+  --bg-element: #e8f0e9;
+  --bg-element-hover: #e2eae3;
+  --border-subtle: #dbe5dd;
+  --border-hover: #aab4ad;
+  --text-main: #2b352f;
+  --text-muted: #58615b;
+  --app-accent: #006d4a;
+  --accent-bright: #006746;
+  --accent-contrast: #e6ffee;
+  --border-accent: #89f5c1;
+  --accent-container: #c9ead6;
+  --on-accent-container: #3a5848;
+  --surface-gradient: #eff5ef;
+  --surface-strong: #e8f0e9;
+  --surface-section: #e2eae3;
+  --surface-container-low: #eff5ef;
+  --surface-container: #e8f0e9;
+  --surface-container-high: #e2eae3;
+  --surface-container-highest: #dbe5dd;
+  --state-hover: #e8f0e9;
+  --state-pressed: #dbe5dd;
+  --status-danger: #a83836;
+  --app-accent-10: #006d4a1a;
+  --app-accent-20: #006d4a33;
+  --app-accent-50: #006d4a80;
+  --text-subtle: rgba(43, 53, 47, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="ember"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #130c0c;
+  --bg-element: #1b1413;
+  --bg-element-hover: #211a19;
+  --border-subtle: #2a2221;
+  --border-hover: #544443;
+  --text-main: #f9e0de;
+  --text-muted: #bca6a4;
+  --app-accent: #ffb3ad;
+  --accent-bright: #ffdbd8;
+  --accent-contrast: #801317;
+  --border-accent: #9a2727;
+  --accent-container: #55322f;
+  --on-accent-container: #e6b3af;
+  --surface-gradient: #130c0c;
+  --surface-strong: #1b1413;
+  --surface-section: #211a19;
+  --surface-container-low: #130c0c;
+  --surface-container: #1b1413;
+  --surface-container-high: #211a19;
+  --surface-container-highest: #2a2221;
+  --state-hover: #1b1413;
+  --state-pressed: #2a2221;
+  --status-danger: #f97758;
+  --app-accent-10: #ffb3ad1a;
+  --app-accent-20: #ffb3ad33;
+  --app-accent-50: #ffb3ad80;
+  --text-subtle: rgba(249, 224, 222, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="ember"] {
+  --bg-deep: #fff8f7;
+  --bg-base: #fff8f7;
+  --bg-top: #fff8f7;
+  --bg-surface: #fff0ef;
+  --bg-element: #fee9e7;
+  --bg-element-hover: #f9e3e1;
+  --border-subtle: #f6dddb;
+  --border-hover: #c3adab;
+  --text-main: #3e2f2e;
+  --text-muted: #6d5b59;
+  --app-accent: #ac3432;
+  --accent-bright: #5c0008;
+  --accent-contrast: #fff7f6;
+  --border-accent: #ff716a;
+  --accent-container: #ffdad7;
+  --on-accent-container: #6e4845;
+  --surface-gradient: #fff0ef;
+  --surface-strong: #fee9e7;
+  --surface-section: #f9e3e1;
+  --surface-container-low: #fff0ef;
+  --surface-container: #fee9e7;
+  --surface-container-high: #f9e3e1;
+  --surface-container-highest: #f6dddb;
+  --state-hover: #fee9e7;
+  --state-pressed: #f6dddb;
+  --status-danger: #a73b21;
+  --app-accent-10: #ac34321a;
+  --app-accent-20: #ac343233;
+  --app-accent-50: #ac343280;
+  --text-subtle: rgba(62, 47, 46, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="amber"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #120d08;
+  --bg-element: #1a150f;
+  --bg-element-hover: #201b15;
+  --border-subtle: #28231d;
+  --border-hover: #51463a;
+  --text-main: #f4e2d2;
+  --text-muted: #b8a899;
+  --app-accent: #ffb95f;
+  --accent-bright: #1f1000;
+  --accent-contrast: #5c3800;
+  --border-accent: #cd8309;
+  --accent-container: #4e3719;
+  --on-accent-container: #dcb992;
+  --surface-gradient: #120d08;
+  --surface-strong: #1a150f;
+  --surface-section: #201b15;
+  --surface-container-low: #120d08;
+  --surface-container: #1a150f;
+  --surface-container-high: #201b15;
+  --surface-container-highest: #28231d;
+  --state-hover: #1a150f;
+  --state-pressed: #28231d;
+  --status-danger: #f97758;
+  --app-accent-10: #ffb95f1a;
+  --app-accent-20: #ffb95f33;
+  --app-accent-50: #ffb95f80;
+  --text-subtle: rgba(244, 226, 210, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="amber"] {
+  --bg-deep: #fff8f4;
+  --bg-base: #fff8f4;
+  --bg-top: #fff8f4;
+  --bg-surface: #fff1e5;
+  --bg-element: #fbebdd;
+  --bg-element-hover: #f6e5d7;
+  --border-subtle: #f1e0cf;
+  --border-hover: #bfafa0;
+  --text-main: #3b3125;
+  --text-muted: #6a5d50;
+  --app-accent: #865400;
+  --accent-bright: #613b00;
+  --accent-contrast: #fff7f3;
+  --border-accent: #ffad3b;
+  --accent-container: #ffddb8;
+  --on-accent-container: #674d2d;
+  --surface-gradient: #fff1e5;
+  --surface-strong: #fbebdd;
+  --surface-section: #f6e5d7;
+  --surface-container-low: #fff1e5;
+  --surface-container: #fbebdd;
+  --surface-container-high: #f6e5d7;
+  --surface-container-highest: #f1e0cf;
+  --state-hover: #fbebdd;
+  --state-pressed: #f1e0cf;
+  --status-danger: #a73b21;
+  --app-accent-10: #8654001a;
+  --app-accent-20: #86540033;
+  --app-accent-50: #86540080;
+  --text-subtle: rgba(59, 49, 37, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="cyber"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0a0f10;
+  --bg-element: #121618;
+  --bg-element-hover: #181c1e;
+  --border-subtle: #202426;
+  --border-hover: #40494c;
+  --text-main: #dde7eb;
+  --text-muted: #a3adb0;
+  --app-accent: #74e3ff;
+  --accent-bright: #004754;
+  --accent-contrast: #00515f;
+  --border-accent: #00d9fd;
+  --accent-container: #1f4048;
+  --on-accent-container: #a3c5cf;
+  --surface-gradient: #0a0f10;
+  --surface-strong: #121618;
+  --surface-section: #181c1e;
+  --surface-container-low: #0a0f10;
+  --surface-container: #121618;
+  --surface-container-high: #181c1e;
+  --surface-container-highest: #202426;
+  --state-hover: #121618;
+  --state-pressed: #202426;
+  --status-danger: #fa746f;
+  --app-accent-10: #74e3ff1a;
+  --app-accent-20: #74e3ff33;
+  --app-accent-50: #74e3ff80;
+  --text-subtle: rgba(221, 231, 235, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="cyber"] {
+  --bg-deep: #f6fafb;
+  --bg-base: #f6fafb;
+  --bg-top: #f6fafb;
+  --bg-surface: #eff4f7;
+  --bg-element: #e8eff2;
+  --bg-element-hover: #e1e9ec;
+  --border-subtle: #dae4e8;
+  --border-hover: #aab4b7;
+  --text-main: #2b3437;
+  --text-muted: #576164;
+  --app-accent: #00687b;
+  --accent-bright: #00515f;
+  --accent-contrast: #effbff;
+  --border-accent: #00d9fd;
+  --accent-container: #c6e8f3;
+  --on-accent-container: #37565f;
+  --surface-gradient: #eff4f7;
+  --surface-strong: #e8eff2;
+  --surface-section: #e1e9ec;
+  --surface-container-low: #eff4f7;
+  --surface-container: #e8eff2;
+  --surface-container-high: #e1e9ec;
+  --surface-container-highest: #dae4e8;
+  --state-hover: #e8eff2;
+  --state-pressed: #dae4e8;
+  --status-danger: #a83836;
+  --app-accent-10: #00687b1a;
+  --app-accent-20: #00687b33;
+  --app-accent-50: #00687b80;
+  --text-subtle: rgba(43, 52, 55, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="midnight"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0d0e12;
+  --bg-element: #141519;
+  --bg-element-hover: #1a1b1f;
+  --border-subtle: #222428;
+  --border-hover: #454850;
+  --text-main: #e3e5f0;
+  --text-muted: #a9abb5;
+  --app-accent: #adc6ff;
+  --accent-bright: #d9e3ff;
+  --accent-contrast: #003d88;
+  --border-accent: #1650a3;
+  --accent-container: #313b52;
+  --on-accent-container: #b4bfdc;
+  --surface-gradient: #0d0e12;
+  --surface-strong: #141519;
+  --surface-section: #1a1b1f;
+  --surface-container-low: #0d0e12;
+  --surface-container: #141519;
+  --surface-container-high: #1a1b1f;
+  --surface-container-highest: #222428;
+  --state-hover: #141519;
+  --state-pressed: #222428;
+  --status-danger: #fa746f;
+  --app-accent-10: #adc6ff1a;
+  --app-accent-20: #adc6ff33;
+  --app-accent-50: #adc6ff80;
+  --text-subtle: rgba(227, 229, 240, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="midnight"] {
+  --bg-deep: #faf9fe;
+  --bg-base: #faf9fe;
+  --bg-top: #faf9fe;
+  --bg-surface: #f3f3fa;
+  --bg-element: #ededf6;
+  --bg-element-hover: #e7e7f1;
+  --border-subtle: #e0e2ed;
+  --border-hover: #afb1bc;
+  --text-main: #2f323a;
+  --text-muted: #5c5f68;
+  --app-accent: #295db1;
+  --accent-bright: #002353;
+  --accent-contrast: #f9f8ff;
+  --border-accent: #6a97f0;
+  --accent-container: #d8e2ff;
+  --on-accent-container: #47526a;
+  --surface-gradient: #f3f3fa;
+  --surface-strong: #ededf6;
+  --surface-section: #e7e7f1;
+  --surface-container-low: #f3f3fa;
+  --surface-container: #ededf6;
+  --surface-container-high: #e7e7f1;
+  --surface-container-highest: #e0e2ed;
+  --state-hover: #ededf6;
+  --state-pressed: #e0e2ed;
+  --status-danger: #a83836;
+  --app-accent-10: #295db11a;
+  --app-accent-20: #295db133;
+  --app-accent-50: #295db180;
+  --text-subtle: rgba(47, 50, 58, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="lime"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #0d0f0a;
+  --bg-element: #141611;
+  --bg-element-hover: #1a1c17;
+  --border-subtle: #22241f;
+  --border-hover: #45493e;
+  --text-main: #e4e7d7;
+  --text-muted: #a9ad9e;
+  --app-accent: #a6d56b;
+  --accent-bright: #ebffcc;
+  --accent-contrast: #2b4800;
+  --border-accent: #426905;
+  --accent-container: #333f23;
+  --on-accent-container: #b6c59f;
+  --surface-gradient: #0d0f0a;
+  --surface-strong: #141611;
+  --surface-section: #1a1c17;
+  --surface-container-low: #0d0f0a;
+  --surface-container: #141611;
+  --surface-container-high: #1a1c17;
+  --surface-container-highest: #22241f;
+  --state-hover: #141611;
+  --state-pressed: #22241f;
+  --status-danger: #f97758;
+  --app-accent-10: #a6d56b1a;
+  --app-accent-20: #a6d56b33;
+  --app-accent-50: #a6d56b80;
+  --text-subtle: rgba(228, 231, 215, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="lime"] {
+  --bg-deep: #fafaf0;
+  --bg-base: #fafaf0;
+  --bg-top: #fafaf0;
+  --bg-surface: #f3f5e9;
+  --bg-element: #edefe2;
+  --bg-element-hover: #e7eadb;
+  --border-subtle: #e1e4d4;
+  --border-hover: #b0b4a5;
+  --text-main: #303429;
+  --text-muted: #5c6154;
+  --app-accent: #426a06;
+  --accent-bright: #3f6602;
+  --accent-contrast: #efffd4;
+  --border-accent: #c1f284;
+  --accent-container: #d9e8c0;
+  --on-accent-container: #495638;
+  --surface-gradient: #f3f5e9;
+  --surface-strong: #edefe2;
+  --surface-section: #e7eadb;
+  --surface-container-low: #f3f5e9;
+  --surface-container: #edefe2;
+  --surface-container-high: #e7eadb;
+  --surface-container-highest: #e1e4d4;
+  --state-hover: #edefe2;
+  --state-pressed: #e1e4d4;
+  --status-danger: #a73b21;
+  --app-accent-10: #426a061a;
+  --app-accent-20: #426a0633;
+  --app-accent-50: #426a0680;
+  --text-subtle: rgba(48, 52, 41, 0.6);
+}
+
+[data-theme="dark"][data-surface-tint="cocoa"] {
+  --bg-deep: #000000;
+  --bg-base: #000000;
+  --bg-top: #000000;
+  --bg-surface: #130d0a;
+  --bg-element: #1b1411;
+  --bg-element-hover: #211a17;
+  --border-subtle: #2a221f;
+  --border-hover: #54453e;
+  --text-main: #f8e1d7;
+  --text-muted: #bca79e;
+  --app-accent: #ffb693;
+  --accent-bright: #ffdccd;
+  --accent-contrast: #653217;
+  --border-accent: #7b4428;
+  --accent-container: #543323;
+  --on-accent-container: #e5b59f;
+  --surface-gradient: #130d0a;
+  --surface-strong: #1b1411;
+  --surface-section: #211a17;
+  --surface-container-low: #130d0a;
+  --surface-container: #1b1411;
+  --surface-container-high: #211a17;
+  --surface-container-highest: #2a221f;
+  --state-hover: #1b1411;
+  --state-pressed: #2a221f;
+  --status-danger: #f97758;
+  --app-accent-10: #ffb6931a;
+  --app-accent-20: #ffb69333;
+  --app-accent-50: #ffb69380;
+  --text-subtle: rgba(248, 225, 215, 0.6);
+}
+
+[data-theme="light"][data-surface-tint="cocoa"] {
+  --bg-deep: #fff8f6;
+  --bg-base: #fff8f6;
+  --bg-top: #fff8f6;
+  --bg-surface: #fff1eb;
+  --bg-element: #feeae2;
+  --bg-element-hover: #f9e4db;
+  --border-subtle: #f5ded4;
+  --border-hover: #c3aea4;
+  --text-main: #3e2f29;
+  --text-muted: #6d5b54;
+  --app-accent: #8a5033;
+  --accent-bright: #6d391e;
+  --accent-contrast: #fff7f5;
+  --border-accent: #feb28e;
+  --accent-container: #ffdbcb;
+  --on-accent-container: #6d4938;
+  --surface-gradient: #fff1eb;
+  --surface-strong: #feeae2;
+  --surface-section: #f9e4db;
+  --surface-container-low: #fff1eb;
+  --surface-container: #feeae2;
+  --surface-container-high: #f9e4db;
+  --surface-container-highest: #f5ded4;
+  --state-hover: #feeae2;
+  --state-pressed: #f5ded4;
+  --status-danger: #a73b21;
+  --app-accent-10: #8a50331a;
+  --app-accent-20: #8a503333;
+  --app-accent-50: #8a503380;
+  --text-subtle: rgba(62, 47, 41, 0.6);
+}
+
+/* Full OLED. Whatever the palette, nothing in dark mode is gray: every surface
+   token is true black, panels separate by --border-subtle hairlines, and
+   hover/press are accent washes rather than gray steps. Placed after the
+   palette blocks at the same specificity so it wins for every palette.
+   --accent-container stays: it is the palette's hue, not a gray. */
+:root[data-theme="dark"],
+[data-theme="dark"][data-surface-tint] {
+  --bg-surface: #000000;
+  --bg-element: #000000;
+  --bg-element-hover: var(--app-accent-10);
+  --surface-gradient: #000000;
+  --surface-strong: #000000;
+  --surface-section: #000000;
+  --surface-container-low: #000000;
+  --surface-container: #000000;
+  --surface-container-high: #000000;
+  --surface-container-highest: #000000;
+  --state-hover: var(--app-accent-10);
+  --state-pressed: var(--app-accent-20);
 }
 
 /* LIGHT MODE TEXT CONTRAST OVERRIDES
@@ -364,6 +1303,13 @@ iframe {
 }
 
 @layer base {
+  /* Floor for every focusable control; component rules that draw their own
+     ring (premium-button etc.) still win. */
+  :where(button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
   html, body {
     height: 100%;
     min-height: 100%;
@@ -400,14 +1346,9 @@ iframe {
     width: 100%;
   }
 
-  /* Family tuning in one place instead of tracking and leading utilities on
-     every call site. Fraunces is a serif with an optical-size axis and only 600-800
-     loaded, so it wants tight leading and slightly negative tracking at the
-     sizes it is used. Nunito is wide with a tall x-height, so it wants the
-     opposite: normal tracking and room between lines. These are defaults —
-     a tracking or leading utility on the element still wins. */
+  /* Headings: Space Grotesk tightens slightly at display sizes. A tracking or
+     leading utility on the element still wins. */
   .font-display {
-    font-optical-sizing: auto;
     letter-spacing: -0.02em;
     line-height: 1.18;
   }
@@ -608,6 +1549,10 @@ iframe {
   .auth-shell {
     min-height: 100dvh;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    /* A tall form (Register) must scroll on a short phone or with the keyboard
+       open instead of being clipped by .ambient-shell's overflow:hidden. */
+    overflow-y: auto;
+    justify-content: safe center;
   }
 
   .auth-card {
@@ -804,21 +1749,36 @@ iframe {
     box-shadow: none;
   }
 
+  /* Pill buttons that tighten toward a rounded rectangle while held: the M3
+     Expressive press morph, on the fast spatial spring. */
+  .premium-button,
+  .premium-secondary-button,
+  .premium-danger-button {
+    border-radius: 9999px;
+    transition:
+      transform var(--spring-fast-duration) var(--spring-fast),
+      border-radius var(--spring-fast-duration) var(--spring-fast),
+      background-color 200ms var(--m3-standard),
+      border-color 200ms var(--m3-standard),
+      color 200ms var(--m3-standard),
+      box-shadow 200ms var(--m3-standard);
+  }
+
+  .premium-button:active,
+  .premium-secondary-button:active,
+  .premium-danger-button:active {
+    transform: scale(0.94);
+    border-radius: var(--radius-lg);
+  }
+
   .premium-button {
     background: var(--accent);
     color: var(--accent-contrast);
     box-shadow: var(--shadow-premium);
-    transition: transform 200ms var(--m3-standard), box-shadow 200ms var(--m3-standard), filter 200ms var(--m3-standard);
   }
 
   .premium-button:hover {
     background: var(--accent-bright);
-  }
-
-  /* design.md calls for active:scale-95 — a press you can feel, not the near
-     imperceptible 0.98 this had. */
-  .premium-button:active {
-    transform: scale(0.95);
   }
 
   .premium-button:focus-visible,
@@ -828,23 +1788,15 @@ iframe {
     box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--app-accent);
   }
 
+  /* Tonal: an accent wash with accent text, not a grey outline. */
   .premium-secondary-button {
-    background: var(--surface-section);
-    color: var(--text-main);
-    border: 1px solid var(--border-subtle);
-    box-shadow: var(--shadow-premium);
-    transition: transform 200ms var(--m3-standard), background-color 200ms var(--m3-standard), border-color 200ms var(--m3-standard), box-shadow 200ms var(--m3-standard);
+    background: var(--app-accent-10);
+    color: var(--accent-bright);
+    border: 1px solid transparent;
   }
 
   .premium-secondary-button:hover {
-    background: var(--bg-element-hover);
-    border-color: var(--border-hover);
-    box-shadow: var(--shadow-premium);
-  }
-
-  .premium-secondary-button:active,
-  .premium-danger-button:active {
-    transform: scale(0.98);
+    background: var(--app-accent-20);
   }
 
   .premium-danger-button {
@@ -852,7 +1804,6 @@ iframe {
     color: #f87171;
     border: 1px solid rgba(239,68,68,0.22);
     box-shadow: 0 10px 26px rgba(127,29,29,0.12);
-    transition: transform 200ms var(--m3-standard), background-color 200ms var(--m3-standard), border-color 200ms var(--m3-standard), color 200ms var(--m3-standard);
   }
 
   .premium-danger-button:hover {
@@ -1001,7 +1952,7 @@ iframe {
 
   .space-shelf-item.is-active {
     border-color: var(--theme-50, var(--border-accent));
-    background: rgba(255,255,255,0.09);
+    background: var(--state-pressed);
     color: var(--text-main);
   }
 
@@ -1096,13 +2047,17 @@ iframe {
     width: 100%;
     align-items: center;
     gap: 0.875rem;
-    border: 1px solid transparent;
-    border-radius: 1rem;
+    border: 0;
+    border-radius: inherit;
     padding: 0.625rem 0.75rem;
     color: var(--text-muted);
     font-size: var(--type-title);
     font-weight: 750;
-    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    transition: background 160ms ease, color 160ms ease, transform var(--spring-fast-duration) var(--spring-fast);
+  }
+
+  .server-list-row:active {
+    transform: scale(0.98);
   }
 
   /* Hover only where a real pointer hovers: touch browsers emulate :hover at
@@ -1328,7 +2283,7 @@ iframe {
 
   .ios-sheet-input:focus {
     border-color: var(--theme-50, var(--border-accent));
-    background: rgba(255,255,255,0.08);
+    background: var(--bg-element-hover);
   }
 
   .ios-choice-card {
@@ -1371,7 +2326,7 @@ iframe {
 
   .home-browse-button:hover,
   .home-browse-button:focus-visible {
-    background: rgba(255,255,255,0.08);
+    background: var(--state-hover);
     color: var(--text-main);
     outline: none;
   }
@@ -1388,7 +2343,7 @@ iframe {
 
   .ios-segmented-control .home-tab-button:hover {
     color: var(--text-main);
-    background: rgba(255,255,255,0.05);
+    background: var(--state-hover);
   }
 
   .ios-segmented-control .home-tab-button[data-active="true"] {
@@ -1472,7 +2427,7 @@ iframe {
 
   .ios-search-field:focus-within {
     border-color: var(--theme-50, var(--border-accent));
-    background: rgba(255,255,255,0.075);
+    background: var(--bg-element-hover);
   }
 
   .dashboard-list-row {
@@ -1636,8 +2591,7 @@ iframe {
   [data-theme="dark"] .premium-menu,
   [data-theme="dark"] .premium-modal,
   [data-theme="dark"] .premium-section,
-  [data-theme="dark"] .glass-panel,
-  [data-theme="dark"] .premium-composer {
+  [data-theme="dark"] .glass-panel {
     box-shadow: 0 0 0 1px rgba(255,255,255,0.035), 0 14px 34px rgba(0,0,0,0.36);
   }
 
@@ -1741,8 +2695,9 @@ iframe {
 
   /* Scrollbars are hidden app-wide; scrolling itself is untouched. Keyboard,
      wheel, and touch all still work — only the visual affordance and the drag
-     target are gone, so scrollable regions need another cue that they scroll. */
-  :root {
+     target are gone, so scrollable regions need another cue that they scroll.
+     scrollbar-width is not inherited, so it goes on every element, not :root. */
+  * {
     scrollbar-width: none;
   }
 
@@ -1776,6 +2731,65 @@ iframe {
   0% { opacity: 0; transform: translateY(12px); }
   100% { opacity: 1; transform: translateY(0); }
 }
+/* Quick actions: the icons unfurl out of the (+) and fold back into it.
+   Each one starts tucked under the trigger and travels home, so the motion
+   says where they came from. Opening staggers outward on the emphasized
+   curve; closing is quicker and reverses the order so the farthest icon is
+   home first. */
+.quick-actions {
+  container-type: inline-size;
+}
+
+/* The icons centre on the row's midline (the dock's axis); the 3rem
+   trigger sits 1rem in from the right edge. For --n 3rem icons with 0.5rem
+   gaps, icon --k (1 = nearest) sits this far left of the trigger's centre:
+   50cqw - 0.75rem - n * 1.75rem + (k - 1) * 3.5rem. */
+.quick-action {
+  opacity: 0;
+  transform: translateX(calc(50cqw - 0.75rem - var(--n) * 1.75rem + (var(--k) - 1) * 3.5rem)) scale(0.4);
+  pointer-events: none;
+  transition:
+    transform 160ms var(--m3-standard) calc((var(--n) - var(--k)) * 20ms),
+    opacity 120ms linear calc((var(--n) - var(--k)) * 20ms),
+    background-color 150ms ease;
+}
+
+.quick-action[data-open] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    transform var(--m3-medium) var(--m3-emphasized) calc((var(--k) - 1) * 35ms),
+    opacity 180ms linear calc((var(--k) - 1) * 35ms),
+    background-color 150ms ease;
+}
+
+.quick-action[data-open]:active {
+  transform: scale(0.92);
+  transition-duration: 100ms;
+  transition-delay: 0ms;
+}
+
+.quick-action-trigger svg {
+  transition: transform var(--m3-medium) var(--m3-emphasized);
+}
+
+.quick-action-trigger[data-open] svg {
+  transform: rotate(135deg);
+}
+
+.quick-action-trigger {
+  transition: transform 100ms var(--m3-standard), border-color 150ms ease;
+}
+
+.quick-action-trigger[data-open] {
+  border-color: var(--border-hover);
+}
+
+.quick-action-trigger:active {
+  transform: scale(0.94);
+}
+
 @keyframes fadeInScale {
   from { opacity: 0; transform: translateY(8px) scale(0.995); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1818,7 +2832,7 @@ iframe {
   contain: strict;
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
   border-radius: 1rem;
-  background: #0c0c0d;
+  background: #000;
   box-shadow: none;
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
@@ -1968,13 +2982,13 @@ iframe {
 }
 
 .direct-call-mini-control {
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
+  background: #000;
 }
 
 .direct-call-mini-control:hover {
-  border-color: rgba(255, 255, 255, 0.13);
-  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-hover);
+  background: var(--state-hover, rgba(255, 255, 255, 0.1));
   color: #ffffff;
 }
 
@@ -2092,7 +3106,7 @@ iframe {
   padding: 0.125rem 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.045);
+  background: #000;
   color: #aeb4c0;
   font-size: var(--type-meta);
   font-weight: 800;
@@ -2562,28 +3576,137 @@ iframe {
   outline-offset: 2px;
 }
 
-.appearance-tint-swatch {
+/* Palette dots: one wrapping row. The active one gets a ring offset from
+   the ground so it reads on both black and the palette's own accent. */
+.appearance-tint-dot {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: transform var(--spring-fast-duration) var(--spring-fast), box-shadow 160ms var(--m3-standard);
+}
+
+.appearance-tint-dot:hover {
+  transform: scale(1.08);
+}
+
+.appearance-tint-dot.is-active {
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--app-accent);
+}
+
+.appearance-tint-dot:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 4px;
+}
+
+/* Style previews: a tiny panel and bubble drawn in each style's material. */
+.appearance-style-preview {
+  position: relative;
   display: block;
-  height: 2.5rem;
-  width: 100%;
+  height: 3.25rem;
+  overflow: hidden;
   border: 1px solid var(--border-subtle);
   border-radius: 0.8rem;
+  background: var(--bg-base);
 }
 
-/* Each swatch is the tint's own --bg-base against its
-   --surface-container-highest, so the preview is the palette rather than an
-   approximation of it. */
-.appearance-tint-swatch-neutral {
-  background: linear-gradient(135deg, #000000 0 48%, #1c1f28 48%);
+.appearance-style-preview > i {
+  position: absolute;
+  display: block;
 }
 
-.appearance-tint-swatch-ocean {
-  background: linear-gradient(135deg, #04070b 0 48%, #1a2634 48%);
+.appearance-style-preview > i:first-child {
+  left: 0.5rem;
+  top: 0.5rem;
+  width: 55%;
+  height: 0.875rem;
+  border-radius: 9999px;
+  background: var(--surface-container-highest);
 }
 
-.appearance-tint-swatch-steel {
-  background: linear-gradient(135deg, #050506 0 48%, #212129 48%);
+.appearance-style-preview > i:last-child {
+  right: 0.5rem;
+  bottom: 0.5rem;
+  width: 40%;
+  height: 1rem;
+  border-radius: 0.6rem 0.6rem 0.2rem 0.6rem;
+  background: var(--app-accent);
 }
+
+.appearance-style-preview-glass {
+  background:
+    radial-gradient(circle at 20% 10%, var(--app-accent-50), transparent 60%),
+    radial-gradient(circle at 90% 90%, var(--app-accent-20), transparent 55%),
+    var(--bg-base);
+}
+
+.appearance-style-preview-glass > i {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.appearance-style-preview-nothing {
+  border-radius: 0.25rem;
+  background-image: radial-gradient(var(--border-hover) 1px, transparent 1px);
+  background-size: 6px 6px;
+}
+
+.appearance-style-preview-nothing > i:first-child {
+  border-radius: 0;
+  background: transparent;
+  border: 1px solid var(--text-main);
+}
+
+.appearance-style-preview-nothing > i:last-child {
+  border-radius: 0;
+  background: var(--text-main);
+}
+
+.appearance-style-preview-material {
+  border: 0;
+  border-radius: 1.25rem;
+  background: var(--surface-container);
+}
+
+.appearance-style-preview-material > i:first-child {
+  background: var(--accent-container);
+}
+
+.appearance-style-preview-material > i:last-child {
+  border-radius: 9999px;
+}
+
+/* Each swatch is the OLED ground against the palette's accent. */
+.appearance-tint-swatch-blue { background: linear-gradient(135deg, #000000 0 48%, #3b82f6 48%); }
+.appearance-tint-swatch-orion { background: linear-gradient(135deg, #000000 0 48%, #c0c1ff 48%); }
+
+.appearance-tint-swatch-ocean { background: linear-gradient(135deg, #000000 0 48%, #89ceff 48%); }
+
+.appearance-tint-swatch-forest { background: linear-gradient(135deg, #000000 0 48%, #87d991 48%); }
+
+.appearance-tint-swatch-sunset { background: linear-gradient(135deg, #000000 0 48%, #ffb690 48%); }
+
+.appearance-tint-swatch-rose { background: linear-gradient(135deg, #000000 0 48%, #ffb0cd 48%); }
+
+.appearance-tint-swatch-mono { background: linear-gradient(135deg, #000000 0 48%, #c5c6cc 48%); }
+
+.appearance-tint-swatch-grape { background: linear-gradient(135deg, #000000 0 48%, #d0bcff 48%); }
+
+.appearance-tint-swatch-mint { background: linear-gradient(135deg, #000000 0 48%, #6fdba9 48%); }
+
+.appearance-tint-swatch-ember { background: linear-gradient(135deg, #000000 0 48%, #ffb3ad 48%); }
+
+.appearance-tint-swatch-amber { background: linear-gradient(135deg, #000000 0 48%, #ffb95f 48%); }
+
+.appearance-tint-swatch-cyber { background: linear-gradient(135deg, #000000 0 48%, #74e3ff 48%); }
+
+.appearance-tint-swatch-midnight { background: linear-gradient(135deg, #000000 0 48%, #adc6ff 48%); }
+
+.appearance-tint-swatch-lime { background: linear-gradient(135deg, #000000 0 48%, #a6d56b 48%); }
+
+.appearance-tint-swatch-cocoa { background: linear-gradient(135deg, #000000 0 48%, #ffb693 48%); }
 
 .add-friend-search {
   border: 1px solid transparent;
@@ -2673,6 +3796,8 @@ iframe {
 [data-theme="dark"] .premium-composer {
   background: #000 !important;
   border-color: var(--chat-border, rgba(255, 255, 255, 0.12));
+  /* Not an overlay: the hairline is its only edge (design.md §3). */
+  box-shadow: none;
 }
 
 /* Focus rang at --theme-50. Mono's accent is #f5f5f5, so a focused composer
@@ -2692,7 +3817,7 @@ iframe {
 }
 
 [data-theme="dark"] .premium-icon-button:hover {
-  background: rgba(255, 255, 255, 0.07) !important;
+  background: var(--state-hover) !important;
   color: var(--chat-control-text, var(--text-main));
   border-color: rgba(255, 255, 255, 0.18);
   box-shadow: none;
@@ -2727,6 +3852,27 @@ iframe {
 .auth-card .premium-secondary-button:not(:focus-visible) {
   box-shadow: none;
 }
+
+/* Auth inputs: the shared focus ring (solid, with a --bg-base gap) instead of
+   .ghost-border's 45% accent halo, which fell under 3:1 on black. */
+.auth-field:focus-within {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--app-accent);
+}
+
+.auth-field[data-invalid="true"] {
+  border-color: var(--status-danger);
+}
+
+.auth-message {
+  border: 1px solid color-mix(in srgb, var(--status-color) 35%, transparent);
+  background: color-mix(in srgb, var(--status-color) 10%, transparent);
+  color: var(--status-color);
+}
+
+.auth-message[data-kind="success"] { --status-color: var(--status-success); }
+.auth-message[data-kind="error"] { --status-color: var(--status-danger); }
+.auth-message[data-kind="info"] { --status-color: var(--accent-bright); }
 
 .messapp-auth-logo {
   background: #000;
@@ -3315,3 +4461,460 @@ iframe {
 @media (prefers-reduced-motion: reduce) {
   .fx, .fx > span, .msg-fx-slam, .msg-fx-loud, .msg-fx-gentle { animation: none; }
 }
+
+/* Orion-style Material 3 Expressive primitives: press squash, staggered
+   entrance, segmented groups, tonal icons, the M3 switch and nav bar. Shapes and
+   motion only; colors stay on the black+blue tokens (design.md §1). */
+@layer components {
+  .m3-press {
+    transition: transform var(--spring-fast-duration) var(--spring-fast);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .m3-press:active {
+    transform: scale(0.94);
+  }
+
+  /* Callers put this on the first screenful only (index < 9), so a long list
+     never visibly trickles in. */
+  .m3-reveal {
+    animation: m3Reveal var(--spring-slow-duration) var(--spring-slow) both;
+    animation-delay: calc(var(--i, 0) * 45ms);
+  }
+
+  .seg-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--seg-gap);
+  }
+
+  .seg-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3.5rem;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    /* Orion's GroupItem: a tonal fill, no outline. The border stays as a
+       transparent 1px so row heights don't shift. */
+    background: var(--surface-container-high);
+    border: 1px solid transparent;
+    border-radius: var(--seg-inner);
+    color: var(--text-main);
+    transition:
+      transform var(--spring-fast-duration) var(--spring-fast),
+      border-radius var(--spring-fast-duration) var(--spring-fast),
+      background-color 200ms var(--m3-standard),
+      border-color 200ms var(--m3-standard);
+  }
+
+  .seg-item:first-child {
+    border-top-left-radius: var(--seg-outer);
+    border-top-right-radius: var(--seg-outer);
+  }
+
+  .seg-item:last-child {
+    border-bottom-left-radius: var(--seg-outer);
+    border-bottom-right-radius: var(--seg-outer);
+  }
+
+  button.seg-item {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button.seg-item:hover {
+    background: var(--surface-container-highest);
+  }
+
+  button.seg-item:active {
+    transform: scale(0.98);
+    background: var(--surface-container-highest);
+  }
+
+  button.seg-item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--app-accent);
+  }
+
+  /* Selection is an accent wash, and the row morphs fully round. */
+  .seg-item[data-selected="true"] {
+    border-radius: var(--seg-outer);
+    background: var(--accent-container);
+    color: var(--on-accent-container);
+  }
+
+  /* Plain lists (Orion's My Apps): rows sit straight on the ground and only
+     show a fill on hover, press, or selection. */
+  :is(.seg-plain, .menu-page) .seg-item {
+    background: transparent;
+    border-radius: var(--seg-outer);
+  }
+
+  :is(.seg-plain, .menu-page) .seg-item:hover {
+    background: var(--state-hover);
+  }
+
+  :is(.seg-plain, .menu-page) .seg-item[data-selected="true"] {
+    background: var(--accent-container);
+  }
+
+  /* OLED rows have no fill to separate them, so they take the hairline. */
+  [data-theme="dark"] .seg-item {
+    border-color: var(--border-subtle);
+  }
+
+  [data-theme="dark"] :is(.seg-plain, .menu-page) .seg-item,
+  [data-theme="dark"] .seg-item[data-selected="true"] {
+    border-color: transparent;
+  }
+
+  [data-theme="dark"] button.seg-item:hover,
+  [data-theme="dark"] button.seg-item:active {
+    background: var(--state-hover);
+  }
+
+  .tonal-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 9999px;
+    background: var(--app-accent-10);
+    color: var(--accent-bright);
+  }
+
+  .m3-switch {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    width: 3.25rem;
+    height: 2rem;
+    border-radius: 9999px;
+    border: 2px solid var(--border-hover);
+    background: var(--surface-container-highest);
+    cursor: pointer;
+    transition: background-color 200ms var(--m3-standard), border-color 200ms var(--m3-standard);
+  }
+
+  .m3-switch[aria-checked="true"] {
+    background: var(--app-accent);
+    border-color: var(--app-accent);
+  }
+
+  .m3-switch:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--app-accent);
+  }
+
+  /* Thumb grows 16 → 24px when on and while pressed, as in M3. */
+  .m3-switch-thumb {
+    position: absolute;
+    left: 0.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: var(--text-muted);
+    color: var(--app-accent);
+    transition:
+      left var(--spring-fast-duration) var(--spring-fast),
+      width var(--spring-fast-duration) var(--spring-fast),
+      height var(--spring-fast-duration) var(--spring-fast),
+      background-color 200ms var(--m3-standard);
+  }
+
+  .m3-switch[aria-checked="true"] .m3-switch-thumb {
+    left: 1.375rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    background: var(--accent-contrast);
+  }
+
+  .m3-switch:active .m3-switch-thumb {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .m3-switch:not([aria-checked="true"]):active .m3-switch-thumb {
+    left: 0.125rem;
+  }
+
+  .m3-switch[aria-checked="true"]:active .m3-switch-thumb {
+    left: 1.125rem;
+  }
+
+  /* Navigation bar (phones) / rail (md+): icon in a pill indicator above its
+     label. The active pill grows out from the centre and the icon pops. */
+  .m3-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 3.5rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .m3-nav-indicator {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 2rem;
+  }
+
+  .m3-nav-indicator::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: var(--app-accent);
+    transform: scaleX(0);
+    opacity: 0;
+    transition:
+      transform var(--spring-fast-duration) var(--spring-fast),
+      opacity 150ms var(--m3-standard);
+  }
+
+  .m3-nav-item:hover .m3-nav-indicator::before {
+    transform: scaleX(1);
+    opacity: var(--m3-state-hover);
+    background: var(--text-main);
+  }
+
+  .m3-nav-item[data-active="true"] {
+    color: var(--text-main);
+  }
+
+  .m3-nav-item[data-active="true"] .m3-nav-indicator::before {
+    transform: scaleX(1);
+    opacity: 1;
+    background: var(--app-accent);
+  }
+
+  .m3-nav-indicator svg {
+    position: relative;
+  }
+
+  .m3-nav-item[data-active="true"] .m3-nav-indicator svg {
+    color: var(--accent-contrast);
+    animation: m3NavPop var(--spring-fast-duration) var(--spring-fast);
+  }
+
+  .m3-nav-item[data-alert] {
+    color: var(--app-accent);
+  }
+
+  .m3-nav-item:focus-visible .m3-nav-indicator::before {
+    transform: scaleX(1);
+    opacity: 1;
+    box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--app-accent);
+  }
+
+  .m3-nav-item:not([data-active="true"]):focus-visible .m3-nav-indicator::before {
+    background: transparent;
+  }
+}
+
+@keyframes m3Reveal {
+  from { opacity: 0; transform: translateY(1.75rem); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes m3NavPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-press, .seg-item, .m3-switch-thumb, .m3-nav-indicator::before { transition-property: background-color, border-color, opacity; }
+  .m3-press:active, button.seg-item:active { transform: none; }
+  .m3-reveal, .m3-nav-item[data-active="true"] .m3-nav-indicator svg { animation: none; }
+}
+
+/* ── Orion Store chrome ───────────────────────────────────────────────────
+   The floating pill dock. --dock-lift is its gap above the screen edge (never
+   less than 1rem, since Android's edge-to-edge WebView can report a zero safe
+   area over the gesture bar). --dock-space is the zone just above it, where
+   inputs and the FAB sit on phones. --dock-clear is tab-page bottom padding:
+   the last row stops 16px above the dock. The dock rules are unlayered and placed
+   last so they outrank the OLED black-fill rules above. See design.md §5. */
+:root {
+  --dock-lift: calc(max(env(safe-area-inset-bottom, 0px), 1rem) + 0.75rem);
+  --dock-space: calc(var(--dock-lift) + 3.25rem + 0.5rem);
+  --dock-clear: calc(var(--dock-lift) + 3.25rem + 1rem);
+  /* The Friends island's input row: 56px field plus its 4px top inset. */
+  --dock-island: 3.75rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --dock-space: 1rem;
+  }
+}
+@media (max-width: 767px) {
+  [data-theme] .home-tab-shell.dock-shell,
+  .home-tab-shell.dock-shell {
+    background: transparent !important;
+    border: 0;
+    transition: transform var(--m3-medium) var(--m3-emphasized);
+  }
+
+  .dock-shell[data-hidden] {
+    transform: translateY(calc(100% + 1rem));
+  }
+
+  /* Full OLED: the dock is black like every other surface and separates
+     from the page by its hairline ring. The radius is half the 52px tab row,
+     so it reads as a pill until it grows into an island, and the corners
+     never change while it does. */
+  .dock {
+    max-width: 100%;
+    border-radius: 1.625rem;
+    background: #000;
+    box-shadow: 0 0 0 1px var(--border-subtle, rgba(255, 255, 255, 0.16));
+  }
+
+  /* Island: a tab with an input (Friends) portals it into .dock-accessory
+     above the tabs, as one connected surface. The dock keeps its own width;
+     width 0 + min-width 100% stops the accessory's content from widening it,
+     so the input sizes to the tab row instead. */
+  .dock-accessory {
+    width: 0;
+    min-width: 100%;
+  }
+
+  .dock-accessory > * {
+    animation: dockIslandIn var(--spring-slow-duration) var(--spring-slow) both;
+  }
+
+  /* Light: the island's fill is the input's usual fill, so the input drops to
+     the page ground to read as a well. Dark already uses black wells. */
+  [data-theme="light"] .dock-accessory .add-friend-search,
+  [data-theme="light"] .dock-accessory .add-friend-result {
+    background: var(--bg-base);
+  }
+
+  [data-theme="light"] .dock {
+    background: var(--surface-container-high);
+    box-shadow: 0 4px 16px rgba(27, 31, 39, 0.14);
+  }
+
+  /* Each tab is one pill: icon, plus its label only while active. */
+  .dock .m3-nav-item {
+    flex-direction: row;
+    gap: 0;
+    height: 2.75rem;
+    min-height: 0;
+    padding: 0 0.75rem;
+    border-radius: 9999px;
+    transition: background-color 200ms var(--m3-standard), color 200ms var(--m3-standard);
+  }
+
+  .dock .m3-nav-indicator {
+    width: auto;
+    height: auto;
+  }
+
+  .dock .m3-nav-indicator::before {
+    display: none;
+  }
+
+  .dock .m3-nav-item:not([data-active="true"]):hover {
+    background: var(--state-hover);
+  }
+
+  .dock .m3-nav-item[data-active="true"],
+  .dock .m3-nav-item[data-active="true"] .m3-nav-indicator svg {
+    color: var(--accent-bright);
+  }
+
+  .dock .m3-nav-item[data-active="true"] {
+    background: var(--app-accent-20);
+  }
+
+  .dock .m3-nav-item:focus-visible {
+    box-shadow: 0 0 0 2px var(--app-accent);
+  }
+
+  .dock .m3-nav-label {
+    max-width: 0;
+    margin-left: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    opacity: 0;
+    font-size: 0.8125rem;
+    transition:
+      max-width var(--spring-fast-duration) var(--spring-fast),
+      margin-left var(--spring-fast-duration) var(--spring-fast),
+      opacity 150ms var(--m3-standard);
+  }
+
+  .dock .m3-nav-item[data-active="true"] .m3-nav-label {
+    max-width: 8rem;
+    margin-left: 0.5rem;
+    opacity: 1;
+  }
+}
+
+/* Tab page entrance. Fill is backwards only: a transform left on the scroll
+   container would trap position:fixed descendants. */
+.home-tab-page {
+  animation: homeTabIn var(--spring-slow-duration) var(--spring-slow) backwards;
+}
+
+@keyframes homeTabIn {
+  from { opacity: 0; transform: translateX(calc(var(--tab-dir, 0) * 2rem)); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-tab-page { animation-name: homeTabFade; }
+}
+
+@keyframes homeTabFade {
+  from { opacity: 0; }
+}
+
+@keyframes dockIslandIn {
+  from { opacity: 0; transform: translateY(0.75rem) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .home-tab-shell.dock-shell,
+  .dock .m3-nav-label {
+    transition: none;
+  }
+
+  .dock-accessory > * {
+    animation: none;
+  }
+}
+
+/* Typing indicator: a soft pulse on the motion tokens, not Tailwind's bounce. */
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.35; transform: none; }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+.typing-dot {
+  animation: typing-dot 1.2s var(--m3-standard) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot { animation: none; opacity: 0.7; }
+}
+

@@ -8,6 +8,13 @@ const STATUS_COLORS = {
   dnd: '#f23f43'
 }
 
+// Shape as well as hue, so presence reads without color vision (design.md §6).
+const STATUS_OUTLINE = {
+  online: 'solid',
+  idle: 'dashed',
+  dnd: 'dotted'
+}
+
 const STATUS_LABELS = {
   online: 'Online',
   idle: 'Idle',
@@ -23,19 +30,19 @@ export default function StatusAvatar({ url, username, isOnline, status, showStat
   const statusLabel = STATUS_LABELS[resolvedStatus] || STATUS_LABELS.offline
 
   return (
-    <div className={`relative shrink-0 flex items-center justify-center rounded-full ${className}`} title={`${username || 'User'} · ${statusLabel}`} aria-label={`${username || 'User'} ${statusLabel}`}>
+    <div className={`relative shrink-0 flex items-center justify-center rounded-full ${className}`} title={`${username || 'User'} · ${statusLabel}`} role="img" aria-label={`${username || 'User'}, ${statusLabel}`}>
       {safeUrl ? (
         <img src={safeUrl} alt="" className="h-full w-full rounded-full object-cover" loading={loading} decoding="async" draggable={false} />
       ) : (
         <svg viewBox="0 0 100 100" className="w-full h-full overflow-hidden rounded-full">
             <circle cx={center} cy={center} r={center} fill="var(--border-subtle)" />
-            <text x="50%" y="50%" textAnchor="middle" dy=".35em" fill="white" fontSize="45" fontWeight="bold" fontFamily="sans-serif">
+            <text x="50%" y="50%" textAnchor="middle" dy=".35em" fill="var(--text-main)" fontSize="45" fontWeight="bold">
               {username?.[0]?.toUpperCase() || '?'}
             </text>
         </svg>
       )}
       {showStatus && statusColor && (
-        <span className="absolute inset-0 rounded-full pointer-events-none" style={{ boxShadow: `0 0 0 2px var(--bg-surface), 0 0 0 4px ${statusColor}` }}></span>
+        <span className="absolute inset-0 rounded-full pointer-events-none" style={{ outline: `2px ${STATUS_OUTLINE[resolvedStatus]} ${statusColor}`, outlineOffset: '2px' }}></span>
       )}
     </div>
   )

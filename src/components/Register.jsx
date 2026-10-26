@@ -1,21 +1,24 @@
 /** Creates a Supabase auth identity; profile provisioning is backend-dependent. */
 import { useState } from 'react'
-import { ArrowRight, AtSign, KeyRound, Loader2, Lock, LogIn, User } from 'lucide-react'
+import { ArrowRight, AtSign, Lock, User } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import Turnstile, { TURNSTILE_SITE_KEY } from './ui/Turnstile'
 import { generateSecureRandomNumber } from '../lib/crypto'
 import { isValidUsername, normalizeProfileBaseName } from '../lib/security'
+import { AuthField, AuthLayout, AuthMessage, PasswordField, SubmitButton, useCooldown } from './auth/AuthParts'
 
-export default function Register({ switchToLogin, onRegistrationComplete }) {
-  const [email, setEmail] = useState('')
+export default function Register({ email, onEmailChange, switchToLogin, onRegistrationComplete }) {
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [username, setUsername] = useState('') 
+  const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState('error')
   const [canResendConfirmation, setCanResendConfirmation] = useState(false)
-  const [verificationPending, setVerificationPending] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaReset, setCaptchaReset] = useState(0)
+  const [cooldown, startCooldown] = useCooldown()
+  const captchaPending = Boolean(TURNSTILE_SITE_KEY) && !captchaToken
 
   const redirectTo = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
 
@@ -26,15 +29,14 @@ export default function Register({ switchToLogin, onRegistrationComplete }) {
 
   const formatAuthError = (error) => {
     const text = error?.message || 'Unable to create account.'
-    if (/already|registered|exists/i.test(text)) return 'This email is already registered. Please log in.'
+    if (/already|registered|exists/i.test(text)) return 'This email is already registered. Sign in instead.'
     if (/rate|too many|limit/i.test(text)) return 'Too many requests. Wait a moment, then try again.'
     if (/email/i.test(text) && /invalid/i.test(text)) return 'Enter a valid email address.'
-    return `Error: ${text}`
+    return text
   }
 
   const handleRegister = async (e) => {
     e.preventDefault()
-    if (password !== confirmPassword) return setAuthMessage('Passwords do not match.')
     if (!username.trim()) return setAuthMessage('Display name is required.')
     if (!isValidUsername(username)) return setAuthMessage('Display name must be 2-32 characters and use letters, numbers, spaces, dots, dashes, or underscores.')
     if (password.length < 6) return setAuthMessage('Password must be at least 6 characters.')
@@ -42,30 +44,29 @@ export default function Register({ switchToLogin, onRegistrationComplete }) {
     setLoading(true)
     setMessage('')
     setCanResendConfirmation(false)
-    setVerificationPending(false)
 
     const randomDiscriminator = generateSecureRandomNumber(1000, 9999)
-    const baseName = normalizeProfileBaseName(username) || 'user'
     const generatedTag = `${baseName}#${randomDiscriminator}`
 
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { emailRedirectTo: redirectTo, data: { username: username.trim(), unique_tag: generatedTag } },
+      options: { emailRedirectTo: redirectTo, captchaToken, data: { username: username.trim(), unique_tag: generatedTag } },
     })
+    setCaptchaReset(n => n + 1)
 
     if (error) {
       setCanResendConfirmation(/confirm|verification/i.test(error.message))
       setAuthMessage(formatAuthError(error))
     } else if (data?.user && !data?.session) {
-      setVerificationPending(true)
       setCanResendConfirmation(true)
-      setAuthMessage('Check your email to verify your account before logging in. If it does not arrive, check spam or resend it below.', 'success')
+      startCooldown()
+      setAuthMessage('Check your email to verify your account, then sign in. No email? Check spam or resend it below.', 'info')
     } else if (data?.session) {
       await supabase.auth.signOut()
-      onRegistrationComplete?.('Registration successful. Please log in.')
+      onRegistrationComplete?.('Account created. Sign in to continue.')
     } else {
-      onRegistrationComplete?.('Registration successful. Please log in.')
+      onRegistrationComplete?.('Account created. Sign in to continue.')
     }
     setLoading(false)
   }
@@ -77,103 +78,62 @@ export default function Register({ switchToLogin, onRegistrationComplete }) {
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email: email.trim(),
-      options: { emailRedirectTo: redirectTo }
+      options: { emailRedirectTo: redirectTo, captchaToken }
     })
+    setCaptchaReset(n => n + 1)
 
     if (error) setAuthMessage(formatAuthError(error))
     else {
-      setVerificationPending(true)
       setCanResendConfirmation(true)
-      setAuthMessage('Confirmation email resent. Check your inbox and spam folder.', 'success')
+      startCooldown()
+      setAuthMessage('Confirmation email resent. Check your inbox and spam folder.', 'info')
     }
     setResending(false)
   }
 
+  const baseName = normalizeProfileBaseName(username) || 'user'
+  const invalid = messageType === 'error' && Boolean(message)
+
   return (
-    <div className="ios-sheet auth-card rounded-3xl w-full md:h-[650px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)]">
-      
-      <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
-        <div>
-          <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
-            <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
-              <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
-            </div>
-            <span className="font-bold tracking-wider type-label">MESSAPP</span>
-          </div>
-          <h1 className="gradient-text type-display font-semibold tracking-tight mb-2 md:mb-6 leading-[1.1]">
-            Claim Your<br className="hidden md:block"/><span className="md:hidden"> </span><span className="accent-gradient-text">Identity.</span>
-          </h1>
-          <p className="hidden md:block text-[var(--text-muted)] type-title max-w-sm mt-4 leading-relaxed font-sans">
-            Join the next generation of communication. Fast, secure, and infinitely customizable.
-          </p>
+    <AuthLayout title="Create your account" subtitle="You’ll confirm your email, then sign in.">
+      <form onSubmit={handleRegister} className="flex flex-col gap-4">
+        <AuthField label="Email" icon={AtSign} type="email" placeholder="you@example.com" value={email} onChange={(e) => onEmailChange(e.target.value)} required autoComplete="email" enterKeyHint="next" />
+        <AuthField
+          label="Display name"
+          icon={User}
+          type="text"
+          placeholder="What should we call you?"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          maxLength={32}
+          autoComplete="nickname"
+          enterKeyHint="next"
+          hint={username.trim() ? `Friends find you as ${baseName}#····` : 'Friends find you by a tag generated from this name.'}
+          invalid={invalid && !isValidUsername(username)}
+        />
+        <PasswordField label="Password" icon={Lock} placeholder="At least 6 characters" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoComplete="new-password" enterKeyHint="go" hint="At least 6 characters." invalid={invalid && password.length < 6} />
+        <Turnstile onToken={setCaptchaToken} resetKey={captchaReset} />
+        <SubmitButton busy={loading} busyLabel="Creating account…" waiting={captchaPending} icon={ArrowRight}>Create account</SubmitButton>
+      </form>
+
+      <AuthMessage kind={messageType}>
+        {message && <p className="type-meta m-0 font-medium">{message}</p>}
+        {message && canResendConfirmation && (
+          <button type="button" onClick={handleResendConfirmation} disabled={resending || captchaPending || cooldown > 0} className="premium-secondary-button mt-3 min-h-11 px-4 disabled:opacity-60 type-meta font-bold cursor-pointer">
+            {resending ? 'Sending…' : cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend confirmation email'}
+          </button>
+        )}
+      </AuthMessage>
+
+      {switchToLogin && (
+        <div className="mt-6 pt-6 border-t border-[var(--border-subtle)]">
+          <p className="type-label text-[var(--text-muted)] mb-3 mt-0">Already have an account?</p>
+          <button onClick={switchToLogin} type="button" className="premium-secondary-button w-full h-12 font-bold cursor-pointer type-label">
+            Sign in
+          </button>
         </div>
-        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">
-          <span>BUILT BY SKIBIDEVS</span><span className="w-8 h-[1px] bg-[var(--border-hover)] my-auto"></span><span>MESSAPP</span>
-        </div>
-      </div>
-
-      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--bg-base)] flex-1 md:overflow-y-auto custom-scrollbar">
-        <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
-          <h2 className="type-view-title font-semibold tracking-tight mb-2">Create an Account</h2>
-          <p className="text-[var(--text-muted)] type-label mb-6 md:mb-8">Establish who you are to access MessApp.</p>
-
-          <form onSubmit={handleRegister} className="flex flex-col gap-3 md:gap-4">
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Email Address</label>
-              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
-                <AtSign size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="user@messapp.dev" />
-              </div>
-            </div>
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Display Name</label>
-              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
-                <User size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="What should we call you?" />
-              </div>
-            </div>
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Password</label>
-              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
-                <Lock size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
-              </div>
-            </div>
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Confirm Password</label>
-              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
-                <KeyRound size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
-              </div>
-            </div>
-            <button type="submit" disabled={loading} className="premium-button mt-1 w-full h-12 rounded-xl font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-              {loading ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <><span className="type-label">Establish Who You Are</span><ArrowRight size={18} aria-hidden="true" /></>}
-            </button>
-          </form>
-
-          {message && (
-            <div className={`mt-4 p-3 border rounded-xl text-center ${messageType === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
-              <p className="type-meta m-0 font-medium">{message}</p>
-              {verificationPending && <p className="type-meta mt-2 m-0 opacity-80">Do not try to log in until the confirmation link has been opened.</p>}
-              {canResendConfirmation && (
-                <button type="button" onClick={handleResendConfirmation} disabled={resending} className="premium-secondary-button mt-3 h-10 px-4 rounded-lg disabled:opacity-60 type-meta font-bold cursor-pointer">
-                  {resending ? 'Sending...' : 'Resend confirmation email'}
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center gap-4 my-5 md:my-6">
-            <div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div><span className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">Already have an account?</span><div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div>
-          </div>
-
-          {switchToLogin && (
-            <button onClick={switchToLogin} type="button" className="premium-secondary-button w-full h-12 rounded-xl font-bold flex items-center justify-center gap-2 type-label">
-              <LogIn size={18} className="text-[var(--text-muted)]" aria-hidden="true" />Return to Login
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+      )}
+    </AuthLayout>
   )
 }

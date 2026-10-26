@@ -9,7 +9,7 @@ import { supabase } from '../supabaseClient';
 import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
-import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../lib/voiceAudioProcessing';
+import { applyVoiceAudioProcessing, getVoiceMediaStream, tuneOpusSdp } from '../lib/voiceAudioProcessing';
 import { acquireAlternateCamera, CallAudio } from '../lib/mediaDevices';
 import { getIceServers, hasTurnRelay } from '../lib/iceServers';
 import { isPolite, shouldIgnoreOffer } from '../lib/negotiation';
@@ -415,7 +415,7 @@ export function useWebRTC(session, activeDm) {
       if (type === 'offer' && pc.signalingState !== 'stable') {
         await pc.setLocalDescription({ type: 'rollback' });
       }
-      await pc.setRemoteDescription(new RTCSessionDescription(description));
+      await pc.setRemoteDescription(new RTCSessionDescription({ ...description, sdp: tuneOpusSdp(description.sdp) }));
     } catch (err) {
       debug.error('WEBRTC_ERROR', { operation: 'apply-remote-description', type, error: serializeCallError(err) });
       return false;

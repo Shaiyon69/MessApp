@@ -14,6 +14,7 @@ import StatusAvatar from '../ui/StatusAvatar'
 import { formatMessageTime } from '../../lib/messageTime'
 import { stripEffects } from '../../lib/messageEffects'
 import { mergeThreadReplies } from '../../lib/threads'
+import { enterSends } from '../../lib/composerFocus'
 
 const REPLY_SELECT = 'id, profile_id, content, created_at, is_deleted, profiles!fk_messages_profile(username, avatar_url)'
 
@@ -38,6 +39,9 @@ export default function ThreadPanel({ root, channelId, currentUserId, onClose })
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const endRef = useRef(null)
+  const inputRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   const rootId = root?.id
 
   useEffect(() => {
@@ -67,6 +71,19 @@ export default function ThreadPanel({ root, channelId, currentUserId, onClose })
     }
   }, [rootId])
 
+  // Modal on mobile, side panel on desktop: either way Esc closes it and focus
+  // goes back to whatever opened it.
+  useEffect(() => {
+    const opener = document.activeElement
+    inputRef.current?.focus({ preventScroll: true })
+    const onKey = (event) => { if (event.key === 'Escape') onCloseRef.current?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      opener?.focus?.({ preventScroll: true })
+    }
+  }, [])
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [replies.length])
@@ -82,13 +99,13 @@ export default function ThreadPanel({ root, channelId, currentUserId, onClose })
       .select(REPLY_SELECT)
       .single()
     setSending(false)
-    if (error) return toast.error(error.message || 'Could not send')
+    if (error) return toast.error('Reply not sent. Check your connection and try again.')
     setDraft('')
     setReplies(current => mergeThreadReplies(current, [data]))
   }
 
   return (
-    <aside data-ui-overlay-owner="ChatArea:thread" aria-label="Thread" className="fixed inset-0 z-[150] flex flex-col bg-[var(--bg-base)] md:inset-y-0 md:left-auto md:right-0 md:w-[24rem] md:border-l md:border-[var(--border-subtle)] md:shadow-2xl">
+    <aside data-ui-overlay-owner="ChatArea:thread" aria-label="Thread" className="fixed inset-0 z-[150] flex flex-col bg-[var(--bg-base)] md:inset-y-0 md:left-auto md:right-0 md:w-[24rem] md:border-l md:border-[var(--border-subtle)]">
       <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] md:pt-3">
         <h2 className="type-title font-bold text-[var(--text-main)]">Thread</h2>
         <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-main)]" aria-label="Close thread"><X size={18} /></button>
@@ -102,15 +119,16 @@ export default function ThreadPanel({ root, channelId, currentUserId, onClose })
       </div>
       <form onSubmit={send} className="flex items-end gap-2 border-t border-[var(--border-subtle)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <textarea
+          ref={inputRef}
           value={draft}
           onChange={event => setDraft(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) send(event) }}
+          onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && enterSends()) send(event) }}
           rows={1}
           placeholder="Reply in thread"
           aria-label="Reply in thread"
           className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl bg-[var(--bg-element)] px-4 py-2.5 type-body text-[var(--text-main)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
         />
-        <button type="submit" disabled={!draft.trim() || sending} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-white disabled:opacity-40" aria-label="Send reply"><Send size={18} /></button>
+        <button type="submit" disabled={!draft.trim() || sending} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[var(--accent-contrast)] disabled:opacity-40" aria-label="Send reply"><Send size={18} /></button>
       </form>
     </aside>
   )

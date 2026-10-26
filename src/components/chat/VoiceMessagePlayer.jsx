@@ -50,6 +50,17 @@ export default function VoiceMessagePlayer({ src, label = 'Voice message', class
     setCurrentTime(audio.currentTime)
   }
 
+  const seekBy = (event) => {
+    const audio = audioRef.current
+    if (!audio || !duration) return
+    const step = { ArrowRight: 5, ArrowUp: 5, ArrowLeft: -5, ArrowDown: -5 }[event.key]
+    const target = event.key === 'Home' ? 0 : event.key === 'End' ? duration : step === undefined ? null : audio.currentTime + step
+    if (target === null) return
+    event.preventDefault()
+    audio.currentTime = Math.min(duration, Math.max(0, target))
+    setCurrentTime(audio.currentTime)
+  }
+
   return (
     <div className={`flex h-12 min-w-0 items-center gap-2 rounded-full bg-[var(--theme-20)] px-2 text-[var(--chat-text,var(--text-main))] ${className}`}>
       <audio
@@ -74,11 +85,17 @@ export default function VoiceMessagePlayer({ src, label = 'Voice message', class
       >
         {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="translate-x-px" />}
       </button>
-      <button
-        type="button"
+      <div
+        role="slider"
+        tabIndex={0}
         onClick={seek}
-        className="flex h-8 min-w-0 flex-1 items-center gap-[2px]"
+        onKeyDown={seekBy}
+        className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-[2px] rounded-full"
         aria-label={`Seek ${label}`}
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(currentTime)}
+        aria-valuetext={`${formatVoiceMessageDuration(currentTime)} of ${formatVoiceMessageDuration(duration)}`}
       >
         {waveform.map((height, index) => (
           <span
@@ -87,7 +104,7 @@ export default function VoiceMessagePlayer({ src, label = 'Voice message', class
             style={{ height: `${Math.round(7 + height * 15)}px` }}
           />
         ))}
-      </button>
+      </div>
       <span className="w-9 shrink-0 text-right type-meta font-bold tabular-nums opacity-65">
         {formatVoiceMessageDuration(isPlaying || currentTime > 0 ? currentTime : duration)}
       </span>

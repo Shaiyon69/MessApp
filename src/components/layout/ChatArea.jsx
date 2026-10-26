@@ -5,7 +5,8 @@
  */
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
-import { Loader2, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3 } from 'lucide-react'
+import { ORIGIN_FILTERS, messageOrigin, stepOriginFilter } from '../../lib/messageOrigin'
+import { Loader2, WifiOff, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3 } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -34,7 +35,7 @@ import {
   getVoiceMessageMimeType,
   normalizeVoiceMessageMimeType
 } from '../../lib/voiceMessages'
-import { getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
+import { getVoiceMediaStream, VOICE_MESSAGE_BITRATE } from '../../lib/voiceAudioProcessing'
 import { createDraftStore } from '../../lib/drafts'
 
 // Kept out of the boot bundle — each is only mounted behind a user action
@@ -78,6 +79,8 @@ export default function ChatArea(props) {
   const [mediaEditorTarget, setMediaEditorTarget] = useState(null);
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
   const [radialOpen, setRadialOpen] = useState(false);
+  // The hold menu has no visible handle; say it exists until it has been used once.
+  const [sendHintSeen, setSendHintSeen] = useState(() => { try { return localStorage.getItem('messapp.sendHintSeen') === '1' } catch { return true } });
   const [radialIndex, setRadialIndex] = useState(null);
   /* Ticks up while a timed wedge is held, walking its lifetime through the
      cycle. Reset whenever the thumb moves to another wedge, so a lifetime is
@@ -205,9 +208,10 @@ export default function ChatArea(props) {
         noiseReduction: true
       })
       const preferredMimeType = getVoiceMessageMimeType(MediaRecorder)
-      const recorder = preferredMimeType
-        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
-        : new MediaRecorder(stream)
+      const recorder = new MediaRecorder(stream, {
+        ...(preferredMimeType && { mimeType: preferredMimeType }),
+        audioBitsPerSecond: VOICE_MESSAGE_BITRATE
+      })
       const startedAt = Date.now()
 
       voiceRecorderStreamRef.current = stream
@@ -358,6 +362,48 @@ export default function ChatArea(props) {
       setPositionedChatKey(activeChatKey)
     }
   }, [activeChatKey, props.initialMessagesLoaded, props.messagesLoading, props.scrollContainerRef, props.visibleMessages.length])
+
+  /* Horizontal swipe pages the DM origin filter. Bubbles keep their own
+     swipe-to-reply, so a press that starts on one (or on a control) is ignored. */
+  const originSwipeRef = useRef(null)
+  const originSwipeEnabled = props.view === 'home' && Boolean(props.activeDm)
+  const originSwipe = originSwipeEnabled ? {
+    onPointerDown: (event) => {
+      originSwipeRef.current = event.target.closest('.message-touch-target, button:not([data-origin-dot]), a, input, textarea, video, audio')
+        ? null
+        : { x: event.clientX, y: event.clientY, id: event.pointerId }
+    },
+    onPointerUp: (event) => {
+      const start = originSwipeRef.current
+      originSwipeRef.current = null
+      if (!start || start.id !== event.pointerId) return
+      const dx = event.clientX - start.x
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(event.clientY - start.y) * 1.5) return
+      props.setOriginFilter(stepOriginFilter(props.originFilter, dx < 0 ? 1 : -1))
+    },
+    onPointerCancel: () => { originSwipeRef.current = null }
+  } : {}
+  /* Page indicator for the swipe; the dots stay buttons so mouse and
+     keyboard users can still pick a source directly. Floats over the thread
+     bottom, so it takes no row of its own. */
+  const originDots = originSwipeEnabled && (
+    <div className="origin-dots chat-glass premium-menu absolute bottom-full left-1/2 z-20 mb-1 flex -translate-x-1/2 gap-1.5 rounded-full px-1.5 touch-pan-y" role="group" aria-label="Message source" {...originSwipe}>
+      {ORIGIN_FILTERS.map(({ id, label }) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={props.originFilter === id}
+          data-origin-dot
+          aria-label={label}
+          title={label}
+          onClick={() => props.setOriginFilter(id)}
+          className="relative grid h-6 cursor-pointer place-items-center rounded-full px-0.5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] before:absolute before:-inset-x-1.5 before:-inset-y-2.5 before:content-['']"
+        >
+          <span className={`block h-1.5 rounded-full transition-all duration-300 ease-out ${props.originFilter === id ? 'w-5 bg-[var(--theme-base)]' : 'w-1.5 bg-[var(--text-muted)] opacity-50'}`} aria-hidden="true" />
+        </button>
+      ))}
+    </div>
+  )
 
   const closeMessageActionMenu = useCallback((reason, payload = {}) => {
     if (!props.messageActionMenuId) return
@@ -628,6 +674,11 @@ useEffect(() => {
   };
 
   const radialChoice = SEND_RADIAL_OPTIONS[radialIndex];
+  useEffect(() => {
+    if (sendHintSeen || !(sendOptionsOpen || radialOpen)) return;
+    setSendHintSeen(true);
+    try { localStorage.setItem('messapp.sendHintSeen', '1') } catch { /* private mode: hint just shows again */ }
+  }, [radialOpen, sendHintSeen, sendOptionsOpen]);
 
   /* Resting on a timed wedge walks it through the lifetimes rather than adding
      more wedges to aim at: three targets stay reachable by thumb, and the one
@@ -740,6 +791,25 @@ useEffect(() => {
      driven. */
   const homeVisible = props.view === 'home' && !props.activeDm
 
+  /* Orion's dock: slides away while the list scrolls down, back on any scroll
+     up, and always returns when the tab changes. */
+  const [dockHidden, setDockHidden] = useState(false)
+  const lastHomeScrollRef = useRef(0)
+  useEffect(() => { setDockHidden(false); lastHomeScrollRef.current = 0 }, [props.homeTab])
+  // The new page slides in from the side of the dock its tab sits on.
+  const [tabMotion, setTabMotion] = useState({ tab: props.homeTab, dir: 0 })
+  if (tabMotion.tab !== props.homeTab) {
+    const tabIndex = id => TABS.findIndex(tab => tab.id === id)
+    setTabMotion({ tab: props.homeTab, dir: Math.sign(tabIndex(props.homeTab) - tabIndex(tabMotion.tab)) })
+  }
+  const onHomeScroll = (event) => {
+    const top = event.currentTarget.scrollTop
+    const delta = top - lastHomeScrollRef.current
+    lastHomeScrollRef.current = top
+    if (delta > 8 && top > 64) setDockHidden(true)
+    else if (delta < -8) setDockHidden(false)
+  }
+
   return (
       <main
         id="messapp-main"
@@ -770,16 +840,19 @@ useEffect(() => {
       {/* Nav rail + conversation list. Hidden on mobile while a thread is open,
           always docked from md up — that is what turns the single-pane phone
           layout into the three-column desktop one. */}
-      <section className={`min-h-0 min-w-0 flex-col md:flex md:w-[27rem] md:flex-none md:flex-row-reverse md:gap-2 ${homeVisible ? 'flex flex-1' : 'hidden'}`}>
+      <section className={`relative min-h-0 min-w-0 flex-col md:flex md:w-[27rem] md:flex-none md:flex-row-reverse md:gap-2 ${homeVisible ? 'flex flex-1' : 'hidden'}`}>
         <div className="home-dashboard relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)]">
-          <header className="ios-app-bar flex h-16 shrink-0 items-center justify-between gap-3 px-4 md:px-5">
-            <span className="min-w-0 flex-1 truncate font-display type-view-title font-extrabold lowercase tracking-[-0.045em] text-[var(--text-main)]">messapp</span>
-            <span className="type-meta font-bold uppercase tracking-[0.14em] text-gray-500">{TABS.find(tab => tab.id === props.homeTab)?.label}</span>
+          {/* Minimal header: the wordmark. The account avatar is the dock's Menu tab. Search lives in
+              the quick actions button. The dock names the tab. */}
+          <header className="ios-app-bar flex h-16 shrink-0 items-center gap-1 pl-4 pr-2 md:pl-5">
+            <h1 className="sr-only">{TABS.find(tab => tab.id === props.homeTab)?.label}</h1>
+            <span className="min-w-0 flex-1 truncate type-view-title font-bold lowercase tracking-[-0.045em] text-[var(--text-main)]" aria-hidden="true">messapp</span>
           </header>
           {/* The FAB is positioned against this wrapper, not the shell, so its
               bottom edge lands exactly where the bottom bar starts. */}
           <div className="relative flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+            {/* Keyed so each tab mounts fresh: replays the entrance and starts at the top. */}
+            <div key={props.homeTab} className="home-tab-page min-h-0 flex-1 overflow-y-auto custom-scrollbar" style={{ '--tab-dir': tabMotion.dir }} onScroll={onHomeScroll}>
               {props.homeTab === 'menu' ? (
                 <MenuPage {...props} />
               ) : props.homeTab === 'servers' ? (
@@ -798,19 +871,25 @@ useEffect(() => {
                 <ChatsPage {...props} />
               )}
             </div>
-            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} />}
+            {/* Friends has its own input in the FAB's spot above the dock, so the FAB lifts over it. */}
+            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} lifted={props.homeTab === 'add'} />}
           </div>
         </div>
         <BottomBar
           homeTab={props.homeTab}
           setHomeTab={props.setHomeTab}
           notificationCount={props.notificationCount}
+          avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
+          username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
+          // Friends' input lives in the dock, so it must not slide away mid-typing.
+          hidden={dockHidden && props.homeTab !== 'add'}
+          expanded={props.homeTab === 'add'}
         />
       </section>
 
-      <section className={`min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)] ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
+      <section className={`chat-surface min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)] ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
       <header
-        className="ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30"
+        className="ios-app-bar chat-glass h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30"
         style={props.isChatActive ? { backgroundColor: 'var(--chat-bg-surface)' } : undefined}
       >
         <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
@@ -842,7 +921,6 @@ useEffect(() => {
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start voice call" title="Voice call"><Phone size={20} aria-hidden="true" /></button>}
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(true)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start video call" title="Video call"><Video size={20} aria-hidden="true" /></button>}
               {props.view === 'home' && props.activeDm && <div className="w-[1px] h-6 bg-[var(--border-subtle)] mx-1"></div>}
-              <button onClick={() => props.toggleRightSidebar('search')} className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${props.rightTab === 'search' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`} aria-label="Search conversation" aria-pressed={props.rightTab === 'search' && props.showRightSidebar} title="Search"><Search size={20} aria-hidden="true" /></button>
               <button onClick={() => props.toggleRightSidebar('info')} className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${props.rightTab === 'info' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`} aria-label="Show conversation details" aria-pressed={props.rightTab === 'info' && props.showRightSidebar} title="Conversation details"><Info size={20} aria-hidden="true" /></button>
             </>
           )}
@@ -893,7 +971,7 @@ useEffect(() => {
               </button>
               <button type="button" onClick={toggleVoiceDeafened} className={`voice-drawer-action ${props.voiceDeafened ? 'is-danger' : 'is-live'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
                 {props.voiceDeafened ? <VolumeX size={20} aria-hidden="true" /> : <Volume2 size={20} aria-hidden="true" />}
-                <span>{props.voiceDeafened ? 'Listen' : 'Deafen'}</span>
+                <span>{props.voiceDeafened ? 'Undeafen' : 'Deafen'}</span>
               </button>
               <button type="button" onClick={() => { setVoiceControlsOpen(false); props.openActiveVoiceChannel?.() }} className="voice-drawer-action">
                 <MonitorUp size={20} aria-hidden="true" />
@@ -914,16 +992,16 @@ useEffect(() => {
           {isVoiceChannel ? (
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 pb-36 md:p-8">
               <div className="mx-auto flex max-w-5xl flex-col gap-4">
-                <section className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-5 shadow-xl md:p-7">
+                <section className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-5 md:p-7">
                   <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
                     <div className="flex min-w-0 items-center gap-4">
-                      <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${isActiveVoiceSession ? 'bg-green-500/15 text-green-300' : 'bg-[var(--theme-20)] text-[var(--theme-base)]'}`}>
+                      <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${isActiveVoiceSession ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]' : 'bg-[var(--theme-20)] text-[var(--theme-base)]'}`}>
                         <Radio size={28} aria-hidden="true" />
                       </div>
                       <div className="min-w-0">
                         <p className="type-meta font-black uppercase tracking-widest text-gray-500">Voice channel</p>
                         <h3 className="truncate type-view-title font-black text-[var(--text-main)]">{props.activeChannel.name}</h3>
-                        <p className={`mt-1 type-label font-bold ${isActiveVoiceSession ? 'text-green-300' : voiceChannelParticipants.length > 0 ? 'text-[var(--theme-base)]' : 'text-gray-400'}`}>
+                        <p className={`mt-1 type-label font-bold ${isActiveVoiceSession ? 'text-[var(--status-success)]' : voiceChannelParticipants.length > 0 ? 'text-[var(--theme-base)]' : 'text-gray-400'}`}>
                           {isActiveVoiceSession
                             ? `Connected - ${props.voiceSessionState?.status || 'connecting'}`
                             : voiceChannelParticipants.length > 0
@@ -975,9 +1053,9 @@ useEffect(() => {
                           <button type="button" onClick={toggleVoiceDeafened} className={`rounded-xl p-2.5 ${props.voiceDeafened ? 'bg-red-500/15 text-red-300' : 'bg-[var(--bg-element)] text-gray-300'}`} aria-label={props.voiceDeafened ? 'Undeafen' : 'Deafen'}>
                             {props.voiceDeafened ? <VolumeX size={18} /> : <Volume2 size={18} />}
                           </button>
-                          <button type="button" onClick={props.openActiveVoiceChannel} className="inline-flex items-center gap-2 rounded-xl bg-green-500/15 px-4 py-2.5 type-label font-black text-green-300">
+                          <button type="button" onClick={props.openActiveVoiceChannel} className="inline-flex items-center gap-2 rounded-xl bg-[var(--app-accent-20)] px-4 py-2.5 type-label font-black text-[var(--accent-bright)]">
                             <MonitorUp size={18} aria-hidden="true" />
-                            Expanded
+                            Open call
                           </button>
                           <button type="button" onClick={props.leaveActiveVoice} className="inline-flex items-center gap-2 rounded-xl bg-red-500/15 px-4 py-2.5 type-label font-black text-red-300">
                             <PhoneOff size={18} aria-hidden="true" />
@@ -996,7 +1074,7 @@ useEffect(() => {
                     </div>
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
                       <p className="type-meta font-black uppercase tracking-widest text-gray-500">Screen share</p>
-                      <p className={`mt-2 type-label font-black ${props.voiceSessionState?.isSharing ? 'text-green-300' : 'text-gray-400'}`}>{props.voiceSessionState?.isSharing ? 'Live' : 'Idle'}</p>
+                      <p className={`mt-2 type-label font-black ${props.voiceSessionState?.isSharing ? 'text-[var(--status-success)]' : 'text-gray-400'}`}>{props.voiceSessionState?.isSharing ? 'Live' : 'Idle'}</p>
                     </div>
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
                       <p className="type-meta font-black uppercase tracking-widest text-gray-500">You</p>
@@ -1023,8 +1101,9 @@ useEffect(() => {
           ) : (
             <>
               <div 
-                className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-8 relative z-10 transition-[padding] duration-300 ease-out"
-                ref={props.scrollContainerRef} 
+                className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-8 relative z-10 transition-[padding] duration-300 ease-out touch-pan-y"
+                ref={props.scrollContainerRef}
+                {...originSwipe}
                 role="log"
                 aria-label={props.view === 'home' ? `Messages with ${props.activeDm?.profiles?.username || 'this conversation'}` : `Messages in #${props.activeChannel?.name || 'this channel'}`}
                 onScroll={props.handleScroll}
@@ -1051,8 +1130,8 @@ useEffect(() => {
                 )}
                 {props.visibleMessages.length === 0 && (props.activeChannel || props.activeDm) && !props.isLoadingMore && !props.messagesLoading && (
                   <div className="flex flex-col justify-end h-full min-h-[300px] max-w-2xl pb-10">
-                    <h3 className="font-display type-display font-bold tracking-tight mb-2 text-[var(--chat-text,var(--text-main))]">Welcome to {props.view === 'home' ? 'the beginning' : `#${props.activeChannel?.name}`}</h3>
-                    <p className="text-gray-400 type-label leading-relaxed">Your digital workspace is clear. Connect with your team or explore new horizons.</p>
+                    <h3 className="font-display type-display font-bold tracking-tight mb-2 text-[var(--chat-text,var(--text-main))]">{props.view === 'home' ? `This is the start of your chat with ${props.activeDm?.profiles?.username || 'them'}` : `Welcome to #${props.activeChannel?.name}`}</h3>
+                    <p className="text-[var(--text-muted)] type-label leading-relaxed">{props.view === 'home' ? 'No messages yet. Say hi.' : 'No messages yet. Start the conversation.'}</p>
                   </div>
                 )}
                 {props.visibleMessages.map((m, index, renderedMessages) => {
@@ -1062,7 +1141,7 @@ useEffect(() => {
                     <div key={uniqueKey} className="text-center my-4"><span className="type-meta font-bold uppercase tracking-widest text-gray-500 bg-[var(--bg-surface)] px-4 py-1.5 rounded-full ghost-border shadow-sm">Message Hidden (Blocked User)</span></div>
                   )
                   const previousMessage = renderedMessages[index - 1]
-                  const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || Date.parse(m.created_at) - Date.parse(previousMessage.created_at) > 300000;
+                  const showHeader = index === 0 || previousMessage.profile_id !== m.profile_id || messageOrigin(previousMessage) !== messageOrigin(m) || Date.parse(m.created_at) - Date.parse(previousMessage.created_at) > 300000;
                   const isMe = m.profile_id === props.session.user.id;
                   const alignRight = isMe;
                   const isEditing = props.editingMessageId === m.id;
@@ -1113,7 +1192,8 @@ useEffect(() => {
 	                    />
                   )
                 })}
-                <div ref={props.messagesEndRef} className="h-4" />
+                {/* Taller when the dots pill floats over the bottom, so it never covers the last message. */}
+                <div ref={props.messagesEndRef} className={originSwipeEnabled ? 'h-16' : 'h-4'} />
               </div>
               {props.showLatestMessagesButton && (
                 <div className="pointer-events-none relative z-30 h-0">
@@ -1130,34 +1210,44 @@ useEffect(() => {
               )}
               {props.isBlocked ? (
                 <div className="p-4 mx-4 md:mx-6 mb-4 md:mb-6 text-center text-red-400 bg-red-500/10 border border-red-500/20 rounded-2xl font-bold type-label shadow-inner z-10 relative">
+                  {originDots}
                   You cannot reply to this conversation. {props.blockReason}
                 </div>
               ) : (
                 <div ref={emojiPickerRef} className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
+                  {props.connectionLost && (
+                    <div role="status" className="mx-2 mb-2 flex items-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2 type-meta text-[var(--text-muted)]">
+                      <WifiOff size={14} aria-hidden="true" />
+                      Reconnecting. New messages will show up once you&apos;re back online.
+                    </div>
+                  )}
+                  {!sendHintSeen && !sendIsVoice && !props.editingMessageId && (
+                    <p className="mx-3 mb-1 self-end type-meta text-[var(--text-muted)]">Hold Send for spoiler and disappearing messages</p>
+                  )}
                   {props.typingUsers.length > 0 && (
-                    <div className="absolute -top-5 left-6 flex items-center gap-2 type-meta font-bold text-[var(--theme-base)] animate-fade-in pointer-events-none z-20">
+                    <div className={`absolute ${originSwipeEnabled ? '-top-12' : '-top-5'} left-6 flex items-center gap-2 type-meta font-bold text-[var(--theme-base)] animate-fade-in pointer-events-none z-20`}>
                       <div className="flex items-center gap-1 px-1">
-                        <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                        <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                        <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                        <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full typing-dot" style={{ animationDelay: '0ms' }}></span>
+                        <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full typing-dot" style={{ animationDelay: '150ms' }}></span>
+                        <span className="w-1 h-1 bg-[var(--theme-base)] rounded-full typing-dot" style={{ animationDelay: '300ms' }}></span>
                       </div>
                       <span>{props.typingUsers.length === 1 ? `${props.typingUsers[0].username} is typing...` : `${props.typingUsers.length} people are typing...`}</span>
                     </div>
                   )}
                   {props.replyingTo && (
-                    <div className="bg-[var(--theme-20)] backdrop-blur-md border-l-4 border-[var(--theme-base)] px-4 py-2 mb-2 mx-2 rounded-r-xl flex items-center justify-between type-label animate-fade-in shadow-sm">
+                    <div className="bg-[var(--theme-20)] px-4 py-2 mb-2 mx-2 rounded-xl flex items-center justify-between type-label animate-fade-in">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-bold text-[var(--theme-base)] whitespace-nowrap">Replying to {props.replyingTo.profiles?.username}</span>
                         <span className="truncate text-gray-300 max-w-[150px] md:max-w-[300px]">{props.replyingTo.is_spoiler ? 'Spoiler' : stripEffects(props.replyingTo.content) || 'Attachment'}</span>
                       </div>
-                      <button onClick={() => props.setReplyingTo(null)} className="text-gray-400 hover:text-[var(--text-main)] ml-2 p-1 rounded-md hover:bg-white/10 transition-colors cursor-pointer shrink-0"><X size={14}/></button>
+                      <button type="button" onClick={() => props.setReplyingTo(null)} aria-label="Cancel reply" className="grid h-8 w-8 place-items-center text-[var(--text-muted)] hover:text-[var(--text-main)] ml-2 rounded-full hover:bg-[var(--bg-element-hover)] transition-colors cursor-pointer shrink-0"><X size={14} aria-hidden="true" /></button>
                     </div>
                   )}
                   {props.pendingFiles?.length > 0 && (
                     <div className="premium-section mx-2 mb-3 rounded-2xl p-3 animate-slide-up">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <span className="type-meta font-bold uppercase tracking-tighter text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
+                          <span className="type-meta font-bold uppercase tracking-widest text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
                           <p className="truncate type-meta text-gray-500">{props.pendingFiles.length}/{props.maxPendingAttachments || 10} {props.pendingFiles.length === 1 ? 'attachment' : 'attachments'} • Add a caption below</p>
                         </div>
                         <button type="button" onClick={() => props.setPendingFiles([])} className="rounded-full bg-red-500/10 p-2 text-red-500 transition-colors hover:bg-red-500 hover:text-white" aria-label="Remove all attachments"><X size={18}/></button>
@@ -1283,7 +1373,7 @@ useEffect(() => {
                     </div>
                   )}
                   {voiceRecorderState.status !== 'idle' && (
-                    <div className="mx-2 mb-2 flex h-14 items-center gap-2 rounded-full border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-base,var(--bg-base))] px-2 shadow-lg md:mx-4" role="status" aria-live="polite">
+                    <div className="mx-2 mb-2 flex h-14 items-center gap-2 rounded-full border border-[var(--chat-border,var(--border-subtle))] bg-[var(--chat-bg-base,var(--bg-base))] px-2 md:mx-4" role="status" aria-live="polite">
                       {/* Left: the three states the gesture can be in, lit one at a
                           time — holding, locked hands-free, about to discard.
                           Middle: the level meter. Right: elapsed time and stop. */}
@@ -1325,6 +1415,7 @@ useEffect(() => {
                       <span className="sr-only">{voiceRecorderState.status === 'stopping' ? 'Preparing voice message' : 'Recording voice message'}</span>
                     </div>
                   )}
+                  {originDots}
                   <form
                     onSubmit={(e) => {
                         if (props.editingMessageId) {
@@ -1336,7 +1427,7 @@ useEffect(() => {
                         }
                       }
                     }
-                    className="premium-composer rounded-3xl flex items-center gap-2 p-1.5 transition-all duration-300 ease-out transform relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
+                    className="premium-composer chat-glass rounded-3xl flex items-center gap-2 p-1.5 transition-all duration-300 ease-out transform relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
                     <div ref={gifPickerRef} onTouchStartCapture={() => { blurComposer(); }}>
                       {props.showGifPicker && (
                         <Suspense fallback={null}>
@@ -1405,7 +1496,7 @@ useEffect(() => {
                     )}
                     {/* Black field, hairline edge: the fill used to be
                         --chat-bg-element, a blue-grey slab on an OLED thread. */}
-                    <div className="flex items-center bg-[var(--chat-bg-base,var(--bg-base))] rounded-[22px] relative min-w-0 border border-[var(--chat-border,var(--border-subtle))] min-h-[44px]">
+                    <div className="composer-field flex items-center bg-[var(--chat-bg-base,var(--bg-base))] rounded-[22px] relative min-w-0 border border-[var(--chat-border,var(--border-subtle))] min-h-[44px]">
                       <textarea 
                         data-message-composer="true"
                         ref={props.messageInputRef}
@@ -1517,7 +1608,7 @@ useEffect(() => {
                                 left: `${Math.cos(option.angle * Math.PI / 180) * SEND_RADIAL_PX}px`,
                                 top: `${-Math.sin(option.angle * Math.PI / 180) * SEND_RADIAL_PX}px`
                               }}
-                              className={`absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-0.5 rounded-full border shadow-lg transition-transform duration-150 ${radialIndex === index ? 'scale-110 border-blue-400 bg-blue-500/30 text-blue-100' : 'border-[var(--chat-control-border)] bg-[var(--bg-element)] text-[var(--text-muted)]'}`}
+                              className={`absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-0.5 rounded-full border shadow-lg transition-transform duration-150 ${radialIndex === index ? 'scale-110 border-[var(--accent-bright)] bg-[var(--app-accent)] text-[var(--accent-contrast)]' : 'border-[var(--chat-control-border)] bg-[var(--bg-element)] text-[var(--text-muted)]'}`}
                             >
                               {option.spoiler
                                 ? <EyeOff size={16} aria-hidden="true" />
@@ -1592,7 +1683,7 @@ useEffect(() => {
                         aria-expanded={sendIsVoice ? undefined : sendOptionsOpen}
                         disabled={props.isUploading}
                         className={`relative flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full border transition-all duration-150 hover:brightness-110 disabled:opacity-50 ${radialChoice
-                          ? 'border-blue-400 bg-blue-500/25 text-blue-200 shadow-[0_0_0_5px_rgba(96,165,250,0.2)]'
+                          ? 'border-[var(--accent-bright)] bg-[var(--app-accent-20)] text-[var(--accent-bright)] shadow-[0_0_0_5px_var(--app-accent-20)]'
                           /* The palette already answers "what goes on an accent
                              fill": mono says a black pill with a white glyph,
                              the colour themes say an accent pill with a dark
@@ -1632,6 +1723,8 @@ useEffect(() => {
                   )}
                   {showInputEmojiPicker && (
                     <Suspense fallback={<div className="mt-2 h-[45dvh] max-h-[26rem] min-h-[16rem]" />}>
+                      {/* Focusing the composer already closes the drawer. */}
+                      <div onKeyDown={(e) => { if (e.key === 'Escape') props.messageInputRef.current?.focus() }}>
                       <ComposerDrawer
                         tab={composerDrawerTab}
                         onTabChange={setComposerDrawerTab}
@@ -1641,6 +1734,7 @@ useEffect(() => {
                         onComposerEffect={props.setComposerEffect}
                         sendEffectsDisabled={Boolean(props.editingMessageId)}
                       />
+                      </div>
                     </Suspense>
                   )}
                 </div>

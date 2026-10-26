@@ -68,7 +68,7 @@ export default function ModerationPanel() {
     <div className="premium-section rounded-2xl p-6 text-center">
       <AlertTriangle className="mx-auto mb-3 text-red-400" size={28} />
       <p className="mb-4 type-body text-red-300">{loadError}</p>
-      <button type="button" onClick={loadReports} className="premium-secondary-button inline-flex h-10 items-center gap-2 rounded-xl px-4 font-bold cursor-pointer"><RefreshCw size={16} />Retry</button>
+      <button type="button" onClick={loadReports} className="premium-secondary-button inline-flex h-10 items-center gap-2 px-4 font-bold cursor-pointer"><RefreshCw size={16} />Retry</button>
     </div>
   )
 
@@ -122,7 +122,7 @@ export default function ModerationPanel() {
                 <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-gray-400">Moderator note</span>
                 <textarea required value={note} onChange={event => setNote(event.target.value.slice(0, 2000))} rows={3} className="premium-input w-full resize-none rounded-xl p-3 type-body" placeholder="Record why this action is appropriate." />
               </label>
-              <button type="submit" disabled={submitting || !note.trim()} className="premium-button mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl font-bold cursor-pointer disabled:opacity-50">
+              <button type="submit" disabled={submitting || !note.trim()} className="premium-button mt-4 flex h-11 w-full items-center justify-center gap-2 font-bold cursor-pointer disabled:opacity-50">
                 {submitting && <Loader2 size={17} className="animate-spin" />}
                 Apply action
               </button>

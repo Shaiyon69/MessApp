@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import { supabase } from '../../supabaseClient'
 import useLongPress from '../../hooks/useLongPress'
 import useStoredSet from '../../hooks/useStoredSet'
+import useFirstReveal from '../../hooks/useFirstReveal'
 import ActionSheet from '../ui/ActionSheet'
 import { NOTIFICATION_LEVELS, createServerNotificationPreferencesRepository, notificationLevelOf } from '../../lib/serverNotificationPreferences'
 import ConfirmDialog from '../ui/ConfirmDialog'
@@ -92,6 +93,7 @@ export default function ServersPage(props) {
   const canManageServer = Boolean(props.canManageActiveServer)
   const bindServerLongPress = useLongPress(setSheetServer)
   const servers = [...props.servers].sort((a, b) => pinnedServers.has(b.id) - pinnedServers.has(a.id))
+  const revealRow = useFirstReveal('servers', servers.length > 0)
   const isSheetActive = sheetServer?.id === props.activeServer?.id
 
   // null = unknown or the preferences table is not deployed; the row hides.
@@ -457,10 +459,10 @@ export default function ServersPage(props) {
   const showDetail = panelView === 'detail' && props.activeServer
 
   return (
-    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full pb-24' : 'pb-24'}`}>
+    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full' : ''} pb-[var(--dock-clear)] md:pb-6`}>
       {!showDetail ? (
         <>
-          <div className="space-y-1">
+          <div className="seg-group seg-plain">
             {props.serversLoading && props.servers.length === 0 && Array.from({ length: 4 }, (_, index) => (
               <div key={`server-skeleton-${index}`} className="flex min-h-16 items-center gap-3.5 rounded-2xl px-3" aria-hidden="true">
                 <span className="skeleton h-11 w-11 rounded-xl" />
@@ -468,7 +470,7 @@ export default function ServersPage(props) {
               </div>
             ))}
             {servers.map((server, i) => (
-              <div key={server.id || `server-${i}`} className="long-press-target" {...bindServerLongPress(server)}>
+              <div key={server.id || `server-${i}`} style={revealRow(i).style} className={`seg-item long-press-target p-0 ${revealRow(i).className}`} {...bindServerLongPress(server)}>
                 <button
                   type="button"
                   onClick={() => openServer(server)}
@@ -534,7 +536,7 @@ export default function ServersPage(props) {
                     </span>
                   </div>
                 </div>
-                <div className="space-y-1 pt-1.5">
+                <div className="seg-group seg-plain pt-1.5">
                   {(category.channels || []).map(channel => {
                     const isActive = props.activeChannel?.id === channel.id
                     const isUnread = !isActive && unreadChannels.has(channel.id)
@@ -542,11 +544,11 @@ export default function ServersPage(props) {
                     return (
                       <div
                         key={channel.id}
-                        className={`long-press-target relative rounded-xl ${channel.type === 'voice' && voiceParticipants.length > 0 ? 'bg-[var(--bg-element)]/55' : ''}`}
+                        data-selected={isActive || undefined}
+                        className="seg-item long-press-target relative flex-col items-stretch gap-0 p-0"
                         {...(canManageServer || channel.type !== 'voice' ? bindLongPress({ type: 'channel', item: channel }) : null)}
                       >
-                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'bg-[var(--bg-element)] text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--bg-base)]' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}>
-                          <span className={`absolute inset-y-2 left-0 w-0.5 rounded-r-full ${isActive ? 'bg-[var(--theme-base)]' : 'bg-transparent'}`} aria-hidden="true" />
+                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`m3-press group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-[inherit] px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
                           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
                             {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
                           </span>
@@ -623,7 +625,7 @@ export default function ServersPage(props) {
       )}
 
       {isCreateModalOpen && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleCreateServer} className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
             <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">Create a server</h2>
 
@@ -670,7 +672,7 @@ export default function ServersPage(props) {
       )}
 
       {isJoinModalOpen && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleJoinServer} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
             <h2 className="type-title font-bold text-[var(--text-main)]">Join a server</h2>
             <p className="mb-4 mt-1 type-label text-[var(--text-muted)]">Enter the invite code shared with you.</p>
@@ -684,7 +686,7 @@ export default function ServersPage(props) {
       )}
 
       {channelModalCategoryId && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleCreateChannelSubmit} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
             <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">Create Channel</h2>
             <input value={channelName} onChange={(e) => setChannelName(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="Channel name" autoFocus />
@@ -705,7 +707,7 @@ export default function ServersPage(props) {
       )}
 
       {isCategoryModalOpen && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleCreateCategorySubmit} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
             <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">Create Category</h2>
             <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="Category name" autoFocus />
@@ -718,7 +720,7 @@ export default function ServersPage(props) {
       )}
 
       {editingServerItem && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleEditServerItemSubmit} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
             <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">{editingServerItem.type === 'server' ? 'Edit Server' : editingServerItem.type === 'category' ? 'Edit Category' : 'Edit Channel'}</h2>
             {editingServerItem.type === 'server' && (

@@ -39,7 +39,7 @@ export default function NotificationsPage(props) {
     && localStorage.getItem("notificationsEnabled") !== "true"
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-24 pt-4 md:px-6 md:pt-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-[var(--dock-clear)] pt-4 md:px-6 md:pb-6 md:pt-6">
       {canPromptForPush && (
         <div className="mb-3 flex items-center gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
           <Bell size={18} className="shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
