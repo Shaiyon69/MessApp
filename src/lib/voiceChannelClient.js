@@ -3,6 +3,7 @@
 import { supabase } from '../supabaseClient.js'
 import { debug } from './debug.js'
 import { isPolite, shouldIgnoreOffer } from './negotiation.js'
+import { tuneOpusSdp } from './voiceAudioProcessing.js'
 
 const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
 
@@ -284,7 +285,7 @@ export function createVoiceChannelClient({
 
     state.settingRemoteAnswer = description.type === 'answer'
     try {
-      await state.pc.setRemoteDescription(description)
+      await state.pc.setRemoteDescription({ ...description, sdp: tuneOpusSdp(description.sdp) })
     } finally {
       state.settingRemoteAnswer = false
     }
