@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getInstallationId, getPushPlatform, PUSH_INSTALLATION_ID_KEY, upsertPushDevice } from './pushDevices.js'
+import { getInstallationId, getPushPlatform, PUSH_INSTALLATION_ID_KEY, upsertPushDevice, urlBase64ToBytes } from './pushDevices.js'
 
 const createStorage = () => {
   const values = new Map()
@@ -51,4 +51,8 @@ test('push registration uses the authenticated ownership-transfer RPC', async ()
       target_push_token: 'provider-token'
     }
   }])
+})
+
+test('VAPID public key decodes from base64url', () => {
+  assert.deepEqual(Array.from(urlBase64ToBytes('_-8')), [255, 239])
 })
