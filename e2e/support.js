@@ -17,7 +17,7 @@ export async function signIn(page, user) {
   await page.goto('/')
   await page.locator('input[type="email"]').fill(user.email)
   await page.locator('input[type="password"]').fill(user.password)
-  await page.getByRole('button', { name: 'Enter MessApp' }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
   const pinModal = page.locator('[data-ui-overlay-owner="Dashboard:pin-setup"]')
   const ready = page.getByRole('button', { name: 'Find or start' })

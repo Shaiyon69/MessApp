@@ -24,13 +24,13 @@
         "default-src": "'self' customprotocol: asset:",
         "base-uri": "'self'",
         "object-src": "'none'",
-        "connect-src": "ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co https://api.microlink.io https://api.klipy.com",
+        "connect-src": "ipc: http://ipc.localhost https://challenges.cloudflare.com https://*.supabase.co wss://*.supabase.co https://api.microlink.io https://api.klipy.com",
         "font-src": "'self' data: https://fonts.gstatic.com",
         "img-src": "'self' asset: http://asset.localhost data: blob: https:",
         "media-src": "'self' asset: http://asset.localhost data: blob: https:",
-        "script-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com",
         "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
-        "frame-src": "https://www.youtube-nocookie.com",
+        "frame-src": "https://www.youtube-nocookie.com https://challenges.cloudflare.com",
         "worker-src": "'self' blob:"
       },
       "headers": {

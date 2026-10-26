@@ -1,44 +1,54 @@
 /** Completes the recovery-session password update through Supabase Auth. */
 import { useEffect, useState } from 'react'
-import { Check, KeyRound, Loader2, LogIn } from 'lucide-react'
+import { KeyRound, LogIn, Send } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import { AuthLayout, AuthMessage, PasswordField, SubmitButton } from './auth/AuthParts'
 
-export default function UpdatePassword({ onComplete }) {
+// How long to wait for supabase-js to turn the emailed link into a session.
+const SESSION_WAIT_MS = 5000
+
+export default function UpdatePassword({ onComplete, onRequestNewLink, linkError }) {
   const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [accountEmail, setAccountEmail] = useState('')
   const [sessionReady, setSessionReady] = useState(false)
+  const [waitedOut, setWaitedOut] = useState(false)
   const [message, setMessage] = useState('')
-  const [messageType, setMessageType] = useState('error')
-
-  const setAuthMessage = (text, type = 'error') => {
-    setMessage(text)
-    setMessageType(type)
-  }
 
   useEffect(() => {
     let mounted = true
+    const applySession = (session) => {
+      setSessionReady(Boolean(session))
+      setAccountEmail(session?.user?.email || '')
+    }
 
     supabase.auth.getSession().then(({ data }) => {
-      if (mounted) setSessionReady(Boolean(data.session))
+      if (mounted) applySession(data.session)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return
-      if (event === 'PASSWORD_RECOVERY' || session) setSessionReady(Boolean(session))
+      if (event === 'PASSWORD_RECOVERY' || session) applySession(session)
     })
+
+    const timer = setTimeout(() => mounted && setWaitedOut(true), SESSION_WAIT_MS)
 
     return () => {
       mounted = false
+      clearTimeout(timer)
       subscription.unsubscribe()
     }
   }, [])
 
+  // Drop the recovery session so leaving this screen never lands in the Dashboard.
+  const leave = async (loginMessage) => {
+    await supabase.auth.signOut()
+    onComplete?.(loginMessage)
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!sessionReady) return setAuthMessage('Reset session is not ready. Open the latest reset link from your email.')
-    if (newPassword.length < 6) return setAuthMessage('Password must be at least 6 characters.')
-    if (newPassword !== confirmPassword) return setAuthMessage('Passwords do not match.')
+    if (newPassword.length < 6) return setMessage('Password must be at least 6 characters.')
 
     setLoading(true)
     setMessage('')
@@ -47,80 +57,44 @@ export default function UpdatePassword({ onComplete }) {
 
     if (error) {
       const text = error.message || 'Unable to update password.'
-      if (/rate|too many|limit/i.test(text)) setAuthMessage('Too many requests. Wait a moment, then try again.')
-      else if (/session|token|expired/i.test(text)) setAuthMessage('This reset link has expired. Request a new password reset link.')
-      else setAuthMessage(`Error: ${text}`)
-    } else {
-      setAuthMessage('Password updated. You can now log in with your new password.', 'success')
-      setNewPassword('')
-      setConfirmPassword('')
-      // The recovery link leaves a live session behind; drop it so the user
-      // lands on Login as the message promises instead of the Dashboard.
-      await supabase.auth.signOut()
-      setTimeout(() => onComplete?.(), 1200)
+      if (/rate|too many|limit/i.test(text)) setMessage('Too many requests. Wait a moment, then try again.')
+      else if (/session|token|expired/i.test(text)) setMessage('This reset link has expired. Request a new one.')
+      else setMessage(text)
+      setLoading(false)
+      return
     }
 
-    setLoading(false)
+    // Login shows the confirmation; the recovery link left a live session behind.
+    await leave('Password updated. Sign in with your new password.')
+  }
+
+  if (linkError || (!sessionReady && waitedOut)) {
+    return (
+      <AuthLayout title="This link has expired" subtitle="Reset links work once and expire after a short time. Request a new one to continue.">
+        <button type="button" onClick={onRequestNewLink} className="premium-button w-full h-12 font-bold flex items-center justify-center gap-2 cursor-pointer">
+          <span className="type-label">Send a new link</span><Send size={17} aria-hidden="true" />
+        </button>
+        <button type="button" onClick={() => leave()} className="premium-secondary-button mt-3 w-full h-12 font-bold cursor-pointer type-label flex items-center justify-center gap-2">
+          <LogIn size={16} aria-hidden="true" /> Back to sign in
+        </button>
+      </AuthLayout>
+    )
   }
 
   return (
-    <div className="ios-sheet auth-card rounded-3xl w-full md:h-[580px] max-w-4xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)]">
-      <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
-        <div>
-          <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
-            <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
-              <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
-            </div>
-            <span className="font-bold tracking-wider type-label">MESSAPP</span>
-          </div>
-          <h1 className="gradient-text type-display font-semibold tracking-tight mb-2 md:mb-6 leading-[1.1]">
-            Create<br className="hidden md:block"/><span className="md:hidden"> </span><span className="accent-gradient-text">new access.</span>
-          </h1>
-          <p className="hidden md:block text-[var(--text-muted)] type-title max-w-sm mt-4 leading-relaxed font-sans">
-            Choose a new password to finish account recovery.
-          </p>
-        </div>
-        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">
-          <span>PASSWORD RECOVERY</span><span className="w-8 h-[1px] bg-[var(--border-hover)] my-auto"></span><span>MESSAPP</span>
-        </div>
-      </div>
+    <AuthLayout title="Choose a new password" subtitle={sessionReady ? (accountEmail ? `For ${accountEmail}.` : 'Enter your new password.') : 'Preparing your secure reset session…'}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <PasswordField label="New password" icon={KeyRound} placeholder="At least 6 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} autoComplete="new-password" enterKeyHint="go" hint="At least 6 characters." invalid={Boolean(message)} />
+        <SubmitButton busy={loading} busyLabel="Updating…" disabled={!sessionReady} icon={KeyRound}>Update password</SubmitButton>
+      </form>
 
-      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--bg-base)] flex-1 md:overflow-y-auto custom-scrollbar">
-        <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
-          <h2 className="type-view-title font-semibold tracking-tight mb-2">Update Password</h2>
-          <p className="text-[var(--text-muted)] type-label mb-6 md:mb-8">{sessionReady ? 'Enter your new password.' : 'Preparing your secure reset session...'}</p>
+      <AuthMessage kind="error">
+        {message && <p className="type-meta m-0 font-medium">{message}</p>}
+      </AuthMessage>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4 md:gap-5">
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">New Password</label>
-              <div className={`ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12 ${messageType === 'error' && message ? 'border-red-500/40' : ''}`}>
-                <KeyRound size={18} className="text-[var(--text-muted)] mr-3 shrink-0" aria-hidden="true" />
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
-              </div>
-            </div>
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Confirm Password</label>
-              <div className={`ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12 ${messageType === 'error' && message ? 'border-red-500/40' : ''}`}>
-                <Check size={18} className="text-[var(--text-muted)] mr-3 shrink-0" aria-hidden="true" />
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" placeholder="••••••••" />
-              </div>
-            </div>
-            <button type="submit" disabled={loading || !sessionReady} className="premium-button mt-1 md:mt-2 w-full h-12 rounded-xl font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-              {loading ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <><span className="type-label">Update Password</span><KeyRound size={17} aria-hidden="true" /></>}
-            </button>
-          </form>
-
-          {message && (
-            <div className={`mt-4 p-3 border rounded-xl text-center ${messageType === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
-              <p className="type-meta m-0 font-medium">{message}</p>
-            </div>
-          )}
-
-          <button onClick={onComplete} type="button" className="premium-secondary-button mt-5 w-full h-12 rounded-xl font-bold cursor-pointer type-label flex items-center justify-center gap-2">
-            <LogIn size={16} aria-hidden="true" /> Return to Login
-          </button>
-        </div>
-      </div>
-    </div>
+      <button onClick={() => leave()} type="button" className="premium-secondary-button mt-5 w-full h-12 font-bold cursor-pointer type-label flex items-center justify-center gap-2">
+        <LogIn size={16} aria-hidden="true" /> Back to sign in
+      </button>
+    </AuthLayout>
   )
 }
