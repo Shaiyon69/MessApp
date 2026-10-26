@@ -25,6 +25,7 @@
  */
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { GroupItem } from './SettingsGroup'
 
 const EXPANDED_VH = 92
 const COLLAPSED_MAX_VH = 60
@@ -111,26 +112,23 @@ export default function ActionSheet({ header, items, onClose, ...rest }) {
       {/* preventDefault on pointerdown keeps the tap from focusing or
           text-selecting anything; the close itself waits for the click. */}
       <div ref={backdropRef} className="premium-backdrop absolute inset-0 opacity-0" onPointerDown={(event) => event.preventDefault()} onClick={dismiss} aria-hidden="true" />
+      {/* menu-glass: under Liquid Glass this sheet keeps its refractive glass
+          (black float tint in dark) instead of the flat --lg-flat fill. */}
       <div
         ref={sheetRef}
-        className="ios-sheet relative flex w-full max-w-lg flex-col rounded-t-3xl pb-[max(0.75rem,env(safe-area-inset-bottom))] will-change-transform"
+        className="ios-sheet menu-glass relative flex w-full max-w-lg flex-col rounded-t-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))] will-change-transform"
         style={{ maxHeight: `${EXPANDED_VH}dvh`, transform: 'translate3d(0, 100%, 0)' }}
       >
         <div className="shrink-0 cursor-grab touch-none select-none active:cursor-grabbing" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
-          <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-[var(--border-subtle)]" aria-hidden="true" />
+          <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-[var(--app-accent-50)]" aria-hidden="true" />
           {header ? <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] px-5 py-3">{header}</div> : <div className="h-3" />}
         </div>
-        <div className="custom-scrollbar min-h-0 overflow-y-auto overscroll-contain px-2 pt-1">
+        <div className="custom-scrollbar seg-group seg-plain min-h-0 overflow-y-auto overscroll-contain px-3 pt-1">
           {items.filter(Boolean).map(({ label, Icon, onSelect, danger }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => { onClose(); onSelect() }}
-              className={`flex min-h-12 w-full items-center gap-4 rounded-xl px-3 text-left type-body font-semibold transition-[background-color,transform] duration-150 active:scale-[0.98] ${danger ? 'text-red-400 hover:bg-red-500/10 active:bg-red-500/15' : 'text-[var(--text-main)] hover:bg-[var(--bg-element)] active:bg-[var(--bg-element)]'}`}
-            >
+            <GroupItem key={label} onClick={() => { onClose(); onSelect() }} className={`min-h-12 gap-4 py-2 type-body font-semibold ${danger ? 'text-red-400' : ''}`}>
               {Icon && <Icon size={20} aria-hidden="true" className={danger ? '' : 'text-[var(--text-muted)]'} />}
               {label}
-            </button>
+            </GroupItem>
           ))}
         </div>
       </div>

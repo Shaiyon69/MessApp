@@ -82,7 +82,7 @@ export function PollCard({ messageId, currentUserId, alignRight, children }) {
               className={`relative flex w-full items-center gap-2 overflow-hidden rounded-xl border px-3 py-2 text-left type-label transition-colors ${picked ? 'border-[var(--theme-base)] text-[var(--text-main)]' : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
             >
               <span className="absolute inset-y-0 left-0 bg-[var(--theme-20)] transition-[width] duration-300" style={{ width: `${share}%` }} aria-hidden="true" />
-              <span className={`relative grid h-4 w-4 shrink-0 place-items-center border ${poll.allow_multiple ? 'rounded' : 'rounded-full'} ${picked ? 'border-[var(--theme-base)] bg-[var(--theme-base)] text-white' : 'border-[var(--text-muted)]'}`}>
+              <span className={`relative grid h-4 w-4 shrink-0 place-items-center border ${poll.allow_multiple ? 'rounded' : 'rounded-full'} ${picked ? 'border-[var(--theme-base)] bg-[var(--theme-base)] text-[var(--accent-contrast)]' : 'border-[var(--text-muted)]'}`}>
                 {picked && <Check size={11} aria-hidden="true" />}
               </span>
               <span className="relative min-w-0 flex-1 break-words">{option}</span>
@@ -124,7 +124,7 @@ export function PollComposer({ channelId, onClose }) {
   const inputClass = 'w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-element)] px-3 py-2 type-body text-[var(--text-main)] outline-none focus:border-[var(--theme-base)]'
 
   return (
-    <div data-ui-overlay-owner="ChatArea:poll-composer" role="dialog" aria-modal="true" aria-label="Create a poll" className="premium-backdrop fixed inset-0 z-[200] flex items-end justify-center p-4 md:items-center" onClick={onClose}>
+    <div data-ui-overlay-owner="ChatArea:poll-composer" role="dialog" aria-modal="true" aria-label="Create a poll" className="premium-backdrop fixed inset-0 z-[200] flex items-end justify-center p-4 md:items-center" onClick={onClose} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
       <form onSubmit={submit} onClick={event => event.stopPropagation()} className="premium-modal w-full max-w-sm rounded-2xl p-5 animate-settings-sheet">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="type-title font-semibold text-[var(--text-main)]">Create a poll</h3>
@@ -156,7 +156,7 @@ export function PollComposer({ channelId, onClose }) {
           Allow multiple answers
         </label>
         {error && <p role="alert" className="mt-3 type-label text-red-400">{error}</p>}
-        <button type="submit" disabled={busy} className="mt-4 h-11 w-full rounded-xl bg-[var(--app-accent)] type-body font-bold text-white disabled:opacity-50">{busy ? 'Posting…' : 'Post poll'}</button>
+        <button type="submit" disabled={busy} className="mt-4 h-11 w-full rounded-xl bg-[var(--app-accent)] type-body font-bold text-[var(--accent-contrast)] disabled:opacity-50">{busy ? 'Posting…' : 'Post poll'}</button>
       </form>
     </div>
   )

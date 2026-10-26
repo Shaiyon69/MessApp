@@ -602,6 +602,13 @@ export default function RightSidebar({
                     <p className="relative z-10 type-label italic text-[var(--text-main)] leading-relaxed whitespace-pre-wrap">{activeDm.profiles.bio}</p>
                   </div>
                 )}
+
+                <button type="button" onClick={() => toggleRightSidebar?.('search')} className="group mt-5 flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)]">
+                  <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--bg-element)] text-[var(--text-main)] transition-colors group-hover:bg-[var(--bg-element-hover)]">
+                    <Search size={20} />
+                  </span>
+                  Search
+                </button>
               </div>
             </div>
 

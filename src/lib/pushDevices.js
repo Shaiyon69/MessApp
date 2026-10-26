@@ -102,42 +102,29 @@ export const reportActiveConversation = async ({
   return { reported: true, cleared: !conversationId }
 }
 
-const getWebFirebaseConfig = () => {
-  const config = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID
-  }
-  const missing = ['apiKey', 'projectId', 'messagingSenderId', 'appId'].filter(key => !config[key])
-  if (missing.length > 0) throw new Error(`Web push is missing Firebase configuration: ${missing.join(', ')}`)
-  return config
+export const urlBase64ToBytes = value => {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
+  return Uint8Array.from(atob(padded), char => char.charCodeAt(0))
 }
+
+const sameBytes = (left, right) => left.length === right.length && left.every((byte, index) => byte === right[index])
 
 export const registerWebPushDevice = async ({ profileId, client = supabase, vapidPublicKey }) => {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Web push is not supported')
   if (!vapidPublicKey) throw new Error('Web push public key is not configured')
-  const [
-    { getApp, getApps, initializeApp },
-    { getMessaging, getToken, isSupported: isWebMessagingSupported }
-  ] = await Promise.all([
-    import('firebase/app'),
-    import('firebase/messaging')
-  ])
-  if (!await isWebMessagingSupported()) throw new Error('Firebase messaging is not supported in this browser')
   const registration = await navigator.serviceWorker.register('/sw.js')
   await navigator.serviceWorker.ready
-  const app = getApps().length > 0 ? getApp() : initializeApp(getWebFirebaseConfig())
-  const pushToken = await getToken(getMessaging(app), {
-    vapidKey: vapidPublicKey,
-    serviceWorkerRegistration: registration
-  })
-  if (!pushToken) throw new Error('Firebase did not issue a web push token')
+  const applicationServerKey = urlBase64ToBytes(vapidPublicKey)
+  const existing = await registration.pushManager.getSubscription()
+  // A subscription made under another key (the old Firebase one) makes subscribe() throw.
+  const existingKey = existing?.options?.applicationServerKey
+  if (existing && (!existingKey || !sameBytes(new Uint8Array(existingKey), applicationServerKey))) {
+    await existing.unsubscribe()
+  }
+  const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })
   return upsertPushDevice({
     profileId,
-    pushToken,
+    pushToken: JSON.stringify(subscription),
     platform: 'web',
     client
   })

@@ -6,7 +6,7 @@
 
 *A secure, real-time messaging platform designed to keep users connected seamlessly across Web, Android, iOS, Linux, and Windows.*
 
-[![Version](https://img.shields.io/badge/version-v0.3.0--beta-blue.svg)](https://github.com/messapp/messapp)
+[![Version](https://img.shields.io/badge/version-v1.0.0--beta-blue.svg)](https://github.com/messapp/messapp)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/messapp/messapp/blob/main/LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -107,6 +107,11 @@ Follow these steps to set up the development environment on your local machine.
 
    # Optional. Without it the GIF picker still opens, but search is disabled.
    VITE_KLIPY_API_KEY=your_klipy_app_key
+
+   # Optional Cloudflare Turnstile site key for login/register/reset. Leave unset
+   # locally; enable the matching secret in Supabase Auth > Bot protection only
+   # after a build with this key is deployed.
+   VITE_TURNSTILE_SITE_KEY=your_turnstile_site_key
    ```
     *(Note: Never commit local `.env` files to version control.)*
 
@@ -140,7 +145,7 @@ For a deeper dive into the data flow, database schema blueprint, and development
 
 ## 🗺️ Roadmap
 
-**Current Version:** `v0.3.0-beta`
+**Current Version:** `v1.0.0-beta`
 
 ### Phase 1: Foundation (Completed)
 - [x] Cross-platform build architecture (Web, Android APK, Linux .deb/.AppImage)
@@ -173,7 +178,7 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ### Third-Party Notices
 
-MessApp bundles React, Tailwind CSS, Supabase JS, Lucide icons, Capacitor, and Tauri, each distributed under its own MIT, ISC, or Apache-2.0 terms. The Fraunces and Nunito typefaces are self-hosted under the [SIL Open Font License 1.1](https://openfontlicense.org/). Their respective copyrights remain with their authors.
+MessApp bundles React, Tailwind CSS, Supabase JS, Lucide icons, Capacitor, and Tauri, each distributed under its own MIT, ISC, or Apache-2.0 terms. The Space Grotesk typeface is self-hosted under the [SIL Open Font License 1.1](https://openfontlicense.org/). Their respective copyrights remain with their authors.
 
 ---
 

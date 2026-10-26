@@ -1,0 +1,213 @@
+/* Nothing: monochrome hardware UI. Dot-matrix display type (Doto) for
+   titles and the nav, a faint dot grid on the ground, hairline outlines,
+   tight corners, no shadows. The palette accent survives only as a signal:
+   the active-tab dot, focus, and the send button.
+   The radius tokens are Tailwind's own (@theme in index.css), so redefining
+   them here reshapes every rounded-* utility; rounded-full stays a pill.
+   Doto's @font-face lives in index.css with the other fonts. */
+
+:root[data-ui-style="nothing"] {
+  --font-dot: 'Doto', ui-monospace, monospace;
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.625rem;
+  --radius-3xl: 0.75rem;
+  --radius-4xl: 1rem;
+  --shadow-premium: none;
+  --nothing-line: rgba(255, 255, 255, 0.16);
+  --nothing-dot: rgba(255, 255, 255, 0.07);
+}
+
+:root[data-ui-style="nothing"][data-theme="dark"] {
+  --bg-surface: #000000;
+  --bg-element: #0b0b0b;
+  --bg-element-hover: #141414;
+  --border-subtle: #262626;
+  --border-hover: #404040;
+  --text-main: #f2f2f2;
+  --text-muted: #8c8c8c;
+  --surface-section: #000000;
+  --surface-container-low: #000000;
+  --surface-container: #070707;
+  --surface-container-high: #0d0d0d;
+  --surface-container-highest: #171717;
+}
+
+:root[data-ui-style="nothing"][data-theme="light"] {
+  --bg-base: #f4f4f4;
+  --bg-surface: #f4f4f4;
+  --bg-element: #ebebeb;
+  --border-subtle: #cfcfcf;
+  --text-main: #111111;
+  --text-muted: #5e5e5e;
+  --surface-section: #f4f4f4;
+  --surface-container-low: #f4f4f4;
+  --surface-container: #ededed;
+  --surface-container-high: #e6e6e6;
+  --nothing-line: rgba(0, 0, 0, 0.2);
+  --nothing-dot: rgba(0, 0, 0, 0.09);
+}
+
+:root[data-ui-style="nothing"] body,
+:root[data-ui-style="nothing"] .ambient-shell {
+  background: radial-gradient(var(--nothing-dot) 1px, transparent 1.2px) 0 0 / 14px 14px, var(--bg-base) !important;
+}
+
+/* Display type: titles render as a dot-matrix readout. */
+:root[data-ui-style="nothing"] .type-view-title,
+:root[data-ui-style="nothing"] .font-display,
+:root[data-ui-style="nothing"] h1,
+:root[data-ui-style="nothing"] h2 {
+  font-family: var(--font-dot);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Small caps labels read like instrument markings. Doto is unreadable this
+   small, so these use the system mono instead. */
+:root[data-ui-style="nothing"] .uppercase.tracking-widest,
+:root[data-ui-style="nothing"] .uppercase.tracking-wider {
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', monospace;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+:root[data-ui-style="nothing"] .ios-glass-sidebar,
+:root[data-ui-style="nothing"] .ios-sidebar-footer,
+:root[data-ui-style="nothing"] .active-now-panel,
+:root[data-ui-style="nothing"] .premium-section,
+:root[data-ui-style="nothing"] .premium-card,
+:root[data-ui-style="nothing"] .glass-panel,
+:root[data-ui-style="nothing"] .premium-menu,
+:root[data-ui-style="nothing"] .premium-modal,
+:root[data-ui-style="nothing"] .ios-sheet,
+:root[data-ui-style="nothing"] .chat-surface {
+  background: var(--bg-base) !important;
+  border-color: var(--nothing-line) !important;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="nothing"] .ios-app-bar {
+  background: transparent !important;
+  border-bottom: 1px dashed var(--nothing-line);
+}
+
+@media (min-width: 768px) {
+  :root[data-ui-style="nothing"] .home-tab-shell {
+    background: var(--bg-base) !important;
+    border-color: var(--nothing-line) !important;
+  }
+}
+
+:root[data-ui-style="nothing"] .premium-composer,
+:root[data-ui-style="nothing"] .composer-field,
+:root[data-ui-style="nothing"] .premium-input,
+:root[data-ui-style="nothing"] .premium-icon-button {
+  background: var(--bg-base) !important;
+  border-color: var(--nothing-line) !important;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="nothing"] .premium-composer:focus-within {
+  border-color: var(--text-main) !important;
+}
+
+/* Buttons: white (black in light) pills with dark text, the Nothing OS
+   primary action. Secondary is an outline. */
+:root[data-ui-style="nothing"] .premium-button {
+  background: var(--text-main);
+  color: var(--bg-base);
+  box-shadow: none;
+}
+
+:root[data-ui-style="nothing"] .premium-button:hover {
+  background: var(--text-muted);
+}
+
+:root[data-ui-style="nothing"] .premium-secondary-button {
+  background: transparent;
+  color: var(--text-main);
+  border-color: var(--nothing-line);
+}
+
+:root[data-ui-style="nothing"] .premium-secondary-button:hover {
+  border-color: var(--text-main);
+  background: transparent;
+}
+
+/* Nav: no filled pill. Active is full-white type plus an accent dot. */
+:root[data-ui-style="nothing"] .m3-nav-label {
+  font-family: var(--font-dot);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+:root[data-ui-style="nothing"] .m3-nav-indicator::before {
+  display: none;
+}
+
+:root[data-ui-style="nothing"] .m3-nav-item[data-active="true"] .m3-nav-indicator svg {
+  color: var(--text-main);
+}
+
+:root[data-ui-style="nothing"] .m3-nav-item[data-active="true"] .m3-nav-indicator::after {
+  content: "";
+  position: absolute;
+  bottom: -0.3rem;
+  left: 50%;
+  width: 0.3rem;
+  height: 0.3rem;
+  margin-left: -0.15rem;
+  border-radius: 9999px;
+  background: var(--app-accent);
+}
+
+@media (max-width: 767px) {
+  :root[data-ui-style="nothing"] .dock {
+    background: var(--bg-base);
+    box-shadow: 0 0 0 1px var(--nothing-line);
+  }
+
+  :root[data-ui-style="nothing"] .dock .m3-nav-item[data-active="true"],
+  :root[data-ui-style="nothing"] .dock .m3-nav-item[data-active="true"] .m3-nav-indicator svg {
+    background: transparent;
+    color: var(--text-main);
+  }
+}
+
+:root[data-ui-style="nothing"] .quick-action,
+:root[data-ui-style="nothing"] .quick-action-trigger,
+:root[data-ui-style="nothing"] .origin-dots {
+  background: var(--bg-base) !important;
+  border-color: var(--nothing-line) !important;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="nothing"] .quick-action-trigger {
+  color: var(--text-main);
+}
+
+/* Bubbles: flat and outlined; the conversation's colour stays on the
+   outgoing side so per-chat themes still mean something. */
+:root[data-ui-style="nothing"] .chat-bubble {
+  background: transparent !important;
+  border-color: var(--nothing-line) !important;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="nothing"] .chat-bubble-mine {
+  background: var(--chat-outgoing-bg, var(--theme-base)) !important;
+  border-color: transparent !important;
+}
+
+:root[data-ui-style="nothing"] .appearance-tint-option {
+  background: transparent;
+  border-color: var(--nothing-line);
+}
+
+:root[data-ui-style="nothing"] .appearance-tint-option.is-active {
+  border-color: var(--text-main);
+}

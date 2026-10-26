@@ -22,8 +22,8 @@ export default function ConfirmDialog({ owner, icon: Icon = AlertTriangle, title
         <h3 className="relative z-10 type-title font-semibold text-[var(--text-main)] mb-1.5">{title}</h3>
         <p className="relative z-10 text-gray-400 type-label mb-5">{body}</p>
         <div className="relative z-10 flex flex-col gap-3">
-          <button type="button" onClick={onConfirm} disabled={busy} className="premium-danger-button w-full h-12 rounded-xl font-bold cursor-pointer type-body disabled:opacity-50">{confirmLabel}</button>
-          <button type="button" onClick={onCancel} disabled={busy} className="premium-secondary-button w-full h-12 rounded-xl font-bold cursor-pointer type-body disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={busy} className="premium-danger-button w-full h-12 font-bold cursor-pointer type-body disabled:opacity-50">{confirmLabel}</button>
+          <button type="button" onClick={onCancel} disabled={busy} className="premium-secondary-button w-full h-12 font-bold cursor-pointer type-body disabled:opacity-50">Cancel</button>
         </div>
       </div>
     </div>

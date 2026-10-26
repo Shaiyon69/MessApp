@@ -1,16 +1,28 @@
 /** Authenticates an existing user through Supabase and hands routing to App. */
 import { useEffect, useState } from 'react'
-import { ArrowRight, AtSign, Loader2, Lock } from 'lucide-react'
+import { ArrowRight, AtSign, Lock } from 'lucide-react'
 import { supabase } from '../supabaseClient'
+import Turnstile, { TURNSTILE_SITE_KEY } from './ui/Turnstile'
+import { AuthField, AuthLayout, AuthMessage, PasswordField, SubmitButton, useCooldown } from './auth/AuthParts'
 
-export default function Login({ switchToRegister, switchToForgotPassword, initialMessage, clearInitialMessage }) {
-  const [email, setEmail] = useState('')
+const formatLoginError = (error) => {
+  const text = error?.message || ''
+  if (/invalid login credentials/i.test(text)) return 'That email and password don’t match. Check both and try again.'
+  if (/rate|too many|limit/i.test(text)) return 'Too many attempts. Wait a moment, then try again.'
+  return text || 'Unable to sign in. Try again.'
+}
+
+export default function Login({ email, onEmailChange, switchToRegister, switchToForgotPassword, initialMessage, clearInitialMessage }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState('error')
   const [canResendConfirmation, setCanResendConfirmation] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaReset, setCaptchaReset] = useState(0)
+  const [cooldown, startCooldown] = useCooldown()
+  const captchaPending = Boolean(TURNSTILE_SITE_KEY) && !captchaToken
 
   const redirectTo = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
 
@@ -29,13 +41,14 @@ export default function Login({ switchToRegister, switchToForgotPassword, initia
     setMessageType('error')
     setCanResendConfirmation(false)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({ email, password, options: { captchaToken } })
+    setCaptchaReset(n => n + 1)
 
     if (error) {
       const unconfirmed = /confirm|verified|verification/i.test(error.message)
       setCanResendConfirmation(unconfirmed)
       setMessageType('error')
-      setMessage(unconfirmed ? 'This account still needs email confirmation before you can log in.' : `Error: ${error.message}`)
+      setMessage(unconfirmed ? 'This account still needs email confirmation before you can sign in.' : formatLoginError(error))
     }
     setLoading(false)
   }
@@ -50,96 +63,56 @@ export default function Login({ switchToRegister, switchToForgotPassword, initia
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email: email.trim(),
-      options: { emailRedirectTo: redirectTo }
+      options: { emailRedirectTo: redirectTo, captchaToken }
     })
+    setCaptchaReset(n => n + 1)
 
     if (error) {
       setMessageType('error')
-      setMessage(`Error: ${error.message}`)
+      setMessage(formatLoginError(error))
     } else {
       setMessageType('success')
       setMessage('Confirmation email resent. Check your inbox and spam folder.')
+      startCooldown()
     }
     setResending(false)
   }
 
+  const invalid = messageType === 'error' && Boolean(message) && !canResendConfirmation
+
   return (
-    <div className="ios-sheet auth-card rounded-3xl w-full md:h-[600px] max-w-5xl flex flex-col md:flex-row relative md:overflow-hidden text-[var(--text-main)]">
-      
-      <div className="w-full md:w-1/2 p-8 md:p-10 lg:p-14 flex flex-col justify-center md:justify-between border-b md:border-b-0 md:border-r border-[var(--border-subtle)] relative shrink-0">
+    <AuthLayout title="Sign in" subtitle="Use the email and password for your messapp account.">
+      <form onSubmit={handleLogin} className="flex flex-col gap-4">
+        <AuthField label="Email" icon={AtSign} type="email" placeholder="you@example.com" value={email} onChange={(e) => onEmailChange(e.target.value)} required autoComplete="email" enterKeyHint="next" invalid={invalid} />
         <div>
-          <div className="flex items-center gap-3 mb-6 md:mb-16 mt-4 md:mt-0">
-            <div className="messapp-auth-logo flex h-10 w-10 items-center justify-center rounded-xl" aria-hidden="true">
-              <img src="/messapp-mark.svg" alt="" className="h-9 w-9" />
-            </div>
-            <span className="font-bold tracking-wider type-label">MESSAPP</span>
-          </div>
-          <h1 className="gradient-text type-display font-semibold tracking-tight mb-2 md:mb-6 leading-[1.1]">
-            Connect<br className="hidden md:block"/><span className="md:hidden"> </span>without<br className="hidden md:block"/><span className="md:hidden"> </span><span className="accent-gradient-text">the mess.</span>
-          </h1>
-          <p className="hidden md:block text-[var(--text-muted)] type-title max-w-sm mt-4 leading-relaxed font-sans">
-            Welcome to MessApp. Built for secure, fun, and clutter-free messaging by Skibidevs.
-          </p>
-        </div>
-        <div className="hidden md:flex gap-6 mt-16 md:mt-0 pt-8 type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">
-          <span>BUILT BY SKIBIDEVS</span><span className="w-8 h-[1px] bg-[var(--border-hover)] my-auto"></span><span>MESSAPP</span>
-        </div>
-      </div>
-
-      <div className="w-full md:w-1/2 p-6 md:p-8 lg:p-10 flex flex-col justify-center bg-[var(--bg-base)] flex-1 md:overflow-y-auto custom-scrollbar">
-        <div className="max-w-md w-full mx-auto my-auto md:my-0 pb-6 md:pb-0 pt-2 md:pt-0">
-          <h2 className="type-view-title font-semibold tracking-tight mb-2">Welcome Back</h2>
-          <p className="text-[var(--text-muted)] type-label mb-6 md:mb-8">Enter your credentials to access MessApp.</p>
-
-          <form onSubmit={handleLogin} className="flex flex-col gap-4 md:gap-5">
-            <div>
-              <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1.5 block">Email Address</label>
-              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
-                <AtSign size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
-                <input type="email" placeholder="user@messapp.dev" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest block">Password</label>
-                {switchToForgotPassword && (
-                  <button type="button" onClick={switchToForgotPassword} className="type-meta font-bold text-[var(--accent)] hover:text-[var(--accent-bright)] uppercase tracking-widest cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
-                    Forgot?
-                  </button>
-                )}
-              </div>
-              <div className="ios-sheet-input ghost-border flex items-center rounded-xl px-4 h-12">
-                <Lock size={18} className="text-[var(--text-muted)] mr-3" aria-hidden="true" />
-                <input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" className="bg-transparent border-none outline-none w-full h-full text-[var(--text-main)] placeholder:text-[var(--text-subtle)] font-sans type-body" />
-              </div>
-            </div>
-            <button type="submit" disabled={loading} className="premium-button mt-1 md:mt-2 w-full h-12 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-              {loading ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <><span className="type-label">Enter MessApp</span><ArrowRight size={18} aria-hidden="true" /></>}
-            </button>
-          </form>
-
-          {message && (
-            <div className={`mt-4 p-3 border rounded-xl text-center ${messageType === 'success' ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
-              <p className={`type-meta m-0 font-medium ${messageType === 'success' ? 'text-green-400' : 'text-red-400'}`}>{message}</p>
-              {canResendConfirmation && (
-                <button type="button" onClick={handleResendConfirmation} disabled={resending} className="premium-secondary-button mt-3 h-10 px-4 rounded-lg disabled:opacity-60 type-meta font-bold cursor-pointer">
-                  {resending ? 'Sending...' : 'Resend confirmation email'}
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center gap-4 my-5 md:my-6">
-            <div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div><span className="type-meta font-bold text-[var(--text-muted)] uppercase tracking-widest">New to the app?</span><div className="flex-1 h-[1px] bg-[var(--border-subtle)]"></div>
-          </div>
-
-          {switchToRegister && (
-            <button onClick={switchToRegister} type="button" className="premium-secondary-button w-full h-12 rounded-xl font-bold cursor-pointer type-label">
-              Create an Account
+          <PasswordField label="Password" icon={Lock} placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" enterKeyHint="go" invalid={invalid} />
+          {switchToForgotPassword && (
+            <button type="button" onClick={switchToForgotPassword} className="mt-1 min-h-11 -ml-1 px-1 type-label font-semibold text-[var(--accent)] hover:text-[var(--accent-bright)] cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+              Forgot password?
             </button>
           )}
         </div>
-      </div>
-    </div>
+        <Turnstile onToken={setCaptchaToken} resetKey={captchaReset} />
+        <SubmitButton busy={loading} busyLabel="Signing in…" waiting={captchaPending} icon={ArrowRight}>Sign in</SubmitButton>
+      </form>
+
+      <AuthMessage kind={messageType}>
+        {message && <p className="type-meta m-0 font-medium">{message}</p>}
+        {message && canResendConfirmation && (
+          <button type="button" onClick={handleResendConfirmation} disabled={resending || captchaPending || cooldown > 0} className="premium-secondary-button mt-3 min-h-11 px-4 disabled:opacity-60 type-meta font-bold cursor-pointer">
+            {resending ? 'Sending…' : cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend confirmation email'}
+          </button>
+        )}
+      </AuthMessage>
+
+      {switchToRegister && (
+        <div className="mt-6 pt-6 border-t border-[var(--border-subtle)]">
+          <p className="type-label text-[var(--text-muted)] mb-3 mt-0">New to messapp?</p>
+          <button onClick={switchToRegister} type="button" className="premium-secondary-button w-full h-12 font-bold cursor-pointer type-label">
+            Create an account
+          </button>
+        </div>
+      )}
+    </AuthLayout>
   )
 }

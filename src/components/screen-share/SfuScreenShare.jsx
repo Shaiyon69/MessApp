@@ -1418,7 +1418,7 @@ export default function SfuScreenShare({
         ref={miniPlayerRef}
         style={miniPlayerStyle}
         {...(miniStage ? stageActivityProps : {})}
-        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[#0b0b0c] md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:rounded-2xl ${miniStage ? '' : 'p-1.5 md:overflow-y-auto md:p-2.5'} ${className}`}
+        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-black md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:rounded-2xl ${miniStage ? '' : 'p-1.5 md:overflow-y-auto md:p-2.5'} ${className}`}
       >
         {remoteAudioPlayers}
         {miniStage && pinnedStream ? (

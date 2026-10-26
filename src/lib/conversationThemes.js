@@ -206,8 +206,18 @@ export function getConversationTheme(themeId, mode = 'dark') {
   return { ...theme, palette }
 }
 
-export function getConversationThemeStyle(themeId, mode = 'dark') {
+/* Liquid Glass keeps the chat's colours but lets the backdrop through, so the
+   inline vars (which beat any stylesheet) arrive already see-through. */
+const seeThrough = (color, percent) => `color-mix(in srgb, ${color} ${percent}%, transparent)`
+
+export function getConversationThemeStyle(themeId, mode = 'dark', { glass = false } = {}) {
   const { palette } = getConversationTheme(themeId, mode)
+  const glassSurfaces = glass ? {
+    '--chat-bg-base': seeThrough(palette.base, 12),
+    '--chat-bg-surface': seeThrough(palette.surface, 22),
+    '--chat-bg-element': seeThrough(palette.element, 28),
+    '--chat-border': seeThrough(palette.border, 45)
+  } : {}
   return {
     '--theme-base': palette.accent,
     '--theme-10': `${palette.accent}1a`,
@@ -224,6 +234,7 @@ export function getConversationThemeStyle(themeId, mode = 'dark') {
     '--chat-outgoing-text': palette.outgoingText,
     '--chat-control-bg': palette.controlBackground || palette.accent,
     '--chat-control-border': palette.controlBorder || palette.accent,
-    '--chat-control-text': palette.controlText || palette.outgoingText
+    '--chat-control-text': palette.controlText || palette.outgoingText,
+    ...glassSurfaces
   }
 }

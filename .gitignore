@@ -47,7 +47,6 @@ secrets*.json
 
 # Supabase is local-only: migrations, Edge Functions, config, and schema
 # snapshots are deployed manually, never through this repository.
-/supabase/
 /supabase/.branches/
 /supabase/.temp/
 /supabase/reference/
