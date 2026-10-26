@@ -15,10 +15,10 @@ export default function ChannelSettingsModal({ handleUpdate, handleDelete, onClo
           </div>
           
           <div className="flex flex-col md:flex-row justify-between md:items-center mt-5 pt-4 border-t border-[var(--border-subtle)] gap-3">
-            <button type="button" onClick={handleDelete} className="premium-danger-button px-4 h-11 rounded-xl font-bold cursor-pointer w-full md:w-auto order-last md:order-first">Delete Channel</button>
+            <button type="button" onClick={handleDelete} className="premium-danger-button px-4 h-11 font-bold cursor-pointer w-full md:w-auto order-last md:order-first">Delete Channel</button>
             <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-              <button type="button" onClick={onClose} className="premium-secondary-button cursor-pointer px-4 h-11 rounded-xl font-bold w-full md:w-auto">Cancel</button>
-              <button type="submit" className="premium-button px-5 h-11 rounded-xl font-bold cursor-pointer w-full md:w-auto">Save</button>
+              <button type="button" onClick={onClose} className="premium-secondary-button cursor-pointer px-4 h-11 font-bold w-full md:w-auto">Cancel</button>
+              <button type="submit" className="premium-button px-5 h-11 font-bold cursor-pointer w-full md:w-auto">Save</button>
             </div>
           </div>
         </form>

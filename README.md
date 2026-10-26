@@ -107,6 +107,11 @@ Follow these steps to set up the development environment on your local machine.
 
    # Optional. Without it the GIF picker still opens, but search is disabled.
    VITE_KLIPY_API_KEY=your_klipy_app_key
+
+   # Optional Cloudflare Turnstile site key for login/register/reset. Leave unset
+   # locally; enable the matching secret in Supabase Auth > Bot protection only
+   # after a build with this key is deployed.
+   VITE_TURNSTILE_SITE_KEY=your_turnstile_site_key
    ```
     *(Note: Never commit local `.env` files to version control.)*
 
@@ -173,7 +178,7 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ### Third-Party Notices
 
-MessApp bundles React, Tailwind CSS, Supabase JS, Lucide icons, Capacitor, and Tauri, each distributed under its own MIT, ISC, or Apache-2.0 terms. The Fraunces and Nunito typefaces are self-hosted under the [SIL Open Font License 1.1](https://openfontlicense.org/). Their respective copyrights remain with their authors.
+MessApp bundles React, Tailwind CSS, Supabase JS, Lucide icons, Capacitor, and Tauri, each distributed under its own MIT, ISC, or Apache-2.0 terms. The Space Grotesk typeface is self-hosted under the [SIL Open Font License 1.1](https://openfontlicense.org/). Their respective copyrights remain with their authors.
 
 ---
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeStatusNote, cleanStatusNote, statusNoteExpiry, statusNoteFromProfile, statusNoteToProfile, STATUS_NOTE_MAX } from './statusNote.js'
+import { activeStatusNote, cleanStatusNote, statusNoteExpiry, statusNoteFromProfile, splitStatusEmoji, statusNoteToProfile, STATUS_NOTE_MAX } from './statusNote.js'
 
 test('status note is cleaned and capped', () => {
   assert.equal(cleanStatusNote('  hi\nthere\u0007 '), 'hi there')
@@ -27,4 +27,12 @@ test('profile round trip drops expired notes', () => {
   assert.deepEqual(statusNoteToProfile(null), { status_text: null, status_expires_at: null })
   assert.equal(statusNoteFromProfile({ status_text: 'old', status_expires_at: '2000-01-01T00:00:00Z' }), null)
   assert.equal(statusNoteFromProfile({ status_text: null }), null)
+})
+
+test('leading emoji splits off the note text', () => {
+  assert.deepEqual(splitStatusEmoji('🎮 Playing'), { emoji: '🎮', text: 'Playing' })
+  assert.deepEqual(splitStatusEmoji('👩‍💻 coding'), { emoji: '👩‍💻', text: 'coding' })
+  assert.deepEqual(splitStatusEmoji('👍🏽'), { emoji: '👍🏽', text: '' })
+  assert.deepEqual(splitStatusEmoji('busy 🎮'), { emoji: '', text: 'busy 🎮' })
+  assert.deepEqual(splitStatusEmoji(''), { emoji: '', text: '' })
 })

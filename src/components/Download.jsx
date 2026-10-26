@@ -55,7 +55,7 @@ export default function Download({ onBack }) {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {files.map(({ label, file }) => (
-                    <a key={file} href={`${RELEASE}/${file}`} className={`${id === detected ? 'premium-button' : 'premium-secondary-button'} h-10 px-4 rounded-xl font-bold type-meta flex items-center gap-2`}>
+                    <a key={file} href={`${RELEASE}/${file}`} className={`${id === detected ? 'premium-button' : 'premium-secondary-button'} h-10 px-4 font-bold type-meta flex items-center gap-2`}>
                       <DownloadIcon size={15} aria-hidden="true" /> {label}
                     </a>
                   ))}
@@ -68,7 +68,7 @@ export default function Download({ onBack }) {
             All releases <ExternalLink size={13} aria-hidden="true" />
           </a>
 
-          <button onClick={onBack} type="button" className="premium-secondary-button mt-5 w-full h-12 rounded-xl font-bold cursor-pointer type-label flex items-center justify-center gap-2">
+          <button onClick={onBack} type="button" className="premium-secondary-button mt-5 w-full h-12 font-bold cursor-pointer type-label flex items-center justify-center gap-2">
             <ArrowLeft size={16} aria-hidden="true" /> Open in Browser
           </button>
         </div>

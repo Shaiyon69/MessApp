@@ -58,3 +58,9 @@ export const statusNoteToProfile = note => ({
   status_text: activeStatusNote(note) || null,
   status_expires_at: note?.expiresAt ? new Date(note.expiresAt).toISOString() : null
 })
+
+/** Splits a leading emoji off the note text, so the editor can show it in its own picker slot. */
+export const splitStatusEmoji = text => {
+  const match = String(text ?? '').match(/^(\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|\u{FE0F}|\u{200D}\p{Extended_Pictographic})*)\s*/u)
+  return match ? { emoji: match[1], text: text.slice(match[0].length) } : { emoji: '', text: String(text ?? '') }
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
+import { createElement, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
@@ -18,6 +18,8 @@ import { debug } from '../lib/debug'
 import { SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT, SEARCH_ROOM_CONCURRENCY, SEARCH_ROOM_MESSAGE_LIMIT, describeChannelResult, describeDmResult, escapeIlikePattern, mapWithConcurrency, matchesSearchQuery, rankSearchResults } from '../lib/messageSearch'
 import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
 import { withMessageEffect } from '../lib/messageEffects'
+import { matchesOrigin, readOriginFilter, writeOriginFilter } from '../lib/messageOrigin'
+import { attachmentKind } from '../lib/attachmentKind'
 
 const KeyboardImage =
   window.__messappKeyboardImagePlugin ||
@@ -278,6 +280,8 @@ const decryptAttachmentPayload = async (sharedKeys, encryptedPayload) => {
   throw new Error('Attachment could not be decrypted')
 }
 
+const UNSEND_UNDO_MS = 5000
+
 export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [messages, setMessages] = useState([])
   const [replyingTo, setReplyingTo] = useState(null)
@@ -293,6 +297,23 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [selectedImage, setSelectedImage] = useState(null)
   const [showGifPicker, setShowGifPicker] = useState(false)
   const [localDeletedMessages, setLocalDeletedMessages] = useState(() => JSON.parse(localStorage.getItem(`deleted_msgs_${session.user.id}`) || '[]'))
+  // In-memory on purpose: a pending unsend must not outlive the session as a
+  // local hide while the row still exists for everyone else.
+  const [pendingUnsendIds, setPendingUnsendIds] = useState([])
+  const [realtimeDown, setRealtimeDown] = useState(false)
+  const [browserOffline, setBrowserOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false)
+  const activeTargetIdRef = useRef(null)
+  activeTargetIdRef.current = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+
+  useEffect(() => {
+    const sync = () => setBrowserOffline(navigator.onLine === false)
+    window.addEventListener('online', sync)
+    window.addEventListener('offline', sync)
+    return () => {
+      window.removeEventListener('online', sync)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
   const [pendingFiles, setPendingFiles] = useState([])
   const [composerSpoiler, setComposerSpoiler] = useState(false)
   const [composerEffect, setComposerEffect] = useState(null)
@@ -1374,9 +1395,11 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         clearRealtimeRetryTimer()
         if (retryAttempt > 0) catchUpMissedMessages()
         retryAttempt = 0
+        setRealtimeDown(false)
         return
       }
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        setRealtimeDown(true)
         if (!shouldScheduleRealtimeRetry({ generation, currentGeneration: realtimeGenerationRef.current, hasTimer: Boolean(realtimeRetryTimerRef.current) })) return
         retryAttempt += 1
         const delay = getRealtimeRetryDelay(retryAttempt)
@@ -1395,6 +1418,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       cleanedUp = true
       clearRealtimeRetryTimer()
       supabase.removeChannel(roomChannel)
+      setRealtimeDown(false)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
   }, [
@@ -1685,7 +1709,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         is_spoiler: captionIsSpoiler,
         expires_at: expiresAt,
         [field]: targetId,
-        reply_to_message_id: replyToMessageId
+        reply_to_message_id: replyToMessageId,
+        attachment_kind: attachmentKind(attachmentsToSend)
       }
       const { data: createdMsg, error: insertError } = await supabase.from('messages').insert(messagePayload).select(MESSAGE_SELECT).single();
       if (insertError) {
@@ -2074,27 +2099,57 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   }, [])
 
   const executeInlineDelete = useCallback(async (message, mode) => {
-    try {
-      if (mode === 'everyone' || mode === 'moderate') {
-        const deletion = mode === 'moderate'
-          ? await supabase.rpc('moderate_server_message', { target_message_id: message.id, moderation_reason: null })
-          : await supabase.from('messages').delete().eq('id', message.id).select('id')
-        const { data: deletedRows, error: deleteError } = deletion
-        if (deleteError) throw deleteError
-        if (mode === 'everyone' && !deletedRows?.some(row => row.id === message.id)) {
-          throw new Error('Message delete was not authorized')
-        }
-        const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
-        if (!targetId) throw new Error('Conversation is no longer active')
-        removeSessionHydratedMessage(session.user.id, view, targetId, message.id)
+    const targetId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+    const failDelete = () => {
+      audioSys.playActionError()
+      triggerInteractionFeedback('error')
+      toast.error(mode === 'moderate' ? 'Message not removed. Try again.' : 'Message not unsent. Check your connection and try again.')
+    }
+    const hardDelete = async () => {
+      const deletion = mode === 'moderate'
+        ? await supabase.rpc('moderate_server_message', { target_message_id: message.id, moderation_reason: null })
+        : await supabase.from('messages').delete().eq('id', message.id).select('id')
+      const { data: deletedRows, error: deleteError } = deletion
+      if (deleteError) throw deleteError
+      if (mode === 'everyone' && !deletedRows?.some(row => row.id === message.id)) {
+        throw new Error('Message delete was not authorized')
+      }
+      if (!targetId) throw new Error('Conversation is no longer active')
+      removeSessionHydratedMessage(session.user.id, view, targetId, message.id)
+      // The reader may have moved on during the undo window; only touch the
+      // live list (and its cache) if it is still this conversation.
+      if (activeTargetIdRef.current === targetId) {
         setMessages(current => {
           const updated = removeMessageById(current, message.id)
           safeCacheSave(session.user.id, targetId, updated)
           return updated
         })
+      }
+    }
+    const unhide = () => setPendingUnsendIds(prev => prev.filter(id => id !== message.id))
+    try {
+      if (mode === 'everyone') {
+        // shortcut: closing the app inside the undo window cancels the unsend;
+        // flush on pagehide if that turns out to matter.
+        setPendingUnsendIds(prev => [...prev, message.id])
         audioSys.playMessageDeleted()
         triggerInteractionFeedback('message-deleted')
-        toast.success(mode === 'moderate' ? 'Message removed by moderator' : 'Message completely deleted')
+        const timer = setTimeout(() => {
+          hardDelete().catch(failDelete).finally(unhide)
+        }, UNSEND_UNDO_MS)
+        toast(t => createElement('span', { className: 'flex items-center gap-3' },
+          'Message unsent',
+          createElement('button', {
+            type: 'button',
+            className: 'font-bold text-[var(--accent-bright)]',
+            onClick: () => { clearTimeout(timer); unhide(); toast.dismiss(t.id) }
+          }, 'Undo')
+        ), { duration: UNSEND_UNDO_MS })
+      } else if (mode === 'moderate') {
+        await hardDelete()
+        audioSys.playMessageDeleted()
+        triggerInteractionFeedback('message-deleted')
+        toast.success('Message removed')
       } else {
         setLocalDeletedMessages(prev => [...prev, message.id])
         audioSys.playMessageDeleted()
@@ -2102,9 +2157,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         toast.success("Message hidden for you")
       }
     } catch (_err) {
-      audioSys.playActionError()
-      triggerInteractionFeedback('error')
-      toast.error("Failed to delete message")
+      failDelete()
     }
     finally { setInlineDeleteMessageId(null); setInlineDeleteStep('options') }
   }, [activeChannel?.id, activeDm?.dm_room_id, session.user.id, view])
@@ -2138,9 +2191,20 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }, [activeChannel?.id, activeDm?.dm_room_id, view])
   
+  /* ponytail: the origin filter hides rows after they load rather than in the
+     query, so Chimaera-only shows just the Chimaera messages inside the loaded
+     window; "Load older" still pages through everything. Move it into the
+     queries if Chimaera traffic grows enough to hide behind MESSAPP history. */
+  const [originFilter, setOriginFilterState] = useState(readOriginFilter)
+  const setOriginFilter = useCallback((next) => {
+    setOriginFilterState(next)
+    writeOriginFilter(next)
+  }, [])
+
   const visibleMessages = useMemo(() => validMessages.filter(m => {
     if (localDeletedMessages.includes(m.id)) return false;
-    if (m.is_unreadable) return false;
+    if (pendingUnsendIds.includes(m.id)) return false;
+    if (view === 'home' && !matchesOrigin(m, originFilter)) return false;
     // ponytail: thread replies are fetched with the channel and hidden here, so
     // a page heavy with thread traffic shows fewer channel messages. Filter in
     // the query once every deployment has the thread_root_id column.
@@ -2150,7 +2214,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (contentString.includes('"ciphertext"')) return false;
     if (contentString.includes('{"iv":')) return false;
     return true;
-  }), [localDeletedMessages, validMessages]);
+  }), [localDeletedMessages, pendingUnsendIds, validMessages, originFilter, view]);
 
   /* Search spans every conversation, so it splits by what the database can
      actually read. Server-channel bodies are plaintext and are matched in
@@ -2227,6 +2291,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
   return {
     visibleMessages, validMessages, pinnedMessages,
+    originFilter, setOriginFilter,
     isLoadingMore, hasMoreMessages, messagesLoading, initialMessagesLoaded,
     replyingTo, setReplyingTo,
     inlineDeleteMessageId, setInlineDeleteMessageId,
@@ -2235,6 +2300,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     editContent, setEditContent,
     highlightedMessageId, setHighlightedMessageId,
     typingUsers,
+    connectionLost: browserOffline || realtimeDown,
     isUploading, selectedImage, setSelectedImage,
     showGifPicker, setShowGifPicker,
     pendingFiles, setPendingFiles, removePendingFile, togglePendingFileSpoiler, queuePendingAttachmentFromFile, maxPendingAttachments: MAX_PENDING_ATTACHMENTS, handlePaste, handleBeforeInput,

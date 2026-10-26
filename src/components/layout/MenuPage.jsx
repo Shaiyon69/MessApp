@@ -8,18 +8,22 @@
  * Rows carry no outline of their own: sections are separated by a rule under a
  * category header, so the page reads as one surface instead of a stack of boxes.
  */
-import { useState } from 'react'
-import { Bell, Copy, FileText, Lock, LogOut, Mic, Palette, Shield, User, UserRound } from 'lucide-react'
+import { lazy, Suspense, useRef, useState } from 'react'
+import { Bell, Check, ChevronRight, FileText, Lock, LogOut, Mic, Palette, Shield, Smile, User } from 'lucide-react'
 import toast from 'react-hot-toast'
 import StatusAvatar from '../ui/StatusAvatar'
 import ConfirmDialog from '../ui/ConfirmDialog'
+import SettingsGroup, { GroupItem } from '../ui/SettingsGroup'
 import { safeMediaUrl } from '../../lib/security'
 import { signOutAndReset } from '../../lib/signOut'
-import { STATUS_NOTE_DURATIONS, STATUS_NOTE_MAX, activeStatusNote, cleanStatusNote, statusNoteExpiry } from '../../lib/statusNote'
+import { STATUS_NOTE_MAX, activeStatusNote, cleanStatusNote, splitStatusEmoji } from '../../lib/statusNote'
 
+const ChatEmojiPicker = lazy(() => import('../chat/ChatEmojiPicker'))
+
+// Left-to-right order of the swipe dots under the avatar.
 const STATUS_OPTIONS = [
-  { id: 'online', label: 'Online', color: '#23a559' },
   { id: 'idle', label: 'Idle', color: '#f0b232' },
+  { id: 'online', label: 'Online', color: '#23a559' },
   { id: 'dnd', label: 'Do Not Disturb', color: '#f23f43' }
 ]
 
@@ -49,49 +53,89 @@ const SETTINGS_SECTIONS = [
   }
 ]
 
-function renderStatusGlyph(option) {
-  if (option.id === 'online') return <span className="h-3 w-3 rounded-full" style={{ backgroundColor: option.color }} aria-hidden="true" />
-  if (option.id === 'idle') {
-    return (
-      <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden="true">
-        <path d="M14.75 15.75A7 7 0 1 1 7.25 4.25a5.25 5.25 0 0 0 7.5 11.5Z" fill={option.color} />
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden="true">
-      <circle cx="10" cy="10" r="8" fill={option.color} />
-      <rect x="5.5" y="9" width="9" height="2" rx="1" fill="white" />
-    </svg>
-  )
-}
-
-/* One rule plus one label — the only thing separating sections now. */
-function SectionHeader({ label }) {
-  return (
-    <h3 className="mt-5 border-t-2 border-[var(--border-hover)] pt-3 type-meta font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">
-      {label}
-    </h3>
-  )
-}
-
 export default function MenuPage(props) {
-  const [statusPickerOpen, setStatusPickerOpen] = useState(false)
+  const [presenceHover, setPresenceHover] = useState(null)
+  const avatarRef = useRef(null)
+  const swipedRef = useRef(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   const [noteDraft, setNoteDraft] = useState(null)
-  const [noteDuration, setNoteDuration] = useState(0)
+  const [noteEmoji, setNoteEmoji] = useState('')
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const statusText = activeStatusNote(props.statusNote)
 
-  const saveStatusNote = (event) => {
-    event.preventDefault()
-    const text = cleanStatusNote(noteDraft)
-    props.setStatusNote?.(text ? { text, expiresAt: statusNoteExpiry(STATUS_NOTE_DURATIONS[noteDuration].ms) } : null)
+  const openNoteEditor = () => {
+    const { emoji, text } = splitStatusEmoji(statusText)
+    setNoteEmoji(emoji)
+    setNoteDraft(text)
+  }
+
+  const closeNoteEditor = () => {
+    setEmojiOpen(false)
     setNoteDraft(null)
   }
 
+  const saveStatusNote = (event) => {
+    event.preventDefault()
+    const text = cleanStatusNote([noteEmoji, noteDraft.trim()].filter(Boolean).join(' '))
+    props.setStatusNote?.(text ? { text, expiresAt: null } : null)
+    closeNoteEditor()
+  }
+
   const currentStatus = props.userStatus || 'online'
-  const currentOption = STATUS_OPTIONS.find(option => option.id === currentStatus) || STATUS_OPTIONS[0]
+  const currentOption = STATUS_OPTIONS.find(option => option.id === currentStatus) || STATUS_OPTIONS[1]
+  const shownOption = STATUS_OPTIONS.find(option => option.id === presenceHover) || currentOption
+
+  /* The avatar (and the dots row, which is the same width) is split into
+     thirds: idle, online, dnd. x past either edge clamps to the end option so
+     a long swipe still lands; a release well above the avatar or below the
+     dots picks nothing. */
+  const optionAt = (x, y) => {
+    const rect = avatarRef.current?.getBoundingClientRect()
+    if (!rect || y < rect.top - 48 || y > rect.bottom + 72) return null
+    const index = Math.floor((x - rect.left) / rect.width * STATUS_OPTIONS.length)
+    return STATUS_OPTIONS[Math.max(0, Math.min(STATUS_OPTIONS.length - 1, index))]
+  }
+
+  const pickStatus = (id) => {
+    if (id) props.setUserStatus?.(id)
+    setPresenceHover(null)
+  }
+
+  /* Hold the avatar or the dots and swipe sideways: the long dot follows,
+     release commits. Window listeners so the swipe keeps tracking after it
+     leaves the avatar. A swipe swallows the click that follows it, so the
+     avatar's tap-to-edit-profile only fires on a plain tap. */
+  const startPresenceSwipe = (event) => {
+    if (event.button !== 0) return
+    const startX = event.clientX
+    const startY = event.clientY
+    let moved = false
+    swipedRef.current = false
+    const onMove = (moveEvent) => {
+      if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) <= 6) return
+      moved = true
+      swipedRef.current = true
+      setPresenceHover(optionAt(moveEvent.clientX, moveEvent.clientY)?.id ?? null)
+    }
+    const onUp = (upEvent) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      if (moved) pickStatus(upEvent.type === 'pointerup' ? optionAt(upEvent.clientX, upEvent.clientY)?.id : null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+
+  const afterSwipe = (action) => () => {
+    if (swipedRef.current) {
+      swipedRef.current = false
+      return
+    }
+    action()
+  }
 
   const openSettings = (tab) => {
     props.setSettingsModalConfig({ isOpen: true, tab })
@@ -121,123 +165,144 @@ export default function MenuPage(props) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-4 md:p-6" aria-label="Menu">
-      <div className="h-24 rounded-2xl bg-cover bg-center" style={getBannerStyle()} aria-hidden="true" />
-      <div className="-mt-6 mb-4 flex items-end gap-3">
-        <button
-          type="button"
-          onClick={() => openSettings('account')}
-          className="shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-          aria-label="Edit profile"
-        >
-          <StatusAvatar url={props.myAvatar} username={props.myUsername} status={currentStatus} className="h-24 w-24 rounded-full bg-[var(--bg-base)] ring-4 ring-[var(--bg-base)]" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {/* Truncates: wrapping grew this row upward into the banner and
-                pushed everything below it down. Full name is in the tooltip. */}
-            <h2 title={props.myUsername} className="min-w-0 flex-1 truncate font-display type-title font-bold leading-tight text-[var(--text-main)]">{props.myUsername}</h2>
-            {/* Status is a glyph beside the name, not a row of its own: shape
-                carries it, colour only reinforces it (design.md §6). */}
-            <div className="relative shrink-0">
+    <div className="menu-page mx-auto w-full max-w-3xl p-4 pb-[var(--dock-clear)] md:p-6" aria-label="Menu">
+      <div className="h-28 rounded-2xl bg-cover bg-center md:h-32" style={getBannerStyle()} aria-hidden="true" />
+      {/* menu-glass: refractive like the dock under Liquid Glass (glass.css
+          exempts it from flattening), OLED black with a hairline otherwise. */}
+      {/* Avatar on the left, overlapping the banner, with the presence dots
+          under it. Name, pronouns and custom status share the row to its right. */}
+      <div className="flex gap-3 px-1">
+        <div className="-mt-10 flex shrink-0 flex-col items-center gap-1.5 self-start">
+          <button
+            ref={avatarRef}
+            type="button"
+            onPointerDown={startPresenceSwipe}
+            onClick={afterSwipe(() => openSettings('account'))}
+            className="touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            aria-label="Edit profile. Hold and swipe sideways to change status"
+          >
+            {/* The avatar ring previews the status under the swipe before it commits. */}
+            {/* No frame, but the padding and transparent border keep it as wide as the dots row. */}
+            <span className="block rounded-full border border-transparent p-1">
+              <StatusAvatar url={props.myAvatar} username={props.myUsername} status={shownOption.id} className="h-20 w-20 rounded-full bg-[var(--bg-base)]" />
+            </span>
+          </button>
+          {/* Idle, online, dnd left to right; the selected dot stretches. Same
+              width as the avatar frame so both map x to the same thirds. */}
+          <div
+            onPointerDown={startPresenceSwipe}
+            className="menu-glass glass-surface border border-[var(--border-subtle)] bg-[var(--surface-container-high)] flex h-6 w-[5.625rem] touch-none select-none items-center rounded-full px-1"
+            role="group"
+            aria-label={`Status: ${shownOption.label}`}
+          >
+            {STATUS_OPTIONS.map(option => (
               <button
+                key={option.id}
                 type="button"
-                onClick={() => setStatusPickerOpen(open => !open)}
-                className="flex h-11 w-11 items-center justify-center rounded-full outline-none transition-colors hover:bg-[var(--bg-element-hover)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                aria-label={`Status: ${currentOption.label}. Change status`}
-                title={currentOption.label}
-                aria-expanded={statusPickerOpen}
+                onClick={afterSwipe(() => pickStatus(option.id))}
+                className="flex h-full flex-1 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+                aria-label={option.label}
+                aria-pressed={currentStatus === option.id}
               >
-                {renderStatusGlyph(currentOption)}
+                <span
+                  className={`h-2 rounded-full transition-[width,opacity] duration-300 ease-[var(--m3-emphasized)] ${option === shownOption ? 'w-5' : 'w-2 opacity-50'}`}
+                  style={{ backgroundColor: option.color }}
+                />
               </button>
-              {statusPickerOpen && (
-                <>
-                  <button type="button" className="fixed inset-0 z-[60] cursor-default" onClick={() => setStatusPickerOpen(false)} aria-label="Close status picker" />
-                  <div className="premium-menu absolute left-1/2 top-12 z-[70] w-48 -translate-x-1/2 rounded-xl py-1 animate-fade-in" role="group" aria-label="Set presence status">
-                    {STATUS_OPTIONS.map(option => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => { props.setUserStatus?.(option.id); setStatusPickerOpen(false) }}
-                        className={`flex min-h-11 w-full items-center gap-3 px-3 text-left type-body transition-colors hover:bg-[var(--bg-element)] ${currentStatus === option.id ? 'font-bold text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}
-                        aria-pressed={currentStatus === option.id}
-                      >
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">{renderStatusGlyph(option)}</span>
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-            {props.myPronouns && <span className="shrink-0 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-1.5 py-0.5 type-meta text-[var(--text-muted)]">{props.myPronouns}</span>}
+            ))}
           </div>
-          <p className="truncate font-mono type-label text-[var(--text-muted)]">{props.myTag}</p>
+        </div>
+        {/* Name and tag stack beside the note pill, so the block is about as tall as the avatar's lower half. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 pt-1.5">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <h2 title={props.myUsername} className="min-w-0 truncate font-display type-title font-bold leading-tight text-[var(--text-main)]">{props.myUsername}</h2>
+              {props.myPronouns && <span className="shrink-0 type-label text-[var(--text-muted)]">{props.myPronouns}</span>}
+            </div>
+            {/* Tapping the tag copies it; the separate Copy ID button is gone. */}
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard.writeText(props.myTag); toast.success('User ID copied!') }}
+              className="max-w-full truncate rounded font-mono type-label text-[var(--text-muted)] outline-none hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              title="Copy user ID"
+            >
+              {props.myTag}
+            </button>
+          </div>
+
+        {noteDraft !== null && <button type="button" className="fixed inset-0 z-[60] cursor-default" onClick={closeNoteEditor} aria-label="Cancel custom status" />}
+        <div className={`menu-glass glass-surface border border-[var(--border-subtle)] bg-[var(--surface-container-high)] relative h-11 min-w-[9rem] flex-1 rounded-full ${noteDraft !== null ? 'z-[70]' : ''}`}>
           {noteDraft === null ? (
-            <button type="button" onClick={() => setNoteDraft(statusText)} className="mt-0.5 block max-w-full truncate text-left type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">
-              {statusText || 'Set a custom status'}
+            <button
+              key="closed"
+              type="button"
+              onClick={openNoteEditor}
+              title={statusText || undefined}
+              className={`h-full w-full animate-fade-in truncate rounded-full px-4 text-left type-label outline-none transition-colors hover:bg-[var(--state-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${statusText ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}
+            >
+              {statusText || 'Set Status'}
             </button>
           ) : (
-            <form onSubmit={saveStatusNote} className="mt-1 flex flex-wrap items-center gap-1.5">
+            <form
+              key="open"
+              onSubmit={saveStatusNote}
+              onKeyDown={event => { if (event.key === 'Escape') emojiOpen ? setEmojiOpen(false) : closeNoteEditor() }}
+              className="flex h-full animate-fade-in items-center gap-1 px-1"
+            >
+              <button
+                type="button"
+                onClick={() => setEmojiOpen(open => !open)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg text-[var(--text-muted)] outline-none hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                aria-label={noteEmoji ? `Status emoji ${noteEmoji}. Change emoji` : 'Pick a status emoji'}
+                aria-expanded={emojiOpen}
+              >
+                {noteEmoji || <Smile size={18} aria-hidden="true" />}
+              </button>
               <input
                 autoFocus
                 value={noteDraft}
                 onChange={event => setNoteDraft(event.target.value)}
-                maxLength={STATUS_NOTE_MAX}
+                maxLength={STATUS_NOTE_MAX - (noteEmoji ? noteEmoji.length + 1 : 0)}
                 placeholder="What's up?"
                 aria-label="Custom status"
-                className="min-w-0 flex-1 rounded-lg bg-[var(--bg-element)] px-2 py-1.5 type-label text-[var(--text-main)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                className="h-full min-w-0 flex-1 bg-transparent px-1 type-label text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
               />
-              <select value={noteDuration} onChange={event => setNoteDuration(Number(event.target.value))} aria-label="Clear after" className="rounded-lg bg-[var(--bg-element)] px-2 py-1.5 type-label text-[var(--text-main)]">
-                {STATUS_NOTE_DURATIONS.map((option, index) => <option key={option.label} value={index}>{option.label}</option>)}
-              </select>
-              <button type="submit" className="rounded-lg bg-[var(--app-accent)] px-3 py-1.5 type-label font-bold text-white">Save</button>
-              <button type="button" onClick={() => setNoteDraft(null)} className="rounded-lg px-2 py-1.5 type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">Cancel</button>
+              <button type="submit" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-white outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-main)]" aria-label="Save status"><Check size={18} aria-hidden="true" /></button>
+              {emojiOpen && (
+                <>
+                  <button type="button" className="fixed inset-0 z-[10] cursor-default" onClick={() => setEmojiOpen(false)} aria-label="Close emoji picker" />
+                  <div className="absolute right-0 top-full z-[20] mt-2 flex h-[360px] w-[min(350px,calc(100vw-2rem))] border border-[var(--border-subtle)] bg-[var(--surface-container-high)] flex-col overflow-hidden rounded-xl text-left animate-fade-in">
+                    {noteEmoji && (
+                      <button type="button" onClick={() => { setNoteEmoji(''); setEmojiOpen(false) }} className="min-h-11 shrink-0 px-3 text-left type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">No emoji</button>
+                    )}
+                    <div className="min-h-0 flex-1">
+                      <Suspense fallback={<div className="h-full w-full" />}>
+                        <ChatEmojiPicker width="100%" height="100%" onEmojiClick={emojiData => { setNoteEmoji(emojiData.emoji); setEmojiOpen(false) }} />
+                      </Suspense>
+                    </div>
+                  </div>
+                </>
+              )}
             </form>
           )}
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => openSettings('account')} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[var(--bg-element)] type-body font-bold text-[var(--text-main)] transition-colors hover:bg-[var(--bg-element-hover)]">
-          <UserRound size={18} aria-hidden="true" />
-          Profile
-        </button>
-        <button type="button" onClick={() => { navigator.clipboard.writeText(props.myTag); toast.success('User ID copied!') }} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[var(--bg-element)] type-body font-bold text-[var(--text-main)] transition-colors hover:bg-[var(--bg-element-hover)]">
-          <Copy size={18} aria-hidden="true" />
-          Copy ID
-        </button>
+        </div>
       </div>
 
       {SETTINGS_SECTIONS.map(section => (
-        <section key={section.label}>
-          <SectionHeader label={section.label} />
+        <SettingsGroup key={section.label} title={section.label} className={section === SETTINGS_SECTIONS[0] ? 'mt-4' : 'mt-6'}>
           {section.rows.map(({ tab, Icon, label }) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => openSettings(tab)}
-              className="flex min-h-12 w-full items-center gap-3 rounded-xl px-2 text-left type-body font-semibold text-[var(--text-main)] transition-colors hover:bg-[var(--bg-element-hover)]"
-            >
-              <Icon size={18} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
-              {label}
-            </button>
+            <GroupItem key={tab} icon={Icon} title={label} onClick={() => openSettings(tab)} trailing={<ChevronRight size={18} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />} />
           ))}
-        </section>
+        </SettingsGroup>
       ))}
 
-      <section>
-        <SectionHeader label="Session" />
-        <button
-          type="button"
-          onClick={() => setConfirmSignOut(true)}
-          disabled={isSigningOut}
-          className="flex min-h-12 w-full items-center gap-3 rounded-xl px-2 text-left type-body font-bold text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-60"
-        >
-          <LogOut size={18} className="shrink-0" aria-hidden="true" />
-          {isSigningOut ? 'Signing out…' : 'Sign out'}
-        </button>
-      </section>
+      <SettingsGroup title="Session" className="mt-6">
+        <GroupItem onClick={() => setConfirmSignOut(true)} disabled={isSigningOut} className="disabled:opacity-60">
+          <span className="tonal-icon bg-red-500/10 text-red-400" aria-hidden="true"><LogOut size={20} /></span>
+          <span className="type-body font-bold text-red-400">{isSigningOut ? 'Signing out…' : 'Sign out'}</span>
+        </GroupItem>
+      </SettingsGroup>
 
       {confirmSignOut && (
         <ConfirmDialog

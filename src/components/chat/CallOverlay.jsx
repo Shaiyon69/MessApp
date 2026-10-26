@@ -95,7 +95,7 @@ export default function CallOverlay({
               style={!isVideoLive && !isScreenShareLive ? localVideoStyle : undefined}
             />
             {isVideoLive && videoEnabled && (
-              <div className="direct-call-mini-pip absolute right-2 top-2 h-14 w-10 overflow-hidden rounded-lg border border-white/20 bg-[#1c1e22] md:right-2.5 md:top-2.5 md:h-24 md:w-16 md:rounded-xl">
+              <div className="direct-call-mini-pip absolute right-2 top-2 h-14 w-10 overflow-hidden rounded-lg border border-white/20 bg-black md:right-2.5 md:top-2.5 md:h-24 md:w-16 md:rounded-xl">
                 <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={localVideoStyle} />
               </div>
             )}
@@ -271,7 +271,7 @@ export default function CallOverlay({
         {/* Only a remote stage leaves room for a corner preview; when the local
             camera is the stage, localVideoRef is already attached there. */}
         {remoteStageActive && videoEnabled && (
-          <div className="absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 z-40 overflow-hidden rounded-2xl border border-white/10 bg-[#1c1e22] shadow-2xl transition-all duration-500">
+          <div className="absolute bottom-24 right-4 md:right-8 w-28 h-40 md:w-48 md:h-64 z-40 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl transition-all duration-500">
              <video
                ref={localVideoRef}
                autoPlay playsInline muted
@@ -304,7 +304,7 @@ export default function CallOverlay({
         )}
         
         {pendingVideoRequest && (
-          <div className="absolute top-24 bg-[#1c1e22] border border-white/10 p-5 rounded-3xl shadow-xl z-[200] flex flex-col items-center gap-4 animate-slide-up">
+          <div className="glass-surface absolute top-24 bg-black border border-white/10 p-5 rounded-3xl shadow-xl z-[200] flex flex-col items-center gap-4 animate-slide-up">
             <div className="bg-indigo-500/20 p-3 rounded-full text-indigo-400">
               <Video size={24} />
             </div>

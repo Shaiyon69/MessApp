@@ -29,7 +29,7 @@ const ReportContentModal = lazy(() => import('./modals/ReportContentModal'))
 import { generateEcdhKeyPair, exportPublicKey, exportPrivateKey, generateSecureRandomNumber } from '../lib/crypto'
 import { normalizeProfileBaseName } from '../lib/security'
 import { downloadFile } from '../lib/downloadFile'
-import { applySurfaceTint, applyThemeMode } from '../lib/theme'
+import { applySurfaceTint, applyThemeMode, applyUiStyle } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
 import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
@@ -73,6 +73,7 @@ import { debug } from '../lib/debug'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
+import { fuzzyFilter } from '../lib/fuzzy'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -260,13 +261,17 @@ export default function Dashboard({ session }) {
 
   const [dmActionMenuId, setDmActionMenuId] = useState(null) 
   const [messageActionMenuId, setMessageActionMenuId] = useState(null)
+  const [glassStyle, setGlassStyle] = useState(false)
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined
     const root = document.documentElement
-    const syncMode = () => setAppThemeMode(root.dataset.theme === 'light' ? 'light' : 'dark')
+    const syncMode = () => {
+      setAppThemeMode(root.dataset.theme === 'light' ? 'light' : 'dark')
+      setGlassStyle(root.dataset.uiStyle === 'glass')
+    }
     const observer = new MutationObserver(syncMode)
-    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-ui-style'] })
     syncMode()
     return () => observer.disconnect()
   }, [])
@@ -687,7 +692,8 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     applyThemeMode(localStorage.getItem('appTheme') || 'dark');
-    applySurfaceTint(localStorage.getItem('surfaceTint') || 'neutral');
+    applySurfaceTint(localStorage.getItem('surfaceTint') || 'blue');
+    applyUiStyle(localStorage.getItem('uiStyle'));
 
     const storedDensity = localStorage.getItem('uiDensity') || localStorage.getItem('chatMessageScale') || 'default';
     const uiDensity = storedDensity === 'comfortable' || storedDensity === 'normal' ? 'default' : storedDensity === 'large' ? 'spacious' : storedDensity;
@@ -2036,20 +2042,22 @@ export default function Dashboard({ session }) {
   const isChatActive = (view === 'server' && activeChannel) || (view === 'home' && activeDm)
   const isViewingActiveVoiceChannel = Boolean(view === 'server' && activeChannel?.id === activeVoiceSession?.channelId)
 
-  const quickSwitcherResults = quickSwitcherQuery ? quickSwitcherBase.filter(dm => dm.profiles.username.toLowerCase().includes(quickSwitcherQuery.toLowerCase()) || dm.profiles.unique_tag?.toLowerCase().includes(quickSwitcherQuery.toLowerCase())) : quickSwitcherBase
+  const quickSwitcherResults = useMemo(
+    () => fuzzyFilter(quickSwitcherBase, quickSwitcherQuery, dm => [dm.profiles.username, dm.profiles.unique_tag]),
+    [quickSwitcherBase, quickSwitcherQuery]
+  )
   /* Servers and the open server's channels, from state that is already loaded —
      channels of other servers are not fetched until that server is opened, so
      they are reachable through their server rather than listed here. */
   const quickSwitcherPlaces = useMemo(() => {
-    const query = quickSwitcherQuery.trim().toLowerCase()
-    if (!query) return []
+    if (!quickSwitcherQuery.trim()) return []
     const places = [
       ...servers.map(server => ({ kind: 'server', id: server.id, name: server.name, server })),
       ...serverCategories.flatMap(category => (category.channels || []).map(channel => (
         { kind: 'channel', id: channel.id, name: channel.name, channel, context: activeServer?.name }
       )))
     ]
-    return places.filter(place => place.name?.toLowerCase().includes(query))
+    return fuzzyFilter(places, quickSwitcherQuery, place => [place.name])
   }, [activeServer?.name, quickSwitcherQuery, serverCategories, servers])
 
   const openQuickSwitcherPlace = useCallback((place) => {
@@ -2139,7 +2147,7 @@ export default function Dashboard({ session }) {
     }
   }, [activeDm?.dm_room_id, customWallpaperPath])
 
-  const scopedChatStyle = isChatActive ? getConversationThemeStyle(currentConversationThemeId, appThemeMode) : {
+  const scopedChatStyle = isChatActive ? getConversationThemeStyle(currentConversationThemeId, appThemeMode, { glass: glassStyle }) : {
     '--theme-base': 'var(--app-accent)',
     '--theme-10': 'var(--app-accent-10)',
     '--theme-20': 'var(--app-accent-20)',
@@ -2182,7 +2190,7 @@ export default function Dashboard({ session }) {
       <Toaster
         position="top-center"
         containerStyle={{ top: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}
-        toastOptions={{ style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
+        toastOptions={{ className: 'app-toast', style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
 
 <ChatArea
@@ -2370,7 +2378,7 @@ export default function Dashboard({ session }) {
       )}
 
       {showQuickSwitcher && (
-        <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-start justify-center pt-[10vh] sm:pt-[15vh] animate-fade-in px-4" onClick={() => setShowQuickSwitcher(false)}>
+        <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowQuickSwitcher(false)}>
           <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
@@ -2455,8 +2463,8 @@ export default function Dashboard({ session }) {
               {confirmAction.type === 'delete_dm' && "This removes the conversation from your list. Your friendship will remain intact."}
             </p>
             <div className="relative z-10 flex gap-3">
-              <button onClick={() => setConfirmAction(null)} className="premium-secondary-button flex-1 py-3 rounded-xl font-bold cursor-pointer">Cancel</button>
-              <button onClick={executeConfirmAction} className={`flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg focus-visible:ring-2 focus-visible:ring-white cursor-pointer ${confirmAction.type.includes('un') ? 'bg-green-500 hover:bg-green-600 shadow-green-500/20' : 'premium-danger-button'}`}>
+              <button onClick={() => setConfirmAction(null)} className="premium-secondary-button flex-1 py-3 font-bold cursor-pointer">Cancel</button>
+              <button onClick={executeConfirmAction} className={`flex-1 py-3 font-bold text-white transition-all shadow-lg focus-visible:ring-2 focus-visible:ring-white cursor-pointer ${confirmAction.type.includes('un') ? 'rounded-full bg-green-500 hover:bg-green-600 shadow-green-500/20' : 'premium-danger-button'}`}>
                 Confirm
               </button>
             </div>
@@ -2617,7 +2625,7 @@ export default function Dashboard({ session }) {
                   toast.error('Failed to secure keys.', { id: toastId });
                 }
               }}
-              className="premium-button relative z-10 w-full py-4 rounded-xl font-bold cursor-pointer"
+              className="premium-button relative z-10 w-full py-4 font-bold cursor-pointer"
             >
               Set PIN & Continue
             </button>
@@ -2685,7 +2693,7 @@ export default function Dashboard({ session }) {
                     toast.error('Incorrect PIN. Please try again.');
                   }
                 }}
-                className="premium-button w-full py-4 rounded-xl font-bold cursor-pointer"
+                className="premium-button w-full py-4 font-bold cursor-pointer"
               >
                 Unlock & Enter
               </button>
@@ -2695,7 +2703,7 @@ export default function Dashboard({ session }) {
                   toast('Generating new keys...', { icon: '⚠️' });
                   setTimeout(() => window.location.reload(), 1000);
                 }}
-                className="premium-secondary-button w-full py-4 rounded-xl font-bold cursor-pointer"
+                className="premium-secondary-button w-full py-4 font-bold cursor-pointer"
               >
                 Skip (Lose old messages)
               </button>

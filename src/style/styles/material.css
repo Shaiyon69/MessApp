@@ -1,0 +1,204 @@
+/* Material You: tonal surfaces instead of OLED black, no hairlines, large
+   soft corners, accent-container pills for selection and a rounded-square
+   FAB. Every palette already ships its M3 tonal pair (--accent-container /
+   --on-accent-container), so the surfaces here are mixed from that and the
+   accent rather than computed in JS. */
+:root[data-ui-style="material"] {
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.75rem;
+  --radius-3xl: 2rem;
+  --radius-4xl: 2.5rem;
+}
+
+:root[data-ui-style="material"][data-theme="dark"] {
+  --bg-deep: color-mix(in srgb, var(--app-accent) 4%, #0e0f12);
+  --bg-base: color-mix(in srgb, var(--app-accent) 5%, #121316);
+  --bg-top: var(--bg-base);
+  --bg-surface: color-mix(in srgb, var(--app-accent) 7%, #17181c);
+  --surface-container-low: color-mix(in srgb, var(--app-accent) 6%, #1a1b1f);
+  --surface-container: color-mix(in srgb, var(--app-accent) 8%, #1e1f23);
+  --surface-container-high: color-mix(in srgb, var(--app-accent) 9%, #282a2e);
+  --surface-container-highest: color-mix(in srgb, var(--app-accent) 10%, #333539);
+  --surface-section: var(--surface-container);
+  --surface-gradient: var(--surface-container-low);
+  --bg-element: var(--surface-container-high);
+  --bg-element-hover: var(--surface-container-highest);
+  --border-subtle: color-mix(in srgb, var(--app-accent) 10%, #2c2e33);
+  --border-hover: color-mix(in srgb, var(--app-accent) 16%, #45474d);
+  --state-hover: var(--surface-container-high);
+  --state-pressed: var(--surface-container-highest);
+  --shadow-premium: 0 2px 6px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-ui-style="material"][data-theme="light"] {
+  --bg-deep: color-mix(in srgb, var(--app-accent) 6%, #f1f0f4);
+  --bg-base: color-mix(in srgb, var(--app-accent) 3%, #fbf8fd);
+  --bg-top: var(--bg-base);
+  --bg-surface: color-mix(in srgb, var(--app-accent) 4%, #f7f5fa);
+  --surface-container-low: color-mix(in srgb, var(--app-accent) 4%, #f5f3f8);
+  --surface-container: color-mix(in srgb, var(--app-accent) 6%, #efedf2);
+  --surface-container-high: color-mix(in srgb, var(--app-accent) 7%, #e9e7ec);
+  --surface-container-highest: color-mix(in srgb, var(--app-accent) 8%, #e3e1e6);
+  --surface-section: var(--surface-container);
+  --surface-gradient: var(--surface-container-low);
+  --bg-element: var(--surface-container-high);
+  --bg-element-hover: var(--surface-container-highest);
+  --border-subtle: color-mix(in srgb, var(--app-accent) 10%, #d6d4da);
+  --state-hover: var(--surface-container-high);
+  --state-pressed: var(--surface-container-highest);
+  --shadow-premium: 0 1px 3px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-ui-style="material"] body,
+:root[data-ui-style="material"] .ambient-shell {
+  background: var(--bg-base) !important;
+}
+
+/* Elevation is tone, not outline: panels drop their hairlines. */
+:root[data-ui-style="material"] .ios-glass-sidebar,
+:root[data-ui-style="material"] .ios-sidebar-footer,
+:root[data-ui-style="material"] .active-now-panel,
+:root[data-ui-style="material"] .chat-surface {
+  background: var(--surface-container-low) !important;
+  border-color: transparent !important;
+}
+
+:root[data-ui-style="material"] .ios-app-bar {
+  background: transparent !important;
+}
+
+@media (min-width: 768px) {
+  :root[data-ui-style="material"] .home-tab-shell {
+    background: var(--surface-container) !important;
+    border-color: transparent !important;
+  }
+}
+
+:root[data-ui-style="material"] .premium-section,
+:root[data-ui-style="material"] .premium-card,
+:root[data-ui-style="material"] .glass-panel {
+  background: var(--surface-container) !important;
+  border-color: transparent !important;
+  box-shadow: none;
+}
+
+:root[data-ui-style="material"] .premium-menu,
+:root[data-ui-style="material"] .premium-modal,
+:root[data-ui-style="material"] .ios-sheet {
+  background: var(--surface-container-high) !important;
+  border-color: transparent !important;
+  box-shadow: var(--shadow-premium);
+}
+
+:root[data-ui-style="material"] .premium-composer {
+  background: var(--surface-container-high) !important;
+  border-color: transparent !important;
+  border-radius: 9999px;
+  box-shadow: none;
+}
+
+:root[data-ui-style="material"] .premium-composer:focus-within {
+  box-shadow: 0 0 0 2px var(--theme-base, var(--app-accent)) !important;
+}
+
+:root[data-ui-style="material"] .composer-field,
+:root[data-ui-style="material"] .premium-input {
+  background: var(--surface-container-highest) !important;
+  border-color: transparent !important;
+}
+
+:root[data-ui-style="material"] .premium-icon-button {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--on-accent-container) !important;
+}
+
+:root[data-ui-style="material"] .premium-icon-button:hover {
+  background: var(--accent-container) !important;
+}
+
+/* Tonal button: M3's secondary container. */
+:root[data-ui-style="material"] .premium-secondary-button {
+  background: var(--accent-container);
+  color: var(--on-accent-container);
+  border-color: transparent;
+}
+
+:root[data-ui-style="material"] .premium-secondary-button:hover {
+  background: color-mix(in srgb, var(--on-accent-container) 8%, var(--accent-container));
+}
+
+:root[data-ui-style="material"] .premium-button {
+  box-shadow: none;
+}
+
+/* Navigation: the active destination sits in a secondary-container pill. */
+:root[data-ui-style="material"] .m3-nav-item[data-active="true"] .m3-nav-indicator::before {
+  background: var(--accent-container);
+}
+
+:root[data-ui-style="material"] .m3-nav-item[data-active="true"] .m3-nav-indicator svg {
+  color: var(--on-accent-container);
+}
+
+@media (max-width: 767px) {
+  :root[data-ui-style="material"] .dock {
+    border-radius: 1.75rem;
+    background: var(--surface-container);
+    box-shadow: var(--shadow-premium);
+  }
+
+  :root[data-ui-style="material"] .dock .m3-nav-item[data-active="true"] {
+    background: var(--accent-container);
+  }
+
+  :root[data-ui-style="material"] .dock .m3-nav-item[data-active="true"],
+  :root[data-ui-style="material"] .dock .m3-nav-item[data-active="true"] .m3-nav-indicator svg {
+    color: var(--on-accent-container);
+  }
+}
+
+/* FAB: M3's rounded square on the primary container. */
+:root[data-ui-style="material"] .quick-action-trigger {
+  border-radius: 1rem !important;
+  background: var(--accent-container) !important;
+  color: var(--on-accent-container) !important;
+  border-color: transparent !important;
+  box-shadow: var(--shadow-premium);
+}
+
+:root[data-ui-style="material"] .quick-action,
+:root[data-ui-style="material"] .origin-dots {
+  background: var(--surface-container-high) !important;
+  border-color: transparent !important;
+  box-shadow: var(--shadow-premium);
+}
+
+:root[data-ui-style="material"] .chat-bubble {
+  border-color: transparent !important;
+  border-radius: 1.25rem;
+  box-shadow: none;
+}
+
+:root[data-ui-style="material"] .chat-bubble:not(.chat-bubble-mine) {
+  background: var(--surface-container-highest) !important;
+}
+
+:root[data-ui-style="material"] .chat-bubble.rounded-tr-md {
+  border-top-right-radius: 0.375rem;
+}
+
+:root[data-ui-style="material"] .chat-bubble.rounded-tl-md {
+  border-top-left-radius: 0.375rem;
+}
+
+:root[data-ui-style="material"] .appearance-tint-option {
+  background: var(--surface-container);
+  border-color: transparent;
+}
+
+:root[data-ui-style="material"] .appearance-tint-option.is-active {
+  background: var(--accent-container);
+  border-color: transparent;
+}
