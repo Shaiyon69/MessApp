@@ -364,9 +364,16 @@ footer {
   <h3>Notification feed</h3>
   <p>The <code>notify_channel_message</code> trigger writes a <code>notifications</code> row for
   each server-channel reply, thread reply, and <code>@mention</code> (one row per recipient
-  per message). DMs are excluded because the server cannot read their content. The
-  notifications tab merges these with pending friend requests
-  (<code>src/lib/notifications.js</code>) and marks the stored rows read when opened.</p>
+  per message). DM mentions are excluded because the server cannot read their content.
+  Other triggers add <code>reaction</code> and <code>poll_vote</code> (one grouped row per
+  message, bumped back to unread with a count in <code>data</code>), <code>thread_reply</code>
+  (grouped per thread for everyone who posted in it), <code>friend_accepted</code> and
+  <code>moderation</code> (server name snapshotted in <code>data</code>, since a kicked member
+  can no longer read it). <code>missed_call</code> comes from the caller's client through the
+  <code>record_missed_call</code> RPC, because an offline callee never sees the broadcast offer.
+  The notifications tab merges these with pending friend requests
+  (<code>src/lib/notifications.js</code>), with filter chips, day sections, per-row read state,
+  and dismiss (swipe or X).</p>
   <h3>Custom status</h3>
   <p>The note travels to other users in the global presence payload, and to the user's own
   devices through <code>profiles.status_text</code> / <code>status_expires_at</code>.</p>
