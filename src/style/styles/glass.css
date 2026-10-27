@@ -59,6 +59,14 @@
   --lg-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .05 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* A refraction map is sized to the one element liquidGlass.js set it on
+   (inline, which beats this). Inherited, a child would bend its backdrop
+   with its parent's map: bubbles drew the chat panel's top bezel. Pseudo-
+   elements still inherit from their own element. */
+:root[data-ui-style="glass"] * {
+  --lg-refract: initial;
+}
+
 /* Grain would light OLED pixels; only light mode and photos keep it. */
 :root[data-ui-style="glass"][data-theme="dark"]:not([data-glass-wallpaper]) {
   --lg-grain: none;
@@ -228,13 +236,13 @@
 }
 
 /* ── The material ──
-   Background layers, top to bottom: pointer light, grain, tint. The rim is
+   Background layers, top to bottom: sheen, grain, tint. The rim is
    a conic sweep drawn on ::after and masked down to a 1px ring (painted as
    a background, it would show through the clear tint across the whole
    pane): brightest at the top-left (the shader's light direction), a
    weaker counter-highlight bottom-right, faint spectral stops between for
    the dispersion fringe. Inset shadows give the inner shadow and Fresnel
-   glow. Declared per element so --lg-mx/--lg-my and --lg-tint resolve on
+   glow. Declared per element so --lg-tint resolves on
    the element itself. */
 :root[data-ui-style="glass"][data-theme] :is(
   .ios-glass-sidebar, .app-left-panel, .right-sidebar-panel, .chat-surface,
@@ -387,22 +395,6 @@
   --lg-frost: 6px;
 }
 
-/* Pointer light: follows the cursor while hovered (set by liquidGlass.js). */
-:root[data-ui-style="glass"][data-theme] :is(
-  .ios-glass-sidebar, .app-left-panel, .right-sidebar-panel, .chat-surface,
-  .active-now-panel, .premium-section, .premium-card, .glass-panel, .auth-card,
-  .appearance-tint-option, .premium-menu, .premium-modal, .ios-sheet,
-  .premium-composer, .origin-dots, .quick-action, .quick-action-trigger, .dock,
-  .glass-surface, .home-tab-shell, .chat-glass
-):hover {
-  --lg-hi: radial-gradient(160px circle at var(--lg-mx, -400px) var(--lg-my, -400px), rgba(255, 255, 255, 0.09), transparent 70%);
-  --lg-rim: radial-gradient(120px circle at var(--lg-mx, -400px) var(--lg-my, -400px), rgba(255, 255, 255, 0.55), transparent 70%),
-    conic-gradient(from 0deg,
-      var(--lg-soft) 0deg, var(--lg-fringe-a) 70deg, var(--lg-counter) 135deg,
-      var(--lg-fringe-b) 190deg, var(--lg-soft) 240deg, var(--lg-fringe-c) 268deg,
-      var(--lg-key) 315deg, var(--lg-soft) 360deg);
-}
-
 /* Shells pinned by layered !important rules in index.css: hand them the
    material through the one variable those rules read. */
 :root[data-ui-style="glass"][data-theme] :is(.ios-glass-sidebar, .app-left-panel, .active-now-panel) {
@@ -523,7 +515,6 @@
 
 :root[data-ui-style="glass"][data-theme] button.seg-item:hover {
   --lg-tint: color-mix(in srgb, var(--app-accent) 9%, transparent);
-  --lg-hi: radial-gradient(160px circle at var(--lg-mx, -400px) var(--lg-my, -400px), rgba(255, 255, 255, 0.08), transparent 70%);
 }
 
 :root[data-ui-style="glass"][data-theme] .seg-item[data-selected="true"] {
@@ -606,12 +597,22 @@
 /* The picked tab is a clear lens, not acrylic: no fill and no blur, only
    refraction (liquidGlass.js maps every dock tab) under a specular rim. The
    phone dock's pill is the item; the desktop rail's is the indicator. */
-:root[data-ui-style="glass"][data-theme] .dock .m3-nav-item[data-active="true"],
 :root[data-ui-style="glass"][data-theme] .m3-nav-item[data-active="true"] .m3-nav-indicator::before {
   background: transparent;
   box-shadow: inset 0 1px 0 var(--lg-spec), inset 0 0 0 1px var(--app-accent-50);
   -webkit-backdrop-filter: var(--lg-refract, none);
   backdrop-filter: var(--lg-refract, none);
+}
+
+/* Phone only: on the desktop rail the item is a square button, and this drew
+   a box around the tab. */
+@media (max-width: 767px) {
+  :root[data-ui-style="glass"][data-theme] .dock .m3-nav-item[data-active="true"] {
+    background: transparent;
+    box-shadow: inset 0 1px 0 var(--lg-spec), inset 0 0 0 1px var(--app-accent-50);
+    -webkit-backdrop-filter: var(--lg-refract, none);
+    backdrop-filter: var(--lg-refract, none);
+  }
 }
 
 :root[data-ui-style="glass"][data-theme] .m3-nav-item[data-active="true"] .m3-nav-indicator svg,
@@ -642,7 +643,7 @@
 
 /* Menu header glass and the dock draw their rim in one colour, the palette
    accent: the conic rim's hue-shifted fringes and white keys read as a
-   rainbow. :hover too, since the hover rule rebuilds --lg-rim. Their
+   rainbow. Their
    refraction is single-pass for the same reason (liquidGlass.js). */
 :root[data-ui-style="glass"][data-theme] :is(.menu-glass, .dock),
 :root[data-ui-style="glass"][data-theme] :is(.menu-glass, .dock):hover {
@@ -650,7 +651,7 @@
 }
 
 /* ── Glass is kept for the Settings sheet, the dock, the (+) quick
-   actions, the Menu header and the half-screen action sheet (.menu-glass) only. Everything else in this style
+   actions, the Menu header, the half-screen action sheet, the quick switcher and toasts (.menu-glass) only. Everything else in this style
    is flat: panels sit on the ground, overlays get one solid fill, no rim,
    sheen, blur or edge glow. ── */
 :root[data-ui-style="glass"][data-theme="dark"] {
@@ -662,11 +663,11 @@
 }
 
 :root[data-ui-style="glass"][data-theme] :is(
-  .ios-glass-sidebar, .app-left-panel, .right-sidebar-panel, .chat-surface,
+  .ios-glass-sidebar, .app-left-panel, .chat-surface,
   .active-now-panel, .premium-section, .premium-card, .glass-panel, .auth-card,
   .appearance-tint-option, .add-friend-search, .add-friend-result,
   .voice-participant-list
-):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass) {
+):not(.dock *, .quick-actions *, .menu-glass, .chat-glass) {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
@@ -677,7 +678,7 @@
   .premium-menu, .premium-modal, .ios-sheet, .premium-composer, .origin-dots,
   .app-toast, .glass-surface, .direct-call-mini, .voice-stage-controls-drawer,
   .voice-view-switcher, .EmojiPickerReact
-):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass) {
+):not(.settings-soft-dividers > *, .dock *, .quick-actions *, .menu-glass, .chat-glass) {
   --epr-bg-color: var(--lg-flat);
   --epr-category-label-bg-color: var(--lg-flat);
   background: var(--lg-flat) !important;
@@ -691,34 +692,34 @@
 /* The glass layers live on the pseudo-elements; hand them back to the base
    styles (which may draw their own subtle sheen, or nothing). */
 :root[data-ui-style="glass"][data-theme] :is(
-  .ios-glass-sidebar, .app-left-panel, .right-sidebar-panel, .chat-surface,
+  .ios-glass-sidebar, .app-left-panel, .chat-surface,
   .active-now-panel, .premium-section, .premium-card, .glass-panel, .auth-card,
   .appearance-tint-option, .add-friend-search, .add-friend-result,
   .voice-participant-list, .premium-menu, .premium-modal, .ios-sheet,
   .premium-composer, .origin-dots, .app-toast, .glass-surface,
   .direct-call-mini, .voice-stage-controls-drawer, .voice-view-switcher,
   .seg-item
-):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass)::before,
+):not(.settings-soft-dividers > *, .dock *, .quick-actions *, .menu-glass, .chat-glass)::before,
 :root[data-ui-style="glass"][data-theme] :is(
-  .ios-glass-sidebar, .app-left-panel, .right-sidebar-panel, .chat-surface,
+  .ios-glass-sidebar, .app-left-panel, .chat-surface,
   .active-now-panel, .premium-section, .premium-card, .glass-panel, .auth-card,
   .appearance-tint-option, .add-friend-search, .add-friend-result,
   .voice-participant-list, .premium-menu, .premium-modal, .ios-sheet,
   .premium-composer, .origin-dots, .app-toast, .glass-surface,
   .direct-call-mini, .voice-stage-controls-drawer, .voice-view-switcher,
   .seg-item
-):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass)::after {
+):not(.settings-soft-dividers > *, .dock *, .quick-actions *, .menu-glass, .chat-glass)::after {
   all: revert-layer;
 }
 
-:root[data-ui-style="glass"][data-theme] .seg-item:not(.settings-soft-dividers *) {
+:root[data-ui-style="glass"][data-theme] .seg-item {
   background: revert-layer !important;
   border-color: transparent !important;
   box-shadow: none !important;
   isolation: auto;
 }
 
-:root[data-ui-style="glass"][data-theme] :is(.premium-icon-button, .voice-control-button:not(.is-active)):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass *) {
+:root[data-ui-style="glass"][data-theme] :is(.premium-icon-button, .voice-control-button:not(.is-active)):not(.dock *, .quick-actions *, .menu-glass, .chat-glass *) {
   background: var(--bg-element) !important;
   border-color: transparent !important;
   box-shadow: none !important;
@@ -726,11 +727,11 @@
   backdrop-filter: none;
 }
 
-:root[data-ui-style="glass"][data-theme] :is(.premium-icon-button, .voice-control-button:not(.is-active)):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass *):hover {
+:root[data-ui-style="glass"][data-theme] :is(.premium-icon-button, .voice-control-button:not(.is-active)):not(.dock *, .quick-actions *, .menu-glass, .chat-glass *):hover {
   background: var(--bg-element-hover) !important;
 }
 
-:root[data-ui-style="glass"][data-theme] .premium-secondary-button:not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass *) {
+:root[data-ui-style="glass"][data-theme] .premium-secondary-button:not(.dock *, .quick-actions *, .menu-glass, .chat-glass *) {
   background: var(--app-accent-10) !important;
   border-color: transparent !important;
   box-shadow: none !important;
@@ -738,18 +739,18 @@
   backdrop-filter: none;
 }
 
-:root[data-ui-style="glass"][data-theme] .premium-secondary-button:not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass *):hover {
+:root[data-ui-style="glass"][data-theme] .premium-secondary-button:not(.dock *, .quick-actions *, .menu-glass, .chat-glass *):hover {
   background: var(--app-accent-20) !important;
 }
 
-:root[data-ui-style="glass"][data-theme] :is(.premium-button, .tonal-icon):not(.settings-soft-dividers *, .dock *, .quick-actions *, .menu-glass, .chat-glass *) {
+:root[data-ui-style="glass"][data-theme] :is(.premium-button, .tonal-icon):not(.dock *, .quick-actions *, .menu-glass, .chat-glass *) {
   background: revert-layer;
   box-shadow: revert-layer;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-:root[data-ui-style="glass"][data-theme] :is(.premium-input, .composer-field, .ios-sheet-input):not(.settings-soft-dividers *, .chat-glass *) {
+:root[data-ui-style="glass"][data-theme] :is(.premium-input, .composer-field, .ios-sheet-input):not(.chat-glass *) {
   background: var(--bg-element) !important;
   border-color: transparent !important;
   box-shadow: none;
@@ -761,19 +762,22 @@
   backdrop-filter: none;
 }
 
-/* ── Chat glass: the chat header, origin dots, bubbles and composer opt back
-   into the material with .chat-glass (excluded from the flat rules above). ── */
-/* Outranks the clear-chrome rule for .ios-app-bar and the header's inline
-   chat background. */
-:root[data-ui-style="glass"][data-theme] .ios-app-bar.chat-glass {
-  --lg-tint: var(--lg-float-tint);
-  background: var(--lg-layers) !important;
-  box-shadow: var(--lg-depth) !important;
+/* ── Chat glass: origin dots, bubbles and composer opt back into the
+   material with .chat-glass (excluded from the flat rules above). ── */
+/* The chat header is clear chrome over the chat; a hairline separates it.
+   Outranks the clear-chrome rule's box-shadow: none. */
+:root[data-ui-style="glass"][data-theme] .chat-surface > header.ios-app-bar {
+  box-shadow: inset 0 -1px 0 var(--border-subtle) !important;
 }
 
+/* Bubbles: frost and a top specular line only. The bottom inner shadow, the
+   counter-highlight and the bezel refraction (liquidGlass.js skips bubbles)
+   read as a reflection under each bubble. */
 :root[data-ui-style="glass"][data-theme] .chat-bubble.chat-glass {
   --lg-tint: var(--lg-bubble-tint);
   --lg-frost: 3px;
+  --lg-hi: linear-gradient(transparent, transparent);
+  box-shadow: inset 0 1px 0 var(--lg-spec) !important;
 }
 
 /* Mine: the outgoing colour seen through a clear coat, like .premium-button. */
@@ -809,8 +813,7 @@
 
 /* Chat glass outlines take the chat's theme colour, not the app palette:
    one-colour rim, and single-pass refraction (liquidGlass.js) so the edge
-   carries no spectral fringe. :hover too, since the hover rule rebuilds
-   --lg-rim. */
+   carries no spectral fringe. */
 :root[data-ui-style="glass"][data-theme] .chat-glass,
 :root[data-ui-style="glass"][data-theme] .chat-glass:hover {
   --lg-rim: linear-gradient(
@@ -822,10 +825,41 @@
   border-color: color-mix(in srgb, var(--theme-base, var(--app-accent)) 40%, transparent) !important;
 }
 
-/* The chat header keeps the glass but drops the rim: a full-width outline
-   along the top of the chat reads as a distraction. */
-:root[data-ui-style="glass"][data-theme] .ios-app-bar.chat-glass::after {
-  display: none;
+/* The flat rule clears every panel border; the desktop chat card keeps its
+   hairline outline. Class doubled to outrank the flat rule. */
+:root[data-ui-style="glass"][data-theme] .chat-surface.chat-surface {
+  border-color: var(--border-subtle) !important;
+}
+
+/* Desktop rail: the shell is the glass pane. The dock inside it has no
+   radius there, so its own material drew a square inside the rounded rail. */
+@media (min-width: 768px) {
+  :root[data-ui-style="glass"][data-theme] .home-tab-shell .dock {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+  }
+
+  :root[data-ui-style="glass"][data-theme] .home-tab-shell .dock::before,
+  :root[data-ui-style="glass"][data-theme] .home-tab-shell .dock::after {
+    display: none;
+  }
+}
+
+/* Settings contents are flat like the rest of the app (only the sheet is
+   glass): sections get one quiet fill and a hairline, no rim, sheen or bead. */
+:root[data-ui-style="glass"][data-theme] .settings-soft-dividers :is(.premium-section, .premium-card, .glass-panel, .appearance-tint-option) {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-subtle) !important;
+}
+
+:root[data-ui-style="glass"][data-theme] .settings-soft-dividers .appearance-tint-option:hover {
+  background: var(--state-hover) !important;
+}
+
+:root[data-ui-style="glass"][data-theme] .settings-soft-dividers .appearance-tint-option.is-active {
+  background: var(--app-accent-10) !important;
+  border-color: var(--app-accent) !important;
 }
 
 /* ── Half-screen action sheet: clear refractive glass, no gray. The
@@ -876,4 +910,14 @@
 :root[data-ui-style="glass"][data-glass-perf="lite"][data-theme] :is(.premium-icon-button, .premium-secondary-button, .voice-control-button) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* Chat info sidebar: glass with its rim. Below xl it is a drawer over the
+   chat, so it takes the floating tint to keep the text behind from reading
+   through. */
+@media (max-width: 1279px) {
+  :root[data-ui-style="glass"][data-theme] .right-sidebar-panel {
+    --lg-tint: var(--lg-float-tint);
+    --lg-frost: 6px;
+  }
 }
