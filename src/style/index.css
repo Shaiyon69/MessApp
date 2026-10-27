@@ -4918,3 +4918,53 @@ iframe {
   .typing-dot { animation: none; opacity: 0.7; }
 }
 
+
+/* Desktop list resize handle: invisible until hovered, dragged or focused. */
+.list-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 1rem;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+.list-resize-handle:hover::after,
+.list-resize-handle:active::after,
+.list-resize-handle:focus-visible::after {
+  background: var(--theme-base);
+}
+
+/* Desktop rail (md up): squircle indicators instead of the phone's pills, and
+   a larger account avatar on the Menu slot. */
+@media (min-width: 768px) {
+  .m3-nav-indicator {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .m3-nav-indicator::before {
+    border-radius: 0.875rem;
+    transform: scale(0.6);
+  }
+
+  @supports (corner-shape: squircle) {
+    .m3-nav-indicator::before {
+      border-radius: 40%;
+      corner-shape: squircle;
+    }
+  }
+
+  .m3-nav-item:hover .m3-nav-indicator::before,
+  .m3-nav-item[data-active="true"] .m3-nav-indicator::before,
+  .m3-nav-item:focus-visible .m3-nav-indicator::before {
+    transform: scale(1);
+  }
+
+  .m3-nav-item[data-tab="menu"] .m3-nav-indicator {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+}

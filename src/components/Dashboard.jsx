@@ -15,6 +15,9 @@ import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
+import useStoredState from '../hooks/useStoredState'
+import { isEditableTarget, stepRowIndex } from '../lib/conversationNav'
+import { KEYBOARD_SHORTCUTS } from '../lib/keyboardShortcuts'
 
 import ChatArea from './layout/ChatArea'
 
@@ -31,7 +34,7 @@ import { normalizeProfileBaseName } from '../lib/security'
 import { downloadFile } from '../lib/downloadFile'
 import { applySurfaceTint, applyThemeMode, applyUiStyle } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
-import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from '../lib/notifications'
+import { buildNotifications, countUnreadNotifications, notificationAction } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
 import {
@@ -214,8 +217,12 @@ export default function Dashboard({ session }) {
   const [restrictedUsers, setRestrictedUsers] = useState(() => {
     try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch (_e) { return [] }
   })
-  const [showRightSidebar, setShowRightSidebar] = useState(false)
-  const [rightTab, setRightTab] = useState('search')
+  /* Details panel reopens on load only where it docks as a column (xl); below
+     that it is an overlay and must not pop over the chat unasked. */
+  const [rightSidebarPref, setRightSidebarPref] = useStoredState('messapp.rightSidebarOpen', false)
+  const [showRightSidebar, setShowRightSidebar] = useState(() => rightSidebarPref && Boolean(window.matchMedia?.('(min-width: 1280px)').matches))
+  const [rightTab, setRightTab] = useState(() => showRightSidebar ? 'info' : 'search')
+  const [listCollapsed, setListCollapsed] = useStoredState('messapp.listCollapsed', false)
   const [searchQuery, setSearchQuery] = useState('')
   
   const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
@@ -242,16 +249,45 @@ export default function Dashboard({ session }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  /* Desktop shortcuts. Read through a ref so the listener is registered once;
+     the ref is refreshed every render below the handlers it calls. */
+  const shortcutHandlersRef = useRef({})
   useEffect(() => {
     const onKeyDown = (event) => {
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+      const mod = (event.ctrlKey || event.metaKey) && !event.altKey
+      const key = event.key.toLowerCase()
+      const handlers = shortcutHandlersRef.current
+      if (mod && key === 'k') {
         event.preventDefault()
         setShowQuickSwitcher(open => !open)
+      } else if (mod && key === '/') {
+        event.preventDefault()
+        setShowShortcuts(open => !open)
+      } else if (event.key === 'Escape' && (handlers.overlayOpen?.())) {
+        event.preventDefault()
+        setShowQuickSwitcher(false)
+        setShowShortcuts(false)
+      } else if (isEditableTarget(event.target)) {
+        return
+      } else if (mod && !event.shiftKey && key === 'b') {
+        event.preventDefault()
+        setListCollapsed(collapsed => !collapsed)
+      } else if (mod && !event.shiftKey && key === 'f' && handlers.openSearch?.()) {
+        event.preventDefault()
+      } else if (event.altKey && !event.ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault()
+        const rows = [...document.querySelectorAll('#conversation-list [data-conv-row]')]
+        const active = rows.findIndex(row => row.dataset.active !== undefined)
+        const dir = event.key === 'ArrowDown' ? 1 : -1
+        const from = active !== -1 ? active : dir === 1 ? -1 : rows.length
+        const to = stepRowIndex(rows.map(row => ({ unread: row.dataset.unread !== undefined })), from, dir, event.shiftKey)
+        rows[to]?.click()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [setListCollapsed])
   
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('')
@@ -1132,6 +1168,18 @@ export default function Dashboard({ session }) {
   const closeRightSidebar = () => {
     setShowRightSidebar(false)
     setSearchQuery('')
+    setRightSidebarPref(false)
+  }
+
+  shortcutHandlersRef.current = {
+    overlayOpen: () => showQuickSwitcher || showShortcuts,
+    // Ctrl+F opens conversation search, focusing it if the panel is already up.
+    openSearch: () => {
+      if (!isChatActive) return false
+      if (showRightSidebar && rightTab === 'search') document.getElementById('conversation-search-input')?.focus()
+      else { setShowRightSidebar(true); setRightTab('search') }
+      return true
+    },
   }
 
   const toggleRightSidebar = (tab) => {
@@ -1140,6 +1188,7 @@ export default function Dashboard({ session }) {
     } else { 
       setShowRightSidebar(true); 
       setRightTab(tab); 
+      setRightSidebarPref(tab === 'info')
     }
   }
 
@@ -1159,14 +1208,15 @@ export default function Dashboard({ session }) {
 
   handleBackRef.current = handleBack
 
-  /* Stored mentions and replies. Any change for this user refetches the newest
-     page; a missing table (not yet deployed) just leaves the feed empty.
+  /* Stored feed rows (see src/lib/notifications.js for the kinds). Any change
+     for this user refetches the newest page; a missing table (not yet
+     deployed) just leaves the feed empty.
      ponytail: newest 50, no paging. */
   const [notificationFeed, setNotificationFeed] = useState([])
   const fetchNotificationFeed = useCallback(async () => {
     const { data, error } = await supabase
       .from('notifications')
-      .select('id, kind, created_at, read_at, message_id, channel_id, actor:profiles!notifications_actor_id_fkey(username, avatar_url, unique_tag), message:messages(content, created_at, is_deleted, thread_root_id), channel:channels(name, categories(server_id))')
+      .select('id, kind, created_at, read_at, message_id, channel_id, dm_room_id, server_id, data, actor:profiles!notifications_actor_id_fkey(id, username, avatar_url, unique_tag), message:messages(content, created_at, is_deleted, thread_root_id), channel:channels(name, categories(server_id))')
       .eq('recipient_id', session.user.id)
       .order('created_at', { ascending: false })
       .limit(50)
@@ -1180,17 +1230,48 @@ export default function Dashboard({ session }) {
       .subscribe()
     return () => { supabase.removeChannel(feedSub) }
   }, [fetchNotificationFeed, session.user.id])
-  // Opening the tab reads everything on it, like a DM thread does.
-  useEffect(() => {
-    if (view !== 'home' || homeTab !== 'notifications' || !notificationFeed.some(row => !row.read_at)) return
+  /* Read state is per row: a click reads that row, "Mark all read" reads the
+     rest. Optimistic; the realtime refetch corrects a failed write. */
+  const markNotificationsRead = (ids) => {
     const readAt = new Date().toISOString()
-    setNotificationFeed(current => current.map(row => (row.read_at ? row : { ...row, read_at: readAt })))
-    void supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', session.user.id).is('read_at', null)
-  }, [view, homeTab, notificationFeed, session.user.id])
-  const openNotification = useCallback((row) => {
+    setNotificationFeed(current => current.map(row => (row.read_at || (ids && !ids.includes(row.id)) ? row : { ...row, read_at: readAt })))
+    let query = supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', session.user.id).is('read_at', null)
+    if (ids) query = query.in('id', ids)
+    void query.then(({ error }) => { if (error) debug.warn('SUPABASE_ERROR', { operation: 'notification-read', code: error.code }) })
+  }
+  const markAllNotificationsRead = () => markNotificationsRead(null)
+  // `ids` null clears every read row; unread rows are never removed unseen.
+  const dismissNotifications = (ids) => {
+    setNotificationFeed(current => current.filter(row => (ids ? !ids.includes(row.id) : !row.read_at)))
+    let query = supabase.from('notifications').delete().eq('recipient_id', session.user.id)
+    query = ids ? query.in('id', ids) : query.not('read_at', 'is', null)
+    void query.then(({ error }) => {
+      if (error) {
+        debug.warn('SUPABASE_ERROR', { operation: 'notification-dismiss', code: error.code })
+        void fetchNotificationFeed()
+      }
+    })
+  }
+  const openNotification = (row) => {
+    if (!row.read_at) markNotificationsRead([row.id])
     if (row.message?.is_deleted) return toast.error('That message was deleted.')
-    selectSearchResultRef.current?.(notificationJumpTarget(row))
-  }, [])
+    const action = notificationAction(row)
+    if (action?.type === 'jump') return selectSearchResultRef.current?.(action.target)
+    if (action?.type === 'dm') {
+      const dm = dms.find(item => item.dm_room_id === action.dmRoomId || item.profiles?.id === action.profile.id)
+      if (!dm) return void createOrOpenDm({ profiles: action.profile })
+      setView('home')
+      setActiveChannel(null)
+      return selectDm(dm)
+    }
+    if (action?.type === 'server') {
+      const server = servers.find(item => item.id === action.serverId)
+      if (!server) return toast.error('That server is no longer available.')
+      setActiveServer(server)
+      setView('server')
+      setActiveDm(null)
+    }
+  }
 
   /* The bottom bar badge. Same derivation the notifications tab renders, so
      the count and the list can never disagree. */
@@ -2190,7 +2271,7 @@ export default function Dashboard({ session }) {
       <Toaster
         position="top-center"
         containerStyle={{ top: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}
-        toastOptions={{ className: 'app-toast', style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
+        toastOptions={{ className: 'app-toast menu-glass', style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
 
 <ChatArea
@@ -2217,6 +2298,8 @@ export default function Dashboard({ session }) {
         setView={setView}
         homeTab={homeTab}
         setHomeTab={setHomeTab}
+        listCollapsed={listCollapsed}
+        setListCollapsed={setListCollapsed}
         myTag={myTag}
         myPronouns={myPronouns}
         myBanner={myBanner}
@@ -2257,6 +2340,8 @@ export default function Dashboard({ session }) {
         friendRequests={friendRequests}
         notificationFeed={notificationFeed}
         openNotification={openNotification}
+        markAllNotificationsRead={markAllNotificationsRead}
+        dismissNotifications={dismissNotifications}
         onlineFriends={onlineFriends}
         allFriends={allFriends}
         selectDm={selectDm}
@@ -2377,9 +2462,28 @@ export default function Dashboard({ session }) {
         />
       )}
 
+      {showShortcuts && (
+        <div data-ui-overlay-owner="Dashboard:shortcuts" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowShortcuts(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" className="premium-modal w-full max-w-md rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 id="shortcuts-title" className="type-title font-bold text-[var(--text-main)]">Keyboard shortcuts</h2>
+              <button type="button" autoFocus onClick={() => setShowShortcuts(false)} className="grid h-10 w-10 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Close shortcuts"><X size={18} aria-hidden="true" /></button>
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2.5 type-body">
+              {KEYBOARD_SHORTCUTS.map(([keys, action]) => (
+                <React.Fragment key={keys}>
+                  <dt><kbd className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-element)] px-2 py-0.5 font-mono type-meta font-bold text-[var(--text-main)]">{keys}</kbd></dt>
+                  <dd className="text-[var(--text-muted)]">{action}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
+
       {showQuickSwitcher && (
         <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowQuickSwitcher(false)}>
-          <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Quick switcher" className="premium-modal menu-glass w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
               <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500" />

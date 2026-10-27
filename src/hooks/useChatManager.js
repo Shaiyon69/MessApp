@@ -324,6 +324,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [keyboardImageFallbackMessage, setKeyboardImageFallbackMessage] = useState('')
   const [showLatestMessagesButton, setShowLatestMessagesButton] = useState(false)
   const [peerReadAt, setPeerReadAt] = useState(null)
+  /* Own read pointer as it stood when this conversation opened, for the "New
+     messages" divider. Captured before the first pointer write below. */
+  const [unreadAnchor, setUnreadAnchor] = useState(null)
+  const unreadAnchorFetchRef = useRef({ targetId: null, promise: null })
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [initialMessagesLoaded, setInitialMessagesLoaded] = useState(false)
 
@@ -464,6 +468,19 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       if (isDebugEnabled('messappDebugReceipts')) console.debug('[RECEIPT_DEBUG]', { handler: 'markIncomingSeen', earlyReturn: true, reason: 'no-incoming-created-at', currentUserId: session.user.id, targetId })
       return
     }
+
+    if (unreadAnchorFetchRef.current.targetId !== targetId) {
+      const promise = supabase
+        .from(isChannel ? 'channel_reads' : 'dm_reads')
+        .select('last_read_at')
+        .eq('profile_id', session.user.id)
+        .eq(idColumn, targetId)
+        .maybeSingle()
+        .then(({ data }) => setUnreadAnchor({ targetId, at: data?.last_read_at || null }), () => {})
+      unreadAnchorFetchRef.current = { targetId, promise }
+    }
+    // The snapshot must read the pointer before this call moves it.
+    await unreadAnchorFetchRef.current.promise
 
     const readAt = latestIncoming.created_at
     if (seenReceiptWriteRef.current === `${targetId}:${readAt}`) return
@@ -2312,7 +2329,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     fileInputRef, genericFileInputRef, messageInputRef, messagesEndRef, scrollContainerRef,
     handleSendMessage, handleSendGif, handleFileUpload, handleGenericFileUpload, handleUpdateMessage,
     handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
-    executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt,
+    executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt, unreadAnchor, clearUnreadAnchor: () => setUnreadAnchor(null),
     searchAllConversations
   }
 }

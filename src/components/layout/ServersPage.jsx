@@ -90,6 +90,11 @@ export default function ServersPage(props) {
   }, [props.pendingServerAction, props.onServerActionHandled])
 
   const unreadChannels = useMemo(() => new Set(props.unreadChannelIds || []), [props.unreadChannelIds])
+  // Mentions need a reply in a way plain unread does not, so they get their own marker.
+  // Roving tab stop over text channels: the active one, else the first.
+  const textChannelIds = (props.serverCategories || []).flatMap(category => (category.channels || []).filter(channel => channel.type !== 'voice').map(channel => channel.id))
+  const channelTabStop = textChannelIds.includes(props.activeChannel?.id) ? props.activeChannel.id : textChannelIds[0]
+  const mentionedChannels = useMemo(() => new Set((props.notificationFeed || []).filter(row => row.kind === 'mention' && !row.read_at && row.channel_id).map(row => row.channel_id)), [props.notificationFeed])
   const canManageServer = Boolean(props.canManageActiveServer)
   const bindServerLongPress = useLongPress(setSheetServer)
   const servers = [...props.servers].sort((a, b) => pinnedServers.has(b.id) - pinnedServers.has(a.id))
@@ -548,13 +553,26 @@ export default function ServersPage(props) {
                         className="seg-item long-press-target relative flex-col items-stretch gap-0 p-0"
                         {...(canManageServer || channel.type !== 'voice' ? bindLongPress({ type: 'channel', item: channel }) : null)}
                       >
-                        <button type="button" onClick={() => props.setActiveChannel(channel)} className={`m3-press group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-[inherit] px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
+                        <button
+                          type="button"
+                          onClick={() => props.setActiveChannel(channel)}
+                          {...(channel.type !== 'voice' ? {
+                            'data-conv-row': '',
+                            'data-unread': isUnread || undefined,
+                            'data-active': isActive || undefined,
+                            tabIndex: channel.id === channelTabStop ? 0 : -1,
+                          } : null)}
+                          aria-current={isActive ? 'page' : undefined}
+                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-[inherit] px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
                           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
                             {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
                           </span>
                           <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
                           {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
-                          {isUnread && <span className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
+                          {/* Gated on unread: the notification row stays unread until the Notifications tab opens. */}
+                          {isUnread && mentionedChannels.has(channel.id)
+                            ? <AtSign size={14} strokeWidth={3} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--theme-base)]" aria-label="You were mentioned" />
+                            : isUnread && <span className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
                           {channel.type === 'voice' && voiceParticipants.length > 0 && (
                             <span className="shrink-0 rounded-full border border-green-500/15 bg-green-500/10 px-1.5 py-0.5 font-mono type-meta font-black uppercase tracking-wide text-green-300">{voiceParticipants.length} live</span>
                           )}
