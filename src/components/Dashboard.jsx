@@ -37,6 +37,7 @@ import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
 import { buildNotifications, countUnreadNotifications, notificationAction } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
+import { signOutAndReset } from '../lib/signOut'
 import {
   consumePendingPushTarget,
   consumePushTargetFromLocation,
@@ -294,6 +295,7 @@ export default function Dashboard({ session }) {
   
   const [showPinSetupPrompt, setShowPinSetupPrompt] = useState(false)
   const [setupPinInput, setSetupPinInput] = useState('')
+  const [showKeyReplaceWarning, setShowKeyReplaceWarning] = useState(false)
 
   const [dmActionMenuId, setDmActionMenuId] = useState(null) 
   const [messageActionMenuId, setMessageActionMenuId] = useState(null)
@@ -695,6 +697,7 @@ export default function Dashboard({ session }) {
     hasSelectedImage,
     showPinSetupPrompt,
     showRecoveryPrompt,
+    showKeyReplaceWarning,
     webRTCProps.callActive,
     webRTCProps.callMinimized,
     dmActionMenuId,
@@ -884,7 +887,18 @@ export default function Dashboard({ session }) {
 
         if (encryptedPrivKey && !privKeyJwkStr && !forceNew) {
           setShowRecoveryPrompt(true);
-          return; 
+          return;
+        }
+
+        // A key exists on the server but nowhere we can restore it from: making a
+        // new one silently orphans every DM sent to the old key, so ask first.
+        if (pubKeyStr && !privKeyJwkStr && !forceNew) {
+          // Lookup failed, so a backup may exist; leave the key alone until next load.
+          if (profileSecretsError) return;
+          if (!encryptedPrivKey) {
+            setShowKeyReplaceWarning(true);
+            return;
+          }
         }
 
         if (privKeyJwkStr && !pubKeyJwkStr) {
@@ -2810,6 +2824,43 @@ export default function Dashboard({ session }) {
                 className="premium-secondary-button w-full py-4 font-bold cursor-pointer"
               >
                 Skip (Lose old messages)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showKeyReplaceWarning && (
+        <div data-ui-overlay-owner="Dashboard:key-replace" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="key-replace-title" aria-describedby="key-replace-body" className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto">
+               <Shield size={32} />
+            </div>
+            <h3 id="key-replace-title" className="gradient-text relative z-10 type-view-title font-semibold mb-2 font-display">No Key Backup Found</h3>
+            <p id="key-replace-body" className="relative z-10 text-gray-400 type-label mb-6 leading-relaxed">
+              Your account already has an encryption key on another device, but it was never backed up with a PIN. If you continue here, this device gets a <strong>new key</strong> and can't read your earlier DMs. To keep them, sign out, open MessApp on your other device and set a PIN there first.
+            </p>
+            <div className="relative z-10 flex flex-col gap-3">
+              <button
+                onClick={async () => {
+                  try {
+                    await signOutAndReset({ profileId: session.user.id })
+                  } catch (_e) {
+                    toast.error('Sign out failed. Please try again.')
+                  }
+                }}
+                className="premium-button w-full py-4 font-bold cursor-pointer"
+              >
+                Sign Out
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.setItem(`e2ee_force_new_key_${session.user.id}`, 'true');
+                  window.location.reload();
+                }}
+                className="premium-secondary-button w-full py-4 font-bold cursor-pointer"
+              >
+                Create New Key (Lose old messages)
               </button>
             </div>
           </div>
