@@ -8,6 +8,7 @@ import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
 import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare, ShieldAlert, Keyboard } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { keyStore, sameJwk } from '../../lib/keyStore'
 import { PALETTES, THEME_MODES, UI_STYLES, applyGlassRefraction, applySurfaceTint, applyThemeMode, applyUiStyle, normalizeGlassRefraction, normalizeSurfaceTint, normalizeThemeMode, normalizeUiStyle, readGlassWallpaper, saveGlassWallpaper } from '../../lib/theme'
 import { isChromium, isLowPowerDevice } from '../../lib/liquidGlass'
 import { KEYBOARD_SHORTCUTS } from '../../lib/keyboardShortcuts'
@@ -435,6 +436,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const { error } = await supabase.rpc('delete_user_account')
       if (error) throw error
       await supabase.auth.signOut()
+      await keyStore.forget(session.user.id)
       const installationId = localStorage.getItem(PUSH_INSTALLATION_ID_KEY)
       localStorage.clear()
       if (installationId) localStorage.setItem(PUSH_INSTALLATION_ID_KEY, installationId)
@@ -778,8 +780,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                         onClick={async () => {
                           const pin = document.getElementById('pin-setup-input').value;
                           if (pin.length !== 6 || isNaN(pin)) return toast.error('PIN must be exactly 6 digits.');
-                          const priv = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-                          const pubKey = localStorage.getItem(`e2ee_public_key_${session.user.id}`); 
+                          const priv = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+                          const pubKey = keyStore.getItem(`e2ee_public_key_${session.user.id}`); 
                           if (!priv) return toast.error('No local key found to back up. Please generate a key first.');
 
                           const toastId = toast.loading(hasSecureStorage ? 'Updating PIN Backup...' : 'Encrypting and uploading keys...');
@@ -839,23 +841,23 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                                 throw new Error("Incorrect PIN");
                               }
 
-                              const currentMain = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-                              if (currentMain === decryptedKeyStr) {
+                              const currentMain = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+                              if (sameJwk(currentMain, decryptedKeyStr)) {
                                   toast.error("This PIN unlocked your CURRENT key! There are no older legacy keys to restore.", { id: toastId });
                                   return;
                               }
                               
-                              const legacyKeysStr = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`);
+                              const legacyKeysStr = keyStore.getItem(`e2ee_legacy_keys_${session.user.id}`);
                               const legacyKeys = legacyKeysStr ? JSON.parse(legacyKeysStr) : [];
                               
-                              const isAlreadyLegacy = legacyKeys.some(k => JSON.stringify(k) === decryptedKeyStr);
+                              const isAlreadyLegacy = legacyKeys.some(k => sameJwk(JSON.stringify(k), decryptedKeyStr));
                               if (!isAlreadyLegacy) {
                                   legacyKeys.push(parsedKey);
-                                  localStorage.setItem(`e2ee_legacy_keys_${session.user.id}`, JSON.stringify(legacyKeys));
+                                  keyStore.setItem(`e2ee_legacy_keys_${session.user.id}`, JSON.stringify(legacyKeys));
                               }
 
                               toast.success('Old keys restored! Reloading...', { id: toastId });
-                              setTimeout(() => window.location.reload(), 1000);
+                              setTimeout(() => keyStore.flush().then(() => window.location.reload()), 1000);
                             } catch (_e) {
                               toast.error('Incorrect PIN. Please try again.', { id: toastId });
                             }

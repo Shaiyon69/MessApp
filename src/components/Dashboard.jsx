@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
+import { keyStore } from '../lib/keyStore'
 import { configureNativePushRegistration, registerWebPushDevice, reportActiveConversation, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
 import { Search, SearchX, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
@@ -881,8 +882,8 @@ export default function Dashboard({ session }) {
 
         let pubKeyStr = profileSecrets?.public_key || existingProfile?.public_key || null;
         let encryptedPrivKey = profileSecrets?.encrypted_private_key || null;
-        let privKeyJwkStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-        let pubKeyJwkStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+        let privKeyJwkStr = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+        let pubKeyJwkStr = keyStore.getItem(`e2ee_public_key_${session.user.id}`);
         let forceNew = localStorage.getItem(`e2ee_force_new_key_${session.user.id}`) === 'true';
 
         if (encryptedPrivKey && !privKeyJwkStr && !forceNew) {
@@ -906,11 +907,11 @@ export default function Dashboard({ session }) {
              const parsedPriv = JSON.parse(privKeyJwkStr);
              const reconstructedPub = { kty: parsedPriv.kty, crv: parsedPriv.crv, x: parsedPriv.x, y: parsedPriv.y, ext: true };
              pubKeyJwkStr = JSON.stringify(reconstructedPub);
-             localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
+             keyStore.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
            } catch (_e) {
              if (pubKeyStr) {
                pubKeyJwkStr = pubKeyStr;
-               localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyStr);
+               keyStore.setItem(`e2ee_public_key_${session.user.id}`, pubKeyStr);
              }
            }
         }
@@ -923,8 +924,8 @@ export default function Dashboard({ session }) {
             const pubJwk = await exportPublicKey(keyPair.publicKey);
             privKeyJwkStr = JSON.stringify(privJwk);
             pubKeyJwkStr = JSON.stringify(pubJwk);
-            localStorage.setItem(`e2ee_private_key_${session.user.id}`, privKeyJwkStr);
-            localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
+            keyStore.setItem(`e2ee_private_key_${session.user.id}`, privKeyJwkStr);
+            keyStore.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
           } catch (_err) {}
         }
         pubKeyStr = pubKeyJwkStr || pubKeyStr;
@@ -2721,8 +2722,8 @@ export default function Dashboard({ session }) {
             <button
               onClick={async () => {
                 if (setupPinInput.length !== 6 || isNaN(setupPinInput)) return toast.error('PIN must be exactly 6 digits.');
-                const priv = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-                const pubKey = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+                const priv = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+                const pubKey = keyStore.getItem(`e2ee_public_key_${session.user.id}`);
                 if (!priv) return toast.error('Fatal error: No local keys found. Refresh page.');
 
                 const toastId = toast.loading('Encrypting and securing keys...');
@@ -2794,7 +2795,7 @@ export default function Dashboard({ session }) {
                       throw new Error("Incorrect PIN");
                     }
                     
-                    localStorage.setItem(`e2ee_private_key_${session.user.id}`, decryptedKeyStr);
+                    keyStore.setItem(`e2ee_private_key_${session.user.id}`, decryptedKeyStr);
                     
                     const recoveredPubJwk = {
                       kty: parsedKey.kty,
@@ -2803,10 +2804,10 @@ export default function Dashboard({ session }) {
                       y: parsedKey.y,
                       ext: true
                     };
-                    localStorage.setItem(`e2ee_public_key_${session.user.id}`, JSON.stringify(recoveredPubJwk));
+                    keyStore.setItem(`e2ee_public_key_${session.user.id}`, JSON.stringify(recoveredPubJwk));
 
                     toast.success('Keys restored! Reloading system...');
-                    setTimeout(() => window.location.reload(), 1000);
+                    setTimeout(() => keyStore.flush().then(() => window.location.reload()), 1000);
                   } catch (_e) {
                     toast.error('Incorrect PIN. Please try again.');
                   }
