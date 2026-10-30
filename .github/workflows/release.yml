@@ -68,6 +68,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SKIBI_CORE_SSH_KEY }}
+      - name: Fetch private skibi-core over SSH
+        shell: bash
+        run: git config --global url."git@github.com:Shaiyon69/skibi-core".insteadOf "https://github.com/Shaiyon69/skibi-core"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

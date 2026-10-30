@@ -4061,6 +4061,7 @@ checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
 [[package]]
 name = "skibi-crypto"
 version = "0.1.0"
+source = "git+https://github.com/Shaiyon69/skibi-core?tag=v0.1.0#ba4fa923aaa0da4dae8b35383e31a1fecfff32d2"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -4075,6 +4076,7 @@ dependencies = [
 [[package]]
 name = "skibi-keys"
 version = "0.1.0"
+source = "git+https://github.com/Shaiyon69/skibi-core?tag=v0.1.0#ba4fa923aaa0da4dae8b35383e31a1fecfff32d2"
 dependencies = [
  "keyring",
  "serde",
@@ -4529,6 +4531,7 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-skibi"
 version = "0.1.0"
+source = "git+https://github.com/Shaiyon69/skibi-core?tag=v0.1.0#ba4fa923aaa0da4dae8b35383e31a1fecfff32d2"
 dependencies = [
  "serde",
  "serde_json",
