@@ -12,15 +12,15 @@ const memoryStorage = (initial = {}) => {
   }
 }
 
-// Stands in for tauri-plugin-skibi; re-serializes like the Rust side (adds ext/key_ops).
+// Stands in for tauri-plugin-shaiyon; re-serializes like the Rust side (adds ext/key_ops).
 const fakeVault = ({ failSave = false } = {}) => {
   const users = new Map()
   const reserialize = s => JSON.stringify({ ...JSON.parse(s), ext: true, key_ops: [] })
   const calls = []
   const invoke = async (cmd, { uid, keys }) => {
     calls.push(cmd)
-    if (cmd === 'plugin:skibi|keys_load') return structuredClone(users.get(uid) || { private: null, public: null, legacy: [] })
-    if (cmd === 'plugin:skibi|keys_save') {
+    if (cmd === 'plugin:shaiyon|keys_load') return structuredClone(users.get(uid) || { private: null, public: null, legacy: [] })
+    if (cmd === 'plugin:shaiyon|keys_save') {
       if (failSave) throw new Error('vault down')
       users.set(uid, {
         private: keys.private && reserialize(keys.private),

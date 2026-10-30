@@ -1,6 +1,6 @@
 /**
  * Where E2EE keys live. In the Tauri desktop app they move out of plaintext
- * localStorage into OS secure storage (tauri-plugin-skibi). The rest of the app
+ * localStorage into OS secure storage (tauri-plugin-shaiyon). The rest of the app
  * keeps its synchronous getItem/setItem calls: `hydrate` loads the keys once
  * per user, and writes go to memory first, then to secure storage in order.
  * On the web and on mobile, or whenever secure storage fails, keys stay in
@@ -70,7 +70,7 @@ export function createKeyStore({ storage, invoke, onError = () => {} }) {
     // Bound to this user's vault object: a later hydrate for someone else can't redirect the write.
     const target = vault
     writes = writes
-      .then(() => invoke('plugin:skibi|keys_save', { uid: target.uid, keys: target.keys }))
+      .then(() => invoke('plugin:shaiyon|keys_save', { uid: target.uid, keys: target.keys }))
       .catch(error => {
         if (value === null) storage.removeItem(name)
         else storage.setItem(name, value)
@@ -85,11 +85,11 @@ export function createKeyStore({ storage, invoke, onError = () => {} }) {
       vault = null
       if (!invoke || !uid) return
       try {
-        const stored = await invoke('plugin:skibi|keys_load', { uid })
+        const stored = await invoke('plugin:shaiyon|keys_load', { uid })
         const local = readLocal(uid)
         if (!stored.private && local.private) {
-          await invoke('plugin:skibi|keys_save', { uid, keys: local })
-          const check = await invoke('plugin:skibi|keys_load', { uid })
+          await invoke('plugin:shaiyon|keys_save', { uid, keys: local })
+          const check = await invoke('plugin:shaiyon|keys_load', { uid })
           if (!sameKeys(check, local)) throw new Error('secure storage read-back did not match')
           removeLocal(uid)
           vault = { uid, keys: check }
@@ -137,7 +137,7 @@ export function createKeyStore({ storage, invoke, onError = () => {} }) {
       if (vault?.uid === uid) vault = null
       if (!invoke || !uid) return
       await writes
-      await invoke('plugin:skibi|keys_clear', { uid }).catch(onError)
+      await invoke('plugin:shaiyon|keys_clear', { uid }).catch(onError)
     },
 
     /** Resolves after queued secure-storage writes finish (tests, sign-out). */

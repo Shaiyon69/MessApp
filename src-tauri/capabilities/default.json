@@ -7,7 +7,7 @@
   ],
   "permissions": [
     "core:default",
-    "skibi:default",
+    "shaiyon:default",
     "notification:default",
     "updater:default"
   ]

@@ -121,7 +121,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-log",
  "tauri-plugin-notification",
- "tauri-plugin-skibi",
+ "tauri-plugin-shaiyon",
  "tauri-plugin-updater",
 ]
 
@@ -3995,6 +3995,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "shaiyon-crypto"
+version = "0.2.0"
+source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.2.0#c0f9202e78a52d025e9432dda32812b8cd9b7702"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "p256",
+ "pbkdf2",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "shaiyon-keys"
+version = "0.2.0"
+source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.2.0#c0f9202e78a52d025e9432dda32812b8cd9b7702"
+dependencies = [
+ "keyring",
+ "serde",
+ "serde_json",
+ "shaiyon-crypto",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4037,32 +4063,6 @@ name = "siphasher"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
-
-[[package]]
-name = "skibi-crypto"
-version = "0.1.0"
-source = "git+https://github.com/Shaiyon69/skibi-core?tag=v0.1.0#ba4fa923aaa0da4dae8b35383e31a1fecfff32d2"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "p256",
- "pbkdf2",
- "rand_core 0.6.4",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "skibi-keys"
-version = "0.1.0"
-source = "git+https://github.com/Shaiyon69/skibi-core?tag=v0.1.0#ba4fa923aaa0da4dae8b35383e31a1fecfff32d2"
-dependencies = [
- "keyring",
- "serde",
- "serde_json",
- "skibi-crypto",
-]
 
 [[package]]
 name = "slab"
@@ -4544,14 +4544,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-skibi"
-version = "0.1.0"
-source = "git+https://github.com/Shaiyon69/skibi-core?tag=v0.1.0#ba4fa923aaa0da4dae8b35383e31a1fecfff32d2"
+name = "tauri-plugin-shaiyon"
+version = "0.2.0"
+source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.2.0#c0f9202e78a52d025e9432dda32812b8cd9b7702"
 dependencies = [
  "serde",
  "serde_json",
- "skibi-crypto",
- "skibi-keys",
+ "shaiyon-crypto",
+ "shaiyon-keys",
  "tauri",
  "tauri-plugin",
 ]
