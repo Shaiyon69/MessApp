@@ -84,7 +84,8 @@ prepare_output_directory() {
     \( -name 'MessApp-*.AppImage' \
        -o -name 'MessApp-*.deb' \
        -o -name 'MessApp-*.exe' \
-       -o -name 'MessApp-*.apk' \) \
+       -o -name 'MessApp-*.apk' \
+       -o -name 'MessApp-*.sig' \) \
     ! -name "MessApp-*-v${VERSION}.*" \
     -delete
 }
@@ -102,7 +103,8 @@ build_linux() {
   copy_artifacts \
     "MessApp-Linux-v${VERSION}" \
     "src-tauri/target/release/bundle/deb/*.deb" \
-    "src-tauri/target/release/bundle/appimage/*.AppImage"
+    "src-tauri/target/release/bundle/appimage/*.AppImage" \
+    "src-tauri/target/release/bundle/appimage/*.AppImage.sig"
 }
 
 build_windows() {
@@ -111,7 +113,8 @@ build_windows() {
   run_host npx tauri build --bundles nsis
   copy_artifacts \
     "MessApp-Windows-v${VERSION}" \
-    "src-tauri/target/release/bundle/nsis/*.exe"
+    "src-tauri/target/release/bundle/nsis/*.exe" \
+    "src-tauri/target/release/bundle/nsis/*.exe.sig"
 }
 
 build_android() {

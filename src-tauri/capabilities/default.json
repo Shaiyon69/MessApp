@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "skibi:default",
-    "notification:default"
+    "notification:default",
+    "updater:default"
   ]
 }

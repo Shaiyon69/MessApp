@@ -76,6 +76,7 @@ import { AtSign, CornerDownLeft, Hash, Users } from 'lucide-react'
 import ActionSheet from './ui/ActionSheet'
 import { debug } from '../lib/debug'
 import { notifyDesktop, isDesktopApp } from '../lib/desktopNotify'
+import { findDesktopUpdate, installDesktopUpdate } from '../lib/desktopUpdater'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
@@ -716,6 +717,29 @@ export default function Dashboard({ session }) {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false
+    findDesktopUpdate().then(update => {
+      if (!update || cancelled) return
+      toast(t => (
+        <span className="flex items-center gap-3">
+          <span>MessApp {update.version} is available.</span>
+          <button
+            type="button"
+            className="rounded-lg border border-[var(--border-subtle)] px-2 py-1 type-label text-[var(--app-accent)]"
+            onClick={() => {
+              toast.dismiss(t.id)
+              installDesktopUpdate(update).catch(error => toast.error(`Update failed: ${error?.message || 'unknown error'}`))
+            }}
+          >
+            Install
+          </button>
+        </span>
+      ), { duration: Infinity })
+    })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (localStorage.getItem('notificationsEnabled') !== 'true') return undefined

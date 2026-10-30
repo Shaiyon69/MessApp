@@ -52,6 +52,8 @@ jobs:
     env:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux system dependencies
@@ -151,6 +153,11 @@ jobs:
           pattern: messapp-*
           path: release-artifacts
           merge-multiple: true
+      - uses: actions/checkout@v7
+        with:
+          path: source
+      - name: Build updater manifest
+        run: node source/scripts/updater-manifest.mjs release-artifacts "${{ needs.validate.outputs.version }}" > release-artifacts/latest.json
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
