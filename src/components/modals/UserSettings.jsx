@@ -14,6 +14,7 @@ import { isChromium, isLowPowerDevice } from '../../lib/liquidGlass'
 import { KEYBOARD_SHORTCUTS } from '../../lib/keyboardShortcuts'
 import { audioSys } from '../../lib/SoundEngine'
 import { debug } from '../../lib/debug'
+import { isDesktopApp, requestDesktopPermission } from '../../lib/desktopNotify'
 import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
 import { signOutAndReset } from '../../lib/signOut'
 import { getModeratorRole } from '../../lib/moderation'
@@ -271,6 +272,14 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     }
     
     try {
+      if (isDesktopApp()) {
+        const permission = await requestDesktopPermission()
+        debug.info('PUSH_PERMISSION', { platform: 'desktop', state: permission })
+        if (permission !== 'granted') return toast.error("Permission denied by system settings.")
+        setDesktopNotifs(true);
+        localStorage.setItem('notificationsEnabled', 'true');
+        return toast.success("Desktop notifications enabled!");
+      }
       if (Capacitor.isNativePlatform()) {
         if (!Capacitor.isPluginAvailable('PushNotifications')) {
             return toast.error("Push plugin not available.");

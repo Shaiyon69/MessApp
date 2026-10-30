@@ -33,3 +33,4 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 # skibi-core is private: locally git's credential manager fetches it, CI rewrites the URL to SSH with a deploy key.
 tauri-plugin-skibi = { git = "https://github.com/Shaiyon69/skibi-core", tag = "v0.1.0" }
+tauri-plugin-notification = "2"

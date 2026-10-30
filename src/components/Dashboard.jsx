@@ -75,6 +75,7 @@ import StatusAvatar from './ui/StatusAvatar'
 import { AtSign, CornerDownLeft, Hash, Users } from 'lucide-react'
 import ActionSheet from './ui/ActionSheet'
 import { debug } from '../lib/debug'
+import { notifyDesktop, isDesktopApp } from '../lib/desktopNotify'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
@@ -496,6 +497,8 @@ export default function Dashboard({ session }) {
 
   const stateRef = useRef({});
   const activeDmRef = useRef(null);
+  const dmsRef = useRef(dms);
+  dmsRef.current = dms;
   const activeChannelRef = useRef(null);
   const presenceChannelRef = useRef(null);
   const acceptingRefs = useRef(new Set());
@@ -716,6 +719,8 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     if (localStorage.getItem('notificationsEnabled') !== 'true') return undefined
+    // The desktop app notifies natively from Realtime (desktopNotify.js); it has no push service.
+    if (isDesktopApp()) return undefined
     configureNativePushRegistration({ profileId: session.user.id })
       .then(result => {
         const vapidPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
@@ -1042,6 +1047,13 @@ export default function Dashboard({ session }) {
           audioSys.playMessageReceived()
           triggerInteractionFeedback('message-received')
         }
+        const sender = dmsRef.current.find(dm => dm.dm_room_id === roomId)?.profiles
+        notifyDesktop({
+          title: sender?.display_name || sender?.username || 'New message',
+          body: 'Sent you a message',
+          isOwnMessage,
+          isOpenRoom
+        }).catch(error => debug.warn('DESKTOP_NOTIFY', { error: error?.message }))
         setDms(current => {
           const next = current.map(dm => dm.dm_room_id === roomId ? {
             ...dm,
