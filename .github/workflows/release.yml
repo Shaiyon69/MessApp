@@ -77,6 +77,10 @@ jobs:
         shell: bash
         run: git config --global url."git@github.com:Shaiyon69/shaiyon-core".insteadOf "https://github.com/Shaiyon69/shaiyon-core"
       - uses: dtolnay/rust-toolchain@stable
+      # From Pake: mold links the release binary much faster than the default ld.
+      - name: Set up mold linker
+        if: runner.os == 'Linux'
+        uses: rui314/setup-mold@339e96b4ff1f3bd865856ba4cbbe8818a7acb038 # v1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -137,8 +141,10 @@ jobs:
           path: APPLICATIONS/MessApp-Android-v${{ needs.validate.outputs.version }}.apk
           if-no-files-found: error
 
+  # Binaries ship only from the Skibidevs website: the release goes to Shaiyon69/Skibidevs, never to this repo.
+  # SKIBIDEVS_TOKEN: fine-grained token with Contents read/write on Shaiyon69/Skibidevs only.
   release:
-    name: Publish native applications
+    name: Publish to Skibidevs
     if: github.ref == 'refs/heads/main'
     needs:
       - validate
@@ -146,8 +152,14 @@ jobs:
       - android
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.SKIBIDEVS_TOKEN }}
+      SITE_REPO: Shaiyon69/Skibidevs
+      TAG: messapp-v${{ needs.validate.outputs.version }}
     steps:
+      - name: Check release token
+        run: test -n "$GH_TOKEN" || { echo "::error::Set the SKIBIDEVS_TOKEN secret"; exit 1; }
       - uses: actions/download-artifact@v8
         with:
           pattern: messapp-*
@@ -158,20 +170,14 @@ jobs:
           path: source
       - name: Build updater manifest
         run: node source/scripts/updater-manifest.mjs release-artifacts "${{ needs.validate.outputs.version }}" > release-artifacts/latest.json
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: MessApp_v${{ needs.validate.outputs.version }}-Beta
+      - name: Publish Skibidevs release
         shell: bash
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" release-artifacts/* \
-              --clobber \
-              --repo "$GITHUB_REPOSITORY"
+          if gh release view "$TAG" --repo "$SITE_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-artifacts/* --clobber --repo "$SITE_REPO"
           else
-            gh release create "$TAG" release-artifacts/* \
-              --generate-notes \
-              --prerelease \
-              --title "$TAG" \
-              --repo "$GITHUB_REPOSITORY"
+            gh release create "$TAG" release-artifacts/* --title "Messapp v${{ needs.validate.outputs.version }}" --notes "Messapp v${{ needs.validate.outputs.version }}" --repo "$SITE_REPO"
           fi
+      # The site refreshes its download list and updater manifests on this event.
+      - name: Tell Skibidevs to refresh
+        run: gh api "repos/$SITE_REPO/dispatches" -f event_type=app-released

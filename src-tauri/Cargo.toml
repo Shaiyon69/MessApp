@@ -21,6 +21,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 lto = true
 codegen-units = 1
 strip = true
+# Size over speed (from Pake): the Rust side is only keys, crypto and notifications.
+opt-level = "s"
+
+# From Pake: no debug info for dependencies keeps dev builds and target/ much smaller.
+[profile.dev.package."*"]
+debug = false
 
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
