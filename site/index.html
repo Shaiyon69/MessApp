@@ -148,7 +148,7 @@
       <div id="rows"></div>
       <div class="actions">
         <a class="btn" href="https://messapp-tau.vercel.app"><svg width="16" height="16"><use href="#i-globe"/></svg>Open in browser</a>
-        <a class="btn" href="https://github.com/Shaiyon69/MessApp/releases" aria-label="All releases" title="All releases"><svg width="16" height="16"><use href="#i-external"/></svg>All releases</a>
+        <a class="btn" href="https://shaiyon69.github.io/Skibidevs/apptic/?app=messapp" aria-label="All releases" title="All releases"><svg width="16" height="16"><use href="#i-external"/></svg>All releases</a>
       </div>
       <p class="note">iOS is not available yet. Android builds install outside the Play Store.</p>
     </section>
@@ -188,7 +188,7 @@
         const btn = el('a', 'btn')
         btn.append(svg('download', 16), el('span', 'label', 'Download'))
         btn.setAttribute('aria-label', `Download for ${f.name}, ${f.kind}`)
-        if (asset) btn.href = asset.browser_download_url
+        if (asset) btn.href = asset.url
         else btn.setAttribute('aria-disabled', 'true')
         row.append(icon, info, btn)
         root.append(row)
@@ -196,12 +196,13 @@
       root.style.display = 'contents'
     }
 
-    // Releases are prereleases, so /releases/latest would skip them; take the newest.
-    fetch('https://api.github.com/repos/Shaiyon69/MessApp/releases?per_page=1')
+    // Builds ship only as Skibidevs releases; its releases.json lists them newest first.
+    fetch('https://shaiyon69.github.io/Skibidevs/data/releases.json')
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(([release]) => {
-        const version = release.tag_name.replace(/^MessApp_/, '')
-        const date = new Date(release.published_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      .then(({ releases }) => {
+        const release = releases['Shaiyon69/Skibidevs:messapp-'][0]
+        const version = release.tag
+        const date = new Date(release.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
         document.getElementById('tag').textContent = version.toUpperCase()
         document.getElementById('status').textContent = `${version} · ${date}`
         render(release.assets)

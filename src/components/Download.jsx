@@ -2,8 +2,9 @@
 import { ArrowLeft, Download as DownloadIcon, ExternalLink, Monitor, Smartphone, Terminal } from 'lucide-react'
 import { version } from '../../package.json'
 
-const RELEASE = `https://github.com/Shaiyon69/MessApp/releases/download/MessApp_v${version}-Beta`
-const ALL_RELEASES = 'https://github.com/Shaiyon69/MessApp/releases'
+// Builds ship only as Skibidevs releases, tagged messapp-v<version>.
+const RELEASE = `https://github.com/Shaiyon69/Skibidevs/releases/download/messapp-v${version}`
+const ALL_RELEASES = 'https://shaiyon69.github.io/Skibidevs/apptic/?app=messapp'
 
 const PLATFORMS = [
   { id: 'windows', name: 'Windows', icon: Monitor, files: [{ label: 'Installer (.exe)', file: `MessApp-Windows-v${version}.exe` }] },
