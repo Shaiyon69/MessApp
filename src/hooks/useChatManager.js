@@ -2,6 +2,7 @@ import { createElement, useState, useEffect, useLayoutEffect, useRef, useCallbac
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../supabaseClient'
 import toast from 'react-hot-toast'
+import { keyStore } from '../lib/keyStore'
 import { cacheThumbnail } from '../lib/cacheManager'
 import { importPrivateKey, deriveSharedAesKey, encryptWithAesGcm, decryptWithAesGcm, encryptBinaryAesGcm, decryptBinaryAesGcm } from '../lib/crypto'
 import { audioSys } from '../lib/SoundEngine'
@@ -191,7 +192,7 @@ const createLocalMessageId = () => `local-${crypto.randomUUID()}`
 const getLocalProfile = (session, myUsername) => ({
   username: myUsername,
   avatar_url: session?.user?.user_metadata?.avatar_url || null,
-  public_key: localStorage.getItem(`e2ee_public_key_${session?.user?.id}`) || null
+  public_key: keyStore.getItem(`e2ee_public_key_${session?.user?.id}`) || null
 })
 
 /* Handlers handed to every message row must keep one identity for the lifetime
@@ -324,6 +325,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const [keyboardImageFallbackMessage, setKeyboardImageFallbackMessage] = useState('')
   const [showLatestMessagesButton, setShowLatestMessagesButton] = useState(false)
   const [peerReadAt, setPeerReadAt] = useState(null)
+  /* Own read pointer as it stood when this conversation opened, for the "New
+     messages" divider. Captured before the first pointer write below. */
+  const [unreadAnchor, setUnreadAnchor] = useState(null)
+  const unreadAnchorFetchRef = useRef({ targetId: null, promise: null })
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [initialMessagesLoaded, setInitialMessagesLoaded] = useState(false)
 
@@ -465,6 +470,19 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       return
     }
 
+    if (unreadAnchorFetchRef.current.targetId !== targetId) {
+      const promise = supabase
+        .from(isChannel ? 'channel_reads' : 'dm_reads')
+        .select('last_read_at')
+        .eq('profile_id', session.user.id)
+        .eq(idColumn, targetId)
+        .maybeSingle()
+        .then(({ data }) => setUnreadAnchor({ targetId, at: data?.last_read_at || null }), () => {})
+      unreadAnchorFetchRef.current = { targetId, promise }
+    }
+    // The snapshot must read the pointer before this call moves it.
+    await unreadAnchorFetchRef.current.promise
+
     const readAt = latestIncoming.created_at
     if (seenReceiptWriteRef.current === `${targetId}:${readAt}`) return
     seenReceiptWriteRef.current = `${targetId}:${readAt}`
@@ -500,12 +518,12 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
     const isSelfDM = activeDm?.profiles?.id === session.user.id;
     if (!targetPubStr && isSelfDM) {
-       targetPubStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+       targetPubStr = keyStore.getItem(`e2ee_public_key_${session.user.id}`);
     }
 
     try {
       const keys = { main: null, legacy: [] };
-      const privKeyStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
+      const privKeyStr = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
       let mainImpPriv = null;
       
       if (privKeyStr) {
@@ -523,7 +541,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         } catch(_err){}
       }
 
-      const legacyKeysStr = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`);
+      const legacyKeysStr = keyStore.getItem(`e2ee_legacy_keys_${session.user.id}`);
       if (legacyKeysStr) {
         const legacyJwks = JSON.parse(legacyKeysStr);
         for (const ljwk of legacyJwks) {
@@ -571,7 +589,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
             }
         }
 
-        const myPubStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+        const myPubStr = keyStore.getItem(`e2ee_public_key_${session.user.id}`);
         if (targetPubStr && myPubStr) {
           encrypted.spub = { ...JSON.parse(myPubStr), ext: true }; 
           encrypted.tpub = { ...JSON.parse(targetPubStr), ext: true }; 
@@ -593,9 +611,9 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const rawHistoricalPub = amISender ? metadata.tpub : metadata.spub
         const theirHistoricalPub = { ...rawHistoricalPub, ext: true }
         const privateKeys = []
-        const currentPrivateKey = localStorage.getItem(`e2ee_private_key_${session.user.id}`)
+        const currentPrivateKey = keyStore.getItem(`e2ee_private_key_${session.user.id}`)
         if (currentPrivateKey) privateKeys.push(JSON.parse(currentPrivateKey))
-        const legacyPrivateKeys = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`)
+        const legacyPrivateKeys = keyStore.getItem(`e2ee_legacy_keys_${session.user.id}`)
         if (legacyPrivateKeys) privateKeys.push(...JSON.parse(legacyPrivateKeys))
         const historicalKeys = []
         for (const privateJwk of privateKeys) {
@@ -698,9 +716,9 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
               const theirHistoricalPub = { ...rawHistoricalPub, ext: true };
               
               const keysToTry = [];
-              const privKeyStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
+              const privKeyStr = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
               if (privKeyStr) keysToTry.push(JSON.parse(privKeyStr));
-              const legacyKeysStr = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`);
+              const legacyKeysStr = keyStore.getItem(`e2ee_legacy_keys_${session.user.id}`);
               if (legacyKeysStr) keysToTry.push(...JSON.parse(legacyKeysStr));
 
               for (const privJwk of keysToTry) {
@@ -2312,7 +2330,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     fileInputRef, genericFileInputRef, messageInputRef, messagesEndRef, scrollContainerRef,
     handleSendMessage, handleSendGif, handleFileUpload, handleGenericFileUpload, handleUpdateMessage,
     handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
-    executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt,
+    executeInlineDelete, toggleReaction, togglePinnedMessage, handleTyping, handleScroll, scrollToMessage, retryFailedMessage, peerReadAt, unreadAnchor, clearUnreadAnchor: () => setUnreadAnchor(null),
     searchAllConversations
   }
 }

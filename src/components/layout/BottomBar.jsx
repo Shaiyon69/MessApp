@@ -45,6 +45,7 @@ export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, 
                 key={id}
                 type="button"
                 onClick={() => setHomeTab(id)}
+                data-tab={id}
                 data-active={isActive}
                 data-alert={alerted || undefined}
                 aria-current={isActive ? 'page' : undefined}
@@ -54,7 +55,7 @@ export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, 
                 <span className="m3-nav-indicator">
                   {Icon
                     ? <Icon size={20} aria-hidden="true" fill={alerted ? 'currentColor' : 'none'} />
-                    : <StatusAvatar url={avatarUrl} username={username} showStatus={false} className="h-6 w-6" />}
+                    : <StatusAvatar url={avatarUrl} username={username} showStatus={false} className="h-6 w-6 md:h-11 md:w-11" />}
                 </span>
                 <span className={`m3-nav-label type-meta leading-none md:hidden ${isActive ? 'font-bold' : 'font-medium'}`} aria-hidden="true">{label}</span>
               </button>

@@ -105,7 +105,7 @@ export default function ThreadPanel({ root, channelId, currentUserId, onClose })
   }
 
   return (
-    <aside data-ui-overlay-owner="ChatArea:thread" aria-label="Thread" className="fixed inset-0 z-[150] flex flex-col bg-[var(--bg-base)] md:inset-y-0 md:left-auto md:right-0 md:w-[24rem] md:border-l md:border-[var(--border-subtle)]">
+    <aside data-ui-overlay-owner="ChatArea:thread" aria-label="Thread" className="fixed inset-0 z-[150] flex flex-col bg-[var(--bg-base)] md:inset-y-0 md:left-auto md:right-0 md:w-[24rem] md:border-l md:border-[var(--border-subtle)] xl:static xl:z-auto xl:shrink-0 xl:overflow-hidden xl:rounded-2xl xl:border">
       <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] md:pt-3">
         <h2 className="type-title font-bold text-[var(--text-main)]">Thread</h2>
         <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-main)]" aria-label="Close thread"><X size={18} /></button>

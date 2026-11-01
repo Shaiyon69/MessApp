@@ -397,17 +397,19 @@ const resolveAttachmentUrl = (attachment) => {
     : safeDownloadUrl(value)
 }
 
-const getDeliveryStatus = (message, peerReadAt) => {
+const getDeliveryStatus = (message, peerReadAt, peerOnline) => {
   if (message.__delivery_status === 'failed') return 'failed'
   if (message.__delivery_status === 'sending') return 'sending'
   if (message.seen_at || message.read_at) return 'seen'
   if (peerReadAt && message.created_at && new Date(peerReadAt) >= new Date(message.created_at)) return 'seen'
-  return 'sent'
+  // shortcut: Delivered follows the peer's live presence, not stored delivery; add a delivered_at column if it must survive reloads.
+  return peerOnline ? 'delivered' : 'sent'
 }
 
 const deliveryStatusMeta = {
   sending: { label: 'Sending', icon: Clock3, className: 'text-gray-400' },
   sent: { label: 'Sent', icon: Check, className: 'text-gray-400' },
+  delivered: { label: 'Delivered', icon: CheckCheck, className: 'text-gray-400' },
   seen: { label: 'Seen', icon: CheckCheck, className: 'text-[var(--theme-base)]' },
   failed: { label: 'Failed', icon: AlertCircle, className: 'text-red-400' }
 }
@@ -609,7 +611,7 @@ export const MemoizedMessage = React.memo(({
   handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
-  peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
+  peerReadAt, peerOnline = false, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
   setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, onForwardMessage, onOpenThread, canModerateMessage = false, myMention = ''
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
@@ -1215,7 +1217,7 @@ export const MemoizedMessage = React.memo(({
   const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
   const isEditingCaption = isEditing && hasImageAttachments
   const showCaptionBelowMedia = hasImageAttachments && hasVisibleContent
-  const deliveryStatus = isMe ? getDeliveryStatus(m, peerReadAt) : null
+  const deliveryStatus = isMe ? getDeliveryStatus(m, peerReadAt, peerOnline) : null
   const deliveryMeta = deliveryStatus ? deliveryStatusMeta[deliveryStatus] : null
   const DeliveryIcon = deliveryMeta?.icon
   const shouldShowDeliveryStatus = isMe && deliveryMeta && (showDeliveryStatus || deliveryStatus === 'failed')
@@ -1227,7 +1229,9 @@ export const MemoizedMessage = React.memo(({
   const seenTimestamp = getSeenTimestamp(m, peerReadAt)
   const receiptRows = isMe ? [
     { label: 'Sent', value: formatReceiptTime(m.created_at) },
-    { label: 'Seen', value: formatReceiptTime(seenTimestamp) }
+    seenTimestamp
+      ? { label: 'Seen', value: formatReceiptTime(seenTimestamp) }
+      : { label: '', value: deliveryMeta?.label }
   ] : [
     { label: 'Sent', value: formatReceiptTime(m.created_at) }
   ]
@@ -1484,7 +1488,10 @@ export const MemoizedMessage = React.memo(({
             onPointerLeave={(event) => {
               if (event.pointerType === 'mouse') scheduleDesktopToolbarClose()
             }}
-            onFocus={keepDesktopToolbarOpen}
+            onFocus={(event) => {
+              // Tap focuses the tabIndex bubble too; only keyboard focus should open the toolbar.
+              if (event.target.matches?.(':focus-visible')) keepDesktopToolbarOpen()
+            }}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) scheduleDesktopToolbarClose()
             }}

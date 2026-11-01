@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "messapp",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "identifier": "com.shaiyon.messapp",
   "build": {
     "frontendDist": "../dist",
@@ -48,6 +48,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDOTg3ODg5MDk3M0MxQTAKUldTZ3dYTUppWGlZakRKMjBtSmN2Tm5HbE13SUppM0orQk5VNlZMKzNrSEJ4MXFhMk9jSEJTN3MK",
+      "endpoints": [
+        "https://shaiyon69.github.io/Skibidevs/updates/messapp/latest.json"
+      ]
+    }
   }
 }

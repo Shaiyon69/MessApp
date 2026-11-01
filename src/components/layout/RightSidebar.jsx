@@ -5,7 +5,8 @@
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
-import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, AtSign, ChevronDown, Link as LinkIcon } from 'lucide-react'
+import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, AtSign, ChevronLeft, Palette, Images, ScrollText, ShieldAlert, Link as LinkIcon } from 'lucide-react'
+import TonalIcon from '../ui/TonalIcon'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import { safeMediaUrl } from '../../lib/security'
@@ -28,18 +29,38 @@ const safeDocumentUrl = (value) => {
   return null
 }
 
-const AccordionSection = ({ id, label, open, onToggle, children }) => {
-  const panelId = `right-sidebar-section-${id}`
-  return (
-    <section className="overflow-hidden rounded-2xl bg-[var(--surface-section)]">
-      <button type="button" onClick={() => onToggle(id)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left type-body font-bold text-[var(--text-main)]" aria-expanded={open} aria-controls={panelId}>
-      <span>{label}</span>
-      <ChevronDown size={17} className={`shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-      </button>
-      {open && <div id={panelId} role="region" aria-label={label} className="px-4 pb-4 animate-fade-in">{children}</div>}
+// One entry of the info panel: a row on the overview, or the whole panel once opened.
+const InfoPage = ({ id, label, icon, page, onOpen, onClose, children }) => {
+  if (page === id) return (
+    <section aria-label={label} className="animate-fade-in">
+      <div className="sticky top-0 z-10 -mx-3 mb-2 flex items-center gap-1 bg-[var(--chat-bg-surface)] px-1 py-2">
+        <button type="button" onClick={() => onOpen(null)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to conversation info">
+          <ChevronLeft size={20} aria-hidden="true" />
+        </button>
+        <h3 className="min-w-0 flex-1 truncate type-title font-bold text-[var(--text-main)]">{label}</h3>
+        <CloseButton onClick={onClose} label="Close conversation info" />
+      </div>
+      {children}
     </section>
   )
+  if (page) return null
+  return <OptionRow icon={icon} label={label} onClick={() => onOpen(id)} />
 }
+
+const OptionRow = ({ icon, label, onClick, className = '' }) => (
+  <button type="button" onClick={onClick} className={`${className} flex min-h-14 w-full items-center gap-3 rounded-2xl bg-[var(--surface-section)] px-3 py-2.5 text-left type-body font-bold text-[var(--text-main)] transition-colors hover:bg-[var(--bg-element)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]`}>
+    <TonalIcon icon={icon} size={18} />
+    <span className="min-w-0 flex-1 truncate">{label}</span>
+  </button>
+)
+
+const IconButton = ({ icon: Icon, onClick, label, title, active = false, disabled = false, className = '' }) => (
+  <button type="button" onClick={onClick} disabled={disabled} title={title || label} aria-label={label} aria-pressed={active || undefined} className={`grid h-10 w-10 shrink-0 place-items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] disabled:cursor-not-allowed disabled:opacity-50 ${active ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]'} ${className}`}>
+    <Icon size={20} aria-hidden="true" />
+  </button>
+)
+
+const CloseButton = ({ onClick, label }) => <IconButton icon={X} onClick={onClick} label={label} />
 
 const ConversationThemePicker = ({ themes, value, onChange, disabled = false }) => (
   <div className="grid grid-cols-2 gap-2" role="group" aria-label="Conversation theme">
@@ -123,11 +144,18 @@ export default function RightSidebar({
   const [moderationReason, setModerationReason] = useState('')
   const [moderationBusy, setModerationBusy] = useState('')
   const [moderationError, setModerationError] = useState('')
-  const [openInfoSections, setOpenInfoSections] = useState(() => new Set())
+  // null shows the overview; otherwise the id of the InfoPage filling the panel.
+  const [infoPage, setInfoPage] = useState(null)
+  // 'members' is the info tab opened straight onto the member list (header Members button).
+  const showsInfo = rightTab === 'info' || rightTab === 'members'
+  useEffect(() => {
+    setInfoPage(rightTab === 'members' ? 'chat-members' : null)
+  }, [rightTab, activeDm?.dm_room_id, activeServer?.id])
+  const pageProps = { page: infoPage, onOpen: setInfoPage, onClose: closeRightSidebar }
   const [serverLevel, setServerLevel] = useState('all')
   const [moderationLog, setModerationLog] = useState(null)
   const canViewModerationLog = canModerateMessages(activeServerRole)
-  const moderationLogOpen = openInfoSections.has('moderation-log')
+  const moderationLogOpen = infoPage === 'moderation-log'
   const [serverNotificationsAvailable, setServerNotificationsAvailable] = useState(
     serverNotificationPreferences.isAvailable()
   )
@@ -181,11 +209,6 @@ export default function RightSidebar({
     return () => { active = false }
   }, [moderationLogOpen, canViewModerationLog, activeServer?.id])
 
-  const toggleInfoSection = id => {
-    setOpenInfoSections(current => (
-      current.has(id) ? new Set() : new Set([id])
-    ))
-  }
 
   const cycleServerLevel = async () => {
     if (!activeServer?.id) return
@@ -251,7 +274,7 @@ export default function RightSidebar({
   }
 
   const attachmentGroups = useMemo(() => {
-    if (rightTab !== 'info' || (!activeDm && !activeServer)) return { images: [], documents: [], links: [] }
+    if (!showsInfo || (!activeDm && !activeServer)) return { images: [], documents: [], links: [] }
     const items = messages.flatMap(message => (message.message_attachments || []).map(attachment => ({ message, attachment })))
     const links = messages.flatMap(message => {
       if (message?.is_spoiler || typeof message?.content !== 'string') return []
@@ -262,7 +285,7 @@ export default function RightSidebar({
       documents: items.filter(item => !item.attachment.file_type?.startsWith('image/') && safeDocumentUrl(item.attachment.file_url)),
       links
     }
-  }, [activeDm, activeServer, messages, rightTab])
+  }, [activeDm, activeServer, messages, showsInfo])
 
   const activeAttachments = mediaTab === 'images'
     ? attachmentGroups.images
@@ -296,50 +319,40 @@ export default function RightSidebar({
 
   return (
     <>
-      <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform md:hidden" onClick={closeRightSidebar}></div>
+      <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform xl:hidden" onClick={closeRightSidebar}></div>
       
-      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform md:relative md:inset-y-auto md:z-20 md:h-full md:w-72 md:max-w-none md:shadow-none md:backdrop-blur-none md:overflow-hidden md:rounded-2xl md:border md:border-[var(--chat-border)] lg:w-80 xl:w-96" style={scopedChatStyle}>
+      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform xl:relative xl:inset-y-auto xl:z-20 xl:h-full xl:w-80 xl:max-w-none xl:shadow-none xl:backdrop-blur-none xl:overflow-hidden xl:rounded-2xl xl:border xl:border-[var(--chat-border)] 2xl:w-96" style={scopedChatStyle}>
         
-        {rightTab === 'info' && activeServer && !activeDm && (
+        {showsInfo && activeServer && !activeDm && (
           <div className="relative flex h-full flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-5 pb-2 pt-4">
-              <h2 className="truncate type-view-title font-bold text-[var(--text-main)]">{activeServer.name}</h2>
-              <button onClick={closeRightSidebar} className="grid h-10 w-10 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)]" aria-label="Close server info">
-                <X size={20} aria-hidden="true" />
-              </button>
+            {!infoPage && <>
+            <div className="flex items-center gap-3 px-3 pb-3 pt-3">
+              <ServerIcon
+                url={activeServer.icon_url}
+                name={activeServer.name || 'S'}
+                className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-[var(--theme-20)] type-title font-bold uppercase text-[var(--theme-base)]"
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate type-title font-bold text-[var(--text-main)]">{activeServer.name}</h2>
+                <p className="truncate type-snippet text-[var(--text-muted)]">{serverMembers.length} member{serverMembers.length === 1 ? '' : 's'} · <span className="capitalize">{activeServerRole || 'member'}</span></p>
+              </div>
+              <IconButton
+                icon={serverLevel === 'none' ? BellOff : serverLevel === 'mentions' ? AtSign : Bell}
+                onClick={cycleServerLevel}
+                active={serverLevel !== 'all'}
+                disabled={!serverNotificationsAvailable}
+                label={`Notifications: ${NOTIFICATION_LEVELS[serverLevel].label}. Change`}
+                title={serverNotificationsAvailable ? undefined : 'Database update required'}
+              />
+              <IconButton icon={Search} onClick={() => toggleRightSidebar?.('search')} label="Search messages" title="Search (Ctrl+F)" className="max-md:hidden" />
+              <CloseButton onClick={closeRightSidebar} label="Close server info" />
             </div>
 
-            <div className="flex justify-center gap-8 px-5 py-4">
-              <button type="button" onClick={cycleServerLevel} disabled={!serverNotificationsAvailable} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50" aria-label={`Notifications: ${NOTIFICATION_LEVELS[serverLevel].label}. Change`} title={serverNotificationsAvailable ? undefined : 'Database update required'}>
-                <span className={`grid h-11 w-11 place-items-center rounded-full transition-colors ${serverLevel !== 'all' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'bg-[var(--bg-element)] text-[var(--text-main)] group-hover:bg-[var(--bg-element-hover)]'}`}>
-                  {serverLevel === 'none' ? <BellOff size={20} /> : serverLevel === 'mentions' ? <AtSign size={20} /> : <Bell size={20} />}
-                </span>
-                {serverNotificationsAvailable ? (serverLevel === 'all' ? 'Notify' : serverLevel === 'mentions' ? 'Mentions' : 'Muted') : 'Unavailable'}
-              </button>
-              <button type="button" onClick={() => toggleRightSidebar?.('search')} className="group flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)]">
-                <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--bg-element)] text-[var(--text-main)] transition-colors group-hover:bg-[var(--bg-element-hover)]">
-                  <Search size={20} />
-                </span>
-                Search
-              </button>
-            </div>
+            </>}
 
-            <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-5 pt-2 custom-scrollbar">
-              <AccordionSection id="chat-info" label="Chat info" open={openInfoSections.has('chat-info')} onToggle={toggleInfoSection}>
-                <div className="flex items-center gap-3 rounded-xl bg-[var(--bg-element)] p-3">
-                  <ServerIcon
-                    url={activeServer.icon_url}
-                    name={activeServer.name || 'S'}
-                    className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--theme-20)] type-title font-bold uppercase text-[var(--theme-base)]"
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate type-title font-bold text-[var(--text-main)]">{activeServer.name}</p>
-                    <p className="type-snippet text-[var(--text-muted)]">{serverMembers.length} member{serverMembers.length === 1 ? '' : 's'} · {activeServerRole || 'member'}</p>
-                  </div>
-                </div>
-              </AccordionSection>
-
-              <AccordionSection id="customize-chat" label="Customize chat" open={openInfoSections.has('customize-chat')} onToggle={toggleInfoSection}>
+            <div key={infoPage || 'overview'} className="flex-1 space-y-2 overflow-y-auto px-3 pb-3 pt-1 custom-scrollbar">
+              {!infoPage && <OptionRow icon={Search} label="Search messages" onClick={() => toggleRightSidebar?.('search')} className="md:hidden" />}
+              <InfoPage id="customize-chat" icon={Palette} label="Customize chat" {...pageProps}>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -403,13 +416,9 @@ export default function RightSidebar({
                     </div>
                   </div>
                 </div>
-              </AccordionSection>
+              </InfoPage>
 
-              <AccordionSection id="chat-members" label="Chat members" open={openInfoSections.has('chat-members')} onToggle={toggleInfoSection}>
-                <div className="mb-3 flex items-center gap-2 type-label font-medium text-[var(--text-muted)]">
-                  <Users size={15} />
-                  {serverMembers.length} member{serverMembers.length === 1 ? '' : 's'}
-                </div>
+              <InfoPage id="chat-members" icon={Users} label="Members" {...pageProps}>
                 <div className="space-y-2">
                   {serverMembers.map(member => {
                     const profile = member.profiles || {}
@@ -432,10 +441,10 @@ export default function RightSidebar({
                   })}
                   {serverMembers.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">No members found.</p>}
                 </div>
-              </AccordionSection>
+              </InfoPage>
 
               {canViewModerationLog && (
-                <AccordionSection id="moderation-log" label="Moderation log" open={moderationLogOpen} onToggle={toggleInfoSection}>
+                <InfoPage id="moderation-log" icon={ScrollText} label="Moderation log" {...pageProps}>
                   {moderationLog === null && <Loader2 size={18} className="mx-auto my-2 animate-spin text-[var(--text-muted)]" aria-label="Loading moderation log" />}
                   {moderationLog?.error && <p role="alert" className="py-2 type-body text-red-400">Could not load the moderation log.</p>}
                   {Array.isArray(moderationLog) && moderationLog.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">No moderation actions yet.</p>}
@@ -450,10 +459,10 @@ export default function RightSidebar({
                       ))}
                     </ul>
                   )}
-                </AccordionSection>
+                </InfoPage>
               )}
 
-              <AccordionSection id="media" label="Media, files and links" open={openInfoSections.has('media')} onToggle={toggleInfoSection}>
+              <InfoPage id="media" icon={Images} label="Media, files and links" {...pageProps}>
                 <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-[var(--bg-element)] p-1">
                   {[
                     ['images', 'Media', attachmentGroups.images.length],
@@ -495,16 +504,16 @@ export default function RightSidebar({
                   </div>
                 )}
                 {activeAttachments.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">Nothing shared yet.</p>}
-              </AccordionSection>
+              </InfoPage>
 
-              <AccordionSection id="privacy" label="Privacy & support" open={openInfoSections.has('privacy')} onToggle={toggleInfoSection}>
+              <InfoPage id="privacy" icon={ShieldAlert} label="Privacy & support" {...pageProps}>
                 <p className="mb-3 type-label leading-relaxed text-[var(--text-muted)]">Manage unwanted content and ask the MessApp moderation team for support.</p>
                 {activeServer.owner_id !== currentUserId && (
                   <button type="button" onClick={() => onReportTarget?.({ targetType: 'server', id: activeServer.id, label: 'server' })} className="flex min-h-11 w-full items-center gap-3 rounded-xl bg-red-500/10 px-3 type-body font-bold text-red-400">
                     <Flag size={17} /> Report server
                   </button>
                 )}
-              </AccordionSection>
+              </InfoPage>
             </div>
 
             {moderatingMember && (
@@ -575,45 +584,41 @@ export default function RightSidebar({
           </div>
         )}
 
-        {rightTab === 'info' && activeDm && (
-          <div className="flex flex-col h-full overflow-hidden relative">
-            <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-20 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
-              <X size={20} aria-hidden="true" />
-            </button>
-
-            <div className="flex flex-col items-center pt-0 pb-6 text-center border-b border-[var(--border-subtle)] shrink-0 relative">
-              <div className="h-28 w-full bg-cover bg-center transition-all duration-300 absolute top-0 left-0 z-0 border-b border-[var(--border-subtle)]" style={getBannerStyle(activeDm.profiles)}>
-              </div>
-              
-              <div className="relative mt-16 mb-3 z-10">
-                <StatusAvatar url={activeDm.profiles.avatar_url} username={activeDm.profiles.username} status={getPresenceStatus?.(activeDm.profiles.id) || (onlineUsersSet.has(activeDm.profiles.id) ? 'online' : 'offline')} className="w-24 h-24 bg-[var(--bg-surface)] rounded-full" />
-              </div>
-              
-              <div className="relative z-10 px-6 w-full flex flex-col items-center">
-                <div className="flex items-center justify-center gap-2 mb-0.5">
-                  <h2 className="type-title font-bold text-[var(--text-main)]">{activeDm.profiles.username}</h2>
-                  {activeDm.profiles.pronouns && <span className="type-meta text-[var(--text-muted)] bg-[var(--bg-element)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] shrink-0">{activeDm.profiles.pronouns}</span>}
-                </div>
-                <p className="type-label text-[var(--theme-base)] font-mono">{activeDm.profiles.unique_tag}</p>
-                <p className="mt-1 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">{getPresenceLabel?.(activeDm.profiles.id) || 'Offline'}</p>
-                
-                {activeDm.profiles.bio && (
-                  <div className="relative mt-5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-element)] px-5 py-3.5 text-left shadow-inner">
-                    <p className="relative z-10 type-label italic text-[var(--text-main)] leading-relaxed whitespace-pre-wrap">{activeDm.profiles.bio}</p>
-                  </div>
-                )}
-
-                <button type="button" onClick={() => toggleRightSidebar?.('search')} className="group mt-5 flex min-w-14 flex-col items-center gap-1.5 type-label font-medium text-[var(--text-muted)]">
-                  <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--bg-element)] text-[var(--text-main)] transition-colors group-hover:bg-[var(--bg-element-hover)]">
-                    <Search size={20} />
-                  </span>
-                  Search
-                </button>
+        {showsInfo && activeDm && (
+          <div key={infoPage || 'overview'} className="h-full overflow-y-auto custom-scrollbar">
+            {/* Profile scrolls with the sections so short phone screens keep room for content. */}
+            {!infoPage && <>
+            <div className="relative h-20 bg-cover bg-center" style={getBannerStyle(activeDm.profiles)}>
+              <div className="absolute right-2 top-2 rounded-full bg-[var(--chat-bg-surface)]/70 backdrop-blur">
+                <CloseButton onClick={closeRightSidebar} label="Close conversation info" />
               </div>
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-5 pt-3 custom-scrollbar">
-              <AccordionSection id="dm-customization" label="Customization" open={openInfoSections.has('dm-customization')} onToggle={toggleInfoSection}>
+            <div className="px-4 pb-3">
+              <div className="-mt-10 flex items-end gap-3">
+                <StatusAvatar url={activeDm.profiles.avatar_url} username={activeDm.profiles.username} status={getPresenceStatus?.(activeDm.profiles.id) || (onlineUsersSet.has(activeDm.profiles.id) ? 'online' : 'offline')} className="h-20 w-20 shrink-0 rounded-full bg-[var(--bg-surface)] ring-4 ring-[var(--chat-bg-surface)]" />
+                <p className="mb-1 min-w-0 truncate type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">{getPresenceLabel?.(activeDm.profiles.id) || 'Offline'}</p>
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2 className="truncate type-title font-bold text-[var(--text-main)]">{activeDm.profiles.username}</h2>
+                    {activeDm.profiles.pronouns && <span className="shrink-0 rounded border border-[var(--border-subtle)] bg-[var(--bg-element)] px-1.5 py-0.5 type-meta text-[var(--text-muted)]">{activeDm.profiles.pronouns}</span>}
+                  </div>
+                  <p className="truncate type-label font-mono text-[var(--theme-base)]">{activeDm.profiles.unique_tag}</p>
+                </div>
+                <IconButton icon={Search} onClick={() => toggleRightSidebar?.('search')} label="Search messages" title="Search (Ctrl+F)" className="bg-[var(--surface-section)] max-md:hidden" />
+              </div>
+              {activeDm.profiles.bio && (
+                <p className="mt-3 rounded-xl bg-[var(--surface-section)] px-3 py-2.5 type-label italic leading-relaxed text-[var(--text-main)] whitespace-pre-wrap">{activeDm.profiles.bio}</p>
+              )}
+            </div>
+
+            </>}
+
+            <div className="space-y-2 px-3 pb-3 pt-1">
+              {!infoPage && <OptionRow icon={Search} label="Search messages" onClick={() => toggleRightSidebar?.('search')} className="md:hidden" />}
+              <InfoPage id="dm-customization" icon={Palette} label="Customize chat" {...pageProps}>
                 <div className="space-y-5">
                   <div>
                   <span className="type-meta font-bold text-[var(--text-muted)] block mb-3">Conversation Theme</span>
@@ -679,9 +684,9 @@ export default function RightSidebar({
                     </div>
                   </div>
                 </div>
-              </AccordionSection>
+              </InfoPage>
 
-              <AccordionSection id="dm-pinned" label={`Pinned messages (${pinnedMessages.length})`} open={openInfoSections.has('dm-pinned')} onToggle={toggleInfoSection}>
+              <InfoPage id="dm-pinned" icon={Pin} label="Pinned messages" {...pageProps}>
                 <div className="space-y-2">
                   {pinnedMessages.length === 0 ? (
                     <div className="type-label text-[var(--text-muted)] px-1 py-2">No pinned messages yet.</div>
@@ -701,9 +706,9 @@ export default function RightSidebar({
                     </button>
                   ))}
                 </div>
-              </AccordionSection>
+              </InfoPage>
 
-              <AccordionSection id="dm-media" label="Media & files" open={openInfoSections.has('dm-media')} onToggle={toggleInfoSection}>
+              <InfoPage id="dm-media" icon={Images} label="Media & files" {...pageProps}>
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-element)] p-1">
                   <button onClick={() => setMediaTab('images')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 type-label font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'images' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><ImagePlus size={14} /> Images</button>
                   <button onClick={() => setMediaTab('documents')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 type-label font-bold transition-all duration-300 ease-out transform cursor-pointer ${mediaTab === 'documents' ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]'}`}><FileText size={14} /> Documents</button>
@@ -778,9 +783,9 @@ export default function RightSidebar({
                     </div>
                   )}
                 </div>
-              </AccordionSection>
+              </InfoPage>
 
-              <AccordionSection id="dm-privacy" label="Privacy & support" open={openInfoSections.has('dm-privacy')} onToggle={toggleInfoSection}>
+              <InfoPage id="dm-privacy" icon={ShieldAlert} label="Privacy & support" {...pageProps}>
                 <button onClick={() => setConfirmAction({ type: restrictedUsersSet.has(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
                   <EyeOff size={16} className="text-[var(--text-muted)] group-hover:text-[var(--text-main)]"/><span className="type-body font-medium text-[var(--text-main)] group-hover:text-[var(--text-main)] flex-1">{restrictedUsersSet.has(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
                 </button>
@@ -793,20 +798,22 @@ export default function RightSidebar({
                 <button onClick={() => setConfirmAction({ type: 'delete_dm', profile: activeDm.profiles, dm_room_id: activeDm.dm_room_id })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-red-500/10 transition-colors cursor-pointer group text-left">
                   <Trash2 size={16} className="text-red-400 group-hover:text-red-300"/><span className="type-body font-bold text-red-400 group-hover:text-red-300 flex-1">Delete Conversation</span>
                 </button>
-              </AccordionSection>
+              </InfoPage>
             </div>
           </div>
         )}
 
         {rightTab === 'search' && (
-          <div className="p-6 h-full flex flex-col overflow-hidden relative">
-            <button onClick={closeRightSidebar} className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-[var(--text-main)] p-2 rounded-xl hover:bg-[var(--bg-element)] transition-colors cursor-pointer z-10 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] outline-none">
-              <X size={20} aria-hidden="true" />
-            </button>
-
-            <div className="premium-input ghost-border rounded-xl flex items-center px-4 py-3 mt-6 md:mt-8 mb-6 transition-all shrink-0">
-              <Search size={18} className="text-[var(--text-muted)] mr-2 shrink-0" aria-hidden="true" />
-              <input type="text" placeholder="Search all conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-[var(--text-subtle)] font-medium min-w-0" autoFocus />
+          <div className="flex h-full flex-col overflow-hidden px-3 pt-3">
+            <div className="mb-3 flex shrink-0 items-center gap-2">
+              <button type="button" onClick={() => toggleRightSidebar?.('info')} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to conversation info">
+                <ChevronLeft size={20} aria-hidden="true" />
+              </button>
+              <div className="premium-input ghost-border flex min-w-0 flex-1 items-center rounded-xl px-3 py-2.5 transition-all">
+                <Search size={18} className="text-[var(--text-muted)] mr-2 shrink-0" aria-hidden="true" />
+                <input id="conversation-search-input" type="search" aria-label="Search all conversations" placeholder="Search all conversations..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-[var(--text-main)] type-body w-full placeholder-[var(--text-subtle)] font-medium min-w-0" autoFocus />
+              </div>
+              <CloseButton onClick={closeRightSidebar} label="Close search" />
             </div>
             
             {searchLoading && (
@@ -817,6 +824,14 @@ export default function RightSidebar({
                     <div className="skeleton h-2.5 rounded-full" style={{ width: `${62 + (index % 3) * 12}%` }} />
                   </div>
                 ))}
+              </div>
+            )}
+
+            {!searchQuery && (
+              <div className="mt-8 flex flex-col items-center gap-3 px-4 text-center">
+                <TonalIcon icon={Search} />
+                <p className="type-body text-[var(--text-muted)]">Search messages across your chats and servers.</p>
+                <span className="type-meta text-[var(--text-subtle)]">Tip: Ctrl+F opens this from anywhere.</span>
               </div>
             )}
 

@@ -1,10 +1,8 @@
-/* Runtime half of the Liquid Glass style. Two jobs:
-   1. Refraction (Chromium only): each glass surface gets its own SVG filter,
-      a displacement map sized to it (liquidGlassMap.js) applied through
-      backdrop-filter: url(). WebKit and Firefox ignore url() in
-      backdrop-filter, so they keep the CSS-only clear glass.
-   2. Pointer light (fine pointers, every engine): the rim brightens where the
-      cursor is, a cheap stand-in for the shader's hover term.
+/* Runtime half of the Liquid Glass style: refraction (Chromium only). Each
+   glass surface gets its own SVG filter, a displacement map sized to it
+   (liquidGlassMap.js) applied through backdrop-filter: url(). WebKit and
+   Firefox ignore url() in backdrop-filter, so they keep the CSS-only clear
+   glass.
    Everything is driven by attributes on <html> (data-ui-style,
    data-glass-refraction, data-glass-perf), so React never has to know about it.
    data-glass-perf="lite" (phones, low-end machines) turns refraction off and
@@ -189,13 +187,12 @@ export function startLiquidGlass() {
     for (const element of [...tracked.keys()]) {
       if (!element.isConnected) untrack(element)
     }
-    // Chrome first, then bubbles newest-first: bubbles precede the chat bar in
-    // the DOM and would otherwise use up every MAX_TRACKED slot.
-    const found = [...document.querySelectorAll(GLASS_SURFACE_SELECTOR)]
-    const bubbles = found.filter((element) => element.matches('.chat-bubble')).reverse()
+    // Bubbles never refract: the bezel bent the edge into a reflection
+    // under each one (glass.css keeps their frost).
+    const found = [...document.querySelectorAll(GLASS_SURFACE_SELECTOR)].filter((element) => !element.matches('.chat-bubble'))
     const overlays = found.filter((element) => element.matches(OVERLAY_SELECTOR))
-    const rest = found.filter((element) => !element.matches(`.chat-bubble, ${OVERLAY_SELECTOR}`))
-    for (const element of [...overlays, ...rest, ...bubbles]) {
+    const rest = found.filter((element) => !element.matches(OVERLAY_SELECTOR))
+    for (const element of [...overlays, ...rest]) {
       if (tracked.size >= MAX_TRACKED) break
       if (tracked.has(element)) continue
       tracked.set(element, null)
@@ -235,23 +232,4 @@ export function startLiquidGlass() {
 
   new MutationObserver(sync).observe(root, { attributes: true, attributeFilter: ['data-ui-style', 'data-glass-refraction'] })
   sync()
-
-  if (window.matchMedia?.('(pointer: fine)').matches) {
-    let pending = null
-    document.addEventListener('pointermove', (event) => {
-      if (root.dataset.uiStyle !== 'glass') return
-      const element = event.target.closest?.(`${GLASS_SURFACE_SELECTOR},.chat-bubble,.seg-item`)
-      if (!element) return
-      const first = !pending
-      pending = { element, x: event.clientX, y: event.clientY }
-      if (!first) return
-      requestAnimationFrame(() => {
-        const { element: target, x, y } = pending
-        pending = null
-        const rect = target.getBoundingClientRect()
-        target.style.setProperty('--lg-mx', `${Math.round(x - rect.left)}px`)
-        target.style.setProperty('--lg-my', `${Math.round(y - rect.top)}px`)
-      })
-    }, { passive: true })
-  }
 }

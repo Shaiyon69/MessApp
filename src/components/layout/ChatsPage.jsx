@@ -32,6 +32,8 @@ export default function ChatsPage(props) {
   const menuDm = dms.find(dm => props.dmActionMenuId === `chats-${dm.dm_room_id}`)
   const closeMenu = () => props.setDmActionMenuId(null)
   const revealRow = useFirstReveal('chats', dms.length > 0)
+  // Roving tab stop: the list is one Tab stop, arrows move within it.
+  const tabStopRoomId = dms.some(dm => dm.dm_room_id === activeRoomId) ? activeRoomId : dms[0]?.dm_room_id
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-[var(--dock-clear)] pt-4 md:px-6 md:pb-6 md:pt-6">
@@ -69,6 +71,11 @@ export default function ChatsPage(props) {
             <div key={`dm-row-${dm.dm_room_id || i}`} data-selected={isActive || undefined} style={reveal.style} className={`seg-item long-press-target group relative p-0 ${reveal.className}`} {...bindLongPress(`chats-${dm.dm_room_id}`)}>
               <button
                 onClick={() => openDm(dm)}
+                data-conv-row=""
+                data-unread={isUnread || undefined}
+                data-active={isActive || undefined}
+                aria-current={isActive ? 'page' : undefined}
+                tabIndex={dm.dm_room_id === tabStopRoomId ? 0 : -1}
                 className={`m3-press min-h-16 flex-1 flex items-center gap-3.5 rounded-[inherit] px-3 py-2.5 text-left outline-none cursor-pointer hover:bg-[var(--state-hover)] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive || isUnread ? 'text-[var(--text-main)]' : 'text-gray-400 hover:text-[var(--text-main)]'}`}
               >
                 <StatusAvatar url={dm.profiles.avatar_url} username={dm.profiles.username} status={presenceStatus} className="w-11 h-11" />

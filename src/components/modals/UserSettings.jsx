@@ -6,12 +6,15 @@
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
-import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare, ShieldAlert } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare, ShieldAlert, Keyboard } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { keyStore, sameJwk } from '../../lib/keyStore'
 import { PALETTES, THEME_MODES, UI_STYLES, applyGlassRefraction, applySurfaceTint, applyThemeMode, applyUiStyle, normalizeGlassRefraction, normalizeSurfaceTint, normalizeThemeMode, normalizeUiStyle, readGlassWallpaper, saveGlassWallpaper } from '../../lib/theme'
 import { isChromium, isLowPowerDevice } from '../../lib/liquidGlass'
+import { KEYBOARD_SHORTCUTS } from '../../lib/keyboardShortcuts'
 import { audioSys } from '../../lib/SoundEngine'
 import { debug } from '../../lib/debug'
+import { isDesktopApp, requestDesktopPermission } from '../../lib/desktopNotify'
 import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
 import { signOutAndReset } from '../../lib/signOut'
 import { getModeratorRole } from '../../lib/moderation'
@@ -269,6 +272,14 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     }
     
     try {
+      if (isDesktopApp()) {
+        const permission = await requestDesktopPermission()
+        debug.info('PUSH_PERMISSION', { platform: 'desktop', state: permission })
+        if (permission !== 'granted') return toast.error("Permission denied by system settings.")
+        setDesktopNotifs(true);
+        localStorage.setItem('notificationsEnabled', 'true');
+        return toast.success("Desktop notifications enabled!");
+      }
       if (Capacitor.isNativePlatform()) {
         if (!Capacitor.isPluginAvailable('PushNotifications')) {
             return toast.error("Push plugin not available.");
@@ -434,6 +445,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       const { error } = await supabase.rpc('delete_user_account')
       if (error) throw error
       await supabase.auth.signOut()
+      await keyStore.forget(session.user.id)
       const installationId = localStorage.getItem(PUSH_INSTALLATION_ID_KEY)
       localStorage.clear()
       if (installationId) localStorage.setItem(PUSH_INSTALLATION_ID_KEY, installationId)
@@ -466,6 +478,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       { id: 'appearance', label: 'Appearance', icon: Palette },
       { id: 'voice', label: 'Voice & Video', icon: Mic },
       { id: 'notifications', label: 'Notifications', icon: Bell },
+      // Touch devices have no keyboard shortcuts to show.
+      ...(Capacitor.isNativePlatform() ? [] : [{ id: 'keybinds', label: 'Keybinds', icon: Keyboard }]),
       { id: 'legal', label: 'Legal & Policies', icon: FileText },
       ...(moderatorRole ? [{ id: 'moderation', label: 'Moderation', icon: ShieldAlert }] : []),
     ]
@@ -507,7 +521,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
         </div>
       )}
 
-      <div className="premium-modal w-full h-full md:max-w-3xl md:h-[min(660px,82vh)] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-settings-sheet">
+      <div className="premium-modal w-full h-full md:max-w-[min(1040px,94vw)] md:h-[min(740px,86vh)] flex flex-col md:flex-row overflow-hidden md:rounded-2xl animate-settings-sheet">
         
         <aside className={`relative z-10 hidden md:flex w-full md:w-64 bg-[var(--surface-strong)] md:bg-[var(--bg-surface)] border-r border-[var(--border-subtle)] flex-col shrink-0 h-full backdrop-blur-xl`}>
           <h3 className="hidden md:block type-meta font-bold text-gray-500 uppercase tracking-widest mb-2 px-3 pt-5">User Settings</h3>
@@ -550,7 +564,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar relative p-4 sm:p-6 md:p-8 pb-32 md:pb-8">
-            <div className="max-w-xl mx-auto h-full">
+            <div className="max-w-2xl mx-auto h-full">
 
               {settingsConfig.tab === 'account' && (
                 <div className="space-y-6">
@@ -775,8 +789,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                         onClick={async () => {
                           const pin = document.getElementById('pin-setup-input').value;
                           if (pin.length !== 6 || isNaN(pin)) return toast.error('PIN must be exactly 6 digits.');
-                          const priv = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-                          const pubKey = localStorage.getItem(`e2ee_public_key_${session.user.id}`); 
+                          const priv = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+                          const pubKey = keyStore.getItem(`e2ee_public_key_${session.user.id}`); 
                           if (!priv) return toast.error('No local key found to back up. Please generate a key first.');
 
                           const toastId = toast.loading(hasSecureStorage ? 'Updating PIN Backup...' : 'Encrypting and uploading keys...');
@@ -836,23 +850,23 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                                 throw new Error("Incorrect PIN");
                               }
 
-                              const currentMain = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-                              if (currentMain === decryptedKeyStr) {
+                              const currentMain = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+                              if (sameJwk(currentMain, decryptedKeyStr)) {
                                   toast.error("This PIN unlocked your CURRENT key! There are no older legacy keys to restore.", { id: toastId });
                                   return;
                               }
                               
-                              const legacyKeysStr = localStorage.getItem(`e2ee_legacy_keys_${session.user.id}`);
+                              const legacyKeysStr = keyStore.getItem(`e2ee_legacy_keys_${session.user.id}`);
                               const legacyKeys = legacyKeysStr ? JSON.parse(legacyKeysStr) : [];
                               
-                              const isAlreadyLegacy = legacyKeys.some(k => JSON.stringify(k) === decryptedKeyStr);
+                              const isAlreadyLegacy = legacyKeys.some(k => sameJwk(JSON.stringify(k), decryptedKeyStr));
                               if (!isAlreadyLegacy) {
                                   legacyKeys.push(parsedKey);
-                                  localStorage.setItem(`e2ee_legacy_keys_${session.user.id}`, JSON.stringify(legacyKeys));
+                                  keyStore.setItem(`e2ee_legacy_keys_${session.user.id}`, JSON.stringify(legacyKeys));
                               }
 
                               toast.success('Old keys restored! Reloading...', { id: toastId });
-                              setTimeout(() => window.location.reload(), 1000);
+                              setTimeout(() => keyStore.flush().then(() => window.location.reload()), 1000);
                             } catch (_e) {
                               toast.error('Incorrect PIN. Please try again.', { id: toastId });
                             }
@@ -1034,6 +1048,17 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                     <ToggleSwitch label="Ringtones" description="Play incoming and outgoing call rings while calls are waiting." checked={ringtoneSoundsEnabled} onChange={setRingtoneSoundsEnabled} />
                     </SettingsGroup>
                   </div>
+                </div>
+              )}
+
+              {settingsConfig.tab === 'keybinds' && (
+                <div className="pb-10">
+                  <h2 className="hidden md:block type-view-title font-bold tracking-tight text-[var(--text-main)] mb-6 md:mb-8 font-display">Keybinds</h2>
+                  <SettingsGroup title="Keyboard shortcuts">
+                    {KEYBOARD_SHORTCUTS.map(([keys, action]) => (
+                      <GroupItem key={keys} title={action} trailing={<kbd className="shrink-0 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-element)] px-2 py-0.5 font-mono type-meta font-bold text-[var(--text-main)]">{keys}</kbd>} />
+                    ))}
+                  </SettingsGroup>
                 </div>
               )}
 

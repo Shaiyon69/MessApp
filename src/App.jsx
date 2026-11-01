@@ -19,6 +19,7 @@ import { applyGlassRefraction, applySurfaceTint, applyThemeMode, applyUiStyle, n
 import { startLiquidGlass } from './lib/liquidGlass'
 import GlassBackdrop from './components/ui/GlassBackdrop'
 import { debug } from './lib/debug'
+import { keyStore } from './lib/keyStore'
 import { shouldConfigureNativeKeyboard } from './lib/mobilePlatform'
 import { ACTIVE_CONVERSATION_QUERY, getActiveConversationId, publishPushNavigation } from './lib/pushNavigation'
 
@@ -30,6 +31,8 @@ export default function App() {
      resolves — so nothing auth-shaped renders until this flips. Otherwise the
      login screen paints for a frame (longer, if the token needs refreshing). */
   const [sessionReady, setSessionReady] = useState(false)
+  // Dashboard reads E2EE keys synchronously, so it waits until they are loaded for this user.
+  const [keysReadyFor, setKeysReadyFor] = useState(null)
   const [showRegister, setShowRegister] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
   const [loginMessage, setLoginMessage] = useState('')
@@ -76,6 +79,14 @@ export default function App() {
   const toggleThemeMode = () => {
     setThemeMode(current => applyThemeMode(current === 'dark' ? 'light' : 'dark'))
   }
+
+  const userId = session?.user?.id
+  useEffect(() => {
+    if (!userId) return undefined
+    let cancelled = false
+    keyStore.hydrate(userId).finally(() => { if (!cancelled) setKeysReadyFor(userId) })
+    return () => { cancelled = true }
+  }, [userId])
 
   useEffect(() => {
     if (!supabase) return
@@ -202,7 +213,7 @@ export default function App() {
       ) : path === '/forgot-password' ? (
         <ForgotPassword email={authEmail} onEmailChange={setAuthEmail} expiredLink={resetExpired} onBackToLogin={() => { setResetExpired(false); navigateTo('/') }} />
       ) : session ? (
-        <Dashboard session={session} />
+        keysReadyFor === session.user.id ? <Dashboard session={session} /> : null
       ) : showRegister ? (
         <Register email={authEmail} onEmailChange={setAuthEmail} switchToLogin={() => setShowRegister(false)} onRegistrationComplete={handleRegistrationComplete} />
       ) : (
