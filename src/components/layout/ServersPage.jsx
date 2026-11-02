@@ -550,7 +550,7 @@ export default function ServersPage(props) {
                       <div
                         key={channel.id}
                         data-selected={isActive || undefined}
-                        className="seg-item long-press-target relative flex-col items-stretch gap-0 p-0"
+                        className="seg-item long-press-target relative min-h-0 flex-col items-stretch gap-0 p-0"
                         {...(canManageServer || channel.type !== 'voice' ? bindLongPress({ type: 'channel', item: channel }) : null)}
                       >
                         <button
@@ -573,12 +573,9 @@ export default function ServersPage(props) {
                           {isUnread && mentionedChannels.has(channel.id)
                             ? <AtSign size={14} strokeWidth={3} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--theme-base)]" aria-label="You were mentioned" />
                             : isUnread && <span className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
-                          {channel.type === 'voice' && voiceParticipants.length > 0 && (
-                            <span className="shrink-0 rounded-full border border-green-500/15 bg-green-500/10 px-1.5 py-0.5 font-mono type-meta font-black uppercase tracking-wide text-green-300">{voiceParticipants.length} live</span>
-                          )}
                         </button>
                         {voiceParticipants.length > 0 && (
-                          <div data-no-long-press className="voice-participant-list ml-5 space-y-1 border-l border-green-500/15 px-2 pb-2 pl-3 pt-1">
+                          <div data-no-long-press className="voice-participant-list space-y-0.5 pb-1.5 pl-9 pr-1.5">
                             {voiceParticipants.map(participant => {
                               const hasStream = participant.cameraActive || participant.screenShareActive
                               return (
@@ -586,20 +583,16 @@ export default function ServersPage(props) {
                                   type="button"
                                   key={`${channel.id}-${participant.id}`}
                                   onClick={() => props.onVoiceParticipantSelect?.(participant)}
-                                  className={`flex min-h-8 w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left type-label transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'bg-green-500/10 text-green-200' : participant.muted ? 'text-gray-600' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}
+                                  className={`flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left type-label transition-colors hover:bg-[var(--state-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
                                   title={hasStream ? `Watch ${participant.displayName}` : participant.displayName}
+                                  aria-label={`${participant.displayName}${participant.speaking ? ', speaking' : ''}`}
                                 >
-                                  <StatusAvatar url={participant.avatarUrl} username={participant.displayName} status="online" className="h-6 w-6" />
-                                  <span className="min-w-0 flex-1 truncate font-bold">{participant.displayName}</span>
-                                  <span className="flex h-3 shrink-0 items-end gap-0.5" aria-label={participant.speaking ? 'Speaking' : 'Listening'}>
-                                    {[0.6, 1, 0.75].map((weight, levelIndex) => (
-                                      <span key={`${participant.id}-level-${levelIndex}`} className={`w-0.5 rounded-full transition-[height,background-color] duration-150 ease-out ${participant.speaking ? 'bg-green-400' : 'bg-gray-700'}`} style={{ height: `${Math.max(2, Math.round((participant.voiceLevel || 0) * 12 * weight))}px` }} />
-                                    ))}
+                                  {/* Speaking is the green ring on the avatar, nothing else. */}
+                                  <span className={`shrink-0 rounded-full ring-2 transition-shadow duration-150 ${participant.speaking ? 'ring-green-500' : 'ring-transparent'}`}>
+                                    <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-6 w-6" />
                                   </span>
-                                  <span className="flex min-w-12 shrink-0 items-center justify-end gap-1 text-gray-500">
-                                    <span className="flex h-3 w-3 items-center justify-center" aria-hidden={!participant.speaking}>
-                                      {participant.speaking && <Volume2 size={12} aria-label="Speaking" />}
-                                    </span>
+                                  <span className="min-w-0 flex-1 truncate font-medium">{participant.displayName}</span>
+                                  <span className="flex shrink-0 items-center gap-1 text-[var(--text-muted)]">
                                     {participant.muted && <MicOff size={12} aria-label="Muted" />}
                                     {participant.deafened && <VolumeX size={12} aria-label="Deafened" />}
                                     {participant.cameraActive && <Camera size={12} aria-label="Camera active" />}

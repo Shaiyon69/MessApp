@@ -2212,21 +2212,29 @@ iframe {
     outline-offset: 2px;
   }
 
-  .voice-stage-mobile-dock,
   .voice-stage-controls-drawer {
     border: 1px solid var(--border-subtle);
     background: var(--surface-container-high);
     box-shadow: var(--shadow-premium);
   }
 
+  /* No panel behind the call controls: a row of round buttons, each on a
+     black fill with a hairline so it holds over video too. */
+  .voice-stage-mobile-dock {
+    gap: 0.5rem;
+  }
+
   .voice-stage-mobile-action {
     display: flex;
-    min-height: 2.75rem;
-    min-width: 0;
+    height: 3rem;
+    width: 3rem;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    border-radius: 0.85rem;
-    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+    border-radius: 9999px;
+    background: var(--bg-base);
+    color: var(--text-main);
     transition: background 150ms ease, color 150ms ease;
   }
 
@@ -2243,6 +2251,20 @@ iframe {
   .voice-stage-mobile-action.is-danger {
     background: rgba(239,68,68,0.14);
     color: #fca5a5;
+  }
+
+  /* Leave is the one filled control, set apart from the toggles. */
+  .voice-stage-mobile-action.is-leave {
+    width: 4rem;
+    margin-left: 0.5rem;
+    border-color: transparent;
+    background: #dc2626;
+    color: #fff;
+  }
+
+  .voice-stage-mobile-action.is-leave:hover {
+    background: #b91c1c;
+    color: #fff;
   }
 
   .voice-stage-mobile-action:disabled {
@@ -2482,7 +2504,6 @@ iframe {
     background: rgba(15,23,42,0.05);
   }
 
-  [data-theme="light"] .voice-stage-mobile-dock,
   [data-theme="light"] .voice-stage-controls-drawer {
     border-color: rgba(15,23,42,0.09);
     background: var(--surface-container-high);
@@ -2856,6 +2877,39 @@ iframe {
   transition: none !important;
 }
 
+/* The voice mini player drags from anywhere, so the whole card wears the
+   grab cursor; its controls only show while the pointer is over it. Touch
+   screens have no hover, so they keep the controls visible. */
+.voice-mini-panel {
+  cursor: grab;
+  touch-action: none;
+}
+
+.voice-mini-panel.is-dragging {
+  cursor: grabbing;
+}
+
+.voice-mini-panel [data-no-drag] {
+  cursor: default;
+}
+
+.voice-mini-panel:focus-visible {
+  outline: 2px solid var(--theme-base, var(--app-accent));
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .voice-mini-panel .mini-hover-controls {
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .voice-mini-panel:hover .mini-hover-controls,
+  .voice-mini-panel:focus-within .mini-hover-controls {
+    opacity: 1;
+  }
+}
+
 .floating-mini-player.is-dragging .mini-player-drag-handle {
   cursor: grabbing;
   color: #d1d5db;
@@ -3188,9 +3242,25 @@ iframe {
   background: var(--surface-container);
 }
 
+/* Each grid cell is a size container, so a tile can stay 16:9 and centred
+   however wide or tall its cell is. */
+.voice-tile-cell {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  container-type: size;
+}
+
+.voice-tile-fit {
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  aspect-ratio: 16 / 9;
+}
+
+/* No band behind the dock: the round buttons are the only chrome. */
 .voice-stage-footer {
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-container-high);
+  border-top: 0;
+  background: transparent;
 }
 
 .voice-control-dock {
@@ -3517,13 +3587,13 @@ iframe {
 }
 
 .voice-stage-card.is-speaking {
-  border-color: #46c77b;
+  border-color: #22c55e;
   animation: none;
-  box-shadow: 0 0 0 2px #245f3d;
+  box-shadow: inset 0 0 0 1px #22c55e;
 }
 
 .voice-stage-footer {
-  background: #000;
+  background: transparent;
 }
 
 .voice-control-dock {
