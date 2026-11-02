@@ -2,7 +2,8 @@
  * Builds the notification feed from two sources: pending friend requests,
  * which disappear once answered, and stored `notifications` rows written by
  * database triggers (mention, reply, thread_reply, reaction, poll_vote,
- * friend_accepted, moderation) or by the caller's client (missed_call). Unread
+ * friend_accepted, moderation), by invite RPCs (server_invite, voice_invite)
+ * or by the caller's client (missed_call). Unread
  * conversations are deliberately not notifications: Chats already carries that
  * signal as a dot plus a weight change, and repeating it here made the same DM
  * shout twice.
@@ -62,6 +63,14 @@ export function notificationAction(row) {
   if (row.kind === 'missed_call' || row.kind === 'friend_accepted') {
     return row.actor?.id ? { type: 'dm', profile: row.actor, dmRoomId: row.dm_room_id || null } : null
   }
+  if ((row.kind === 'server_invite' || row.kind === 'voice_invite') && row.data?.code) {
+    return {
+      type: 'invite',
+      code: row.data.code,
+      voiceChannelId: row.kind === 'voice_invite' ? row.data.channel_id || null : null,
+      voiceChannelName: row.kind === 'voice_invite' ? row.data.channel_name || null : null
+    }
+  }
   if (row.kind === 'moderation' && row.server_id && !['kick', 'ban'].includes(row.data?.action)) {
     return { type: 'server', serverId: row.server_id }
   }
@@ -75,7 +84,7 @@ export const NOTIFICATION_FILTERS = [
   { id: 'activity', label: 'Activity', kinds: ['reaction', 'poll_vote'] },
   { id: 'requests', label: 'Friends', kinds: ['friend_request', 'friend_accepted'] },
   { id: 'calls', label: 'Calls', kinds: ['missed_call'] },
-  { id: 'server', label: 'Servers', kinds: ['moderation'] }
+  { id: 'server', label: 'Servers', kinds: ['moderation', 'server_invite', 'voice_invite'] }
 ]
 
 export function filterNotifications(items, filterId) {

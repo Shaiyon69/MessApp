@@ -20,6 +20,7 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
 import { debug } from '../../lib/debug'
+import { parseInviteCode } from '../../lib/invites'
 
 // Same flag and table as RightSidebar's mute button; separate instance, same rows.
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
@@ -54,7 +55,6 @@ export default function ServersPage(props) {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [isCreatingCategory, setIsCreatingCategory] = useState(false)
-  const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   /* The options sheet: opened from the detail bar's ⋮ for the active server, or
      by holding a row in the server list for that row's server. */
   const [sheetServer, setSheetServer] = useState(null)
@@ -294,20 +294,11 @@ export default function ServersPage(props) {
 
   const handleJoinServer = async (e) => {
     e.preventDefault()
-    const code = inviteCode.trim().toUpperCase()
-    if (!code) return toast.error('Enter an invite code')
-    try {
-      const { data: server, error } = await supabase.rpc('join_server_by_code', { invite: code })
-      if (error) throw error
-      if (!server) throw new Error('Server not found')
-
-      closeJoinModal()
-      await refreshServers(server)
-      toast.success('Server joined')
-    } catch (error) {
-      debug.error('SERVER_ADMIN', { operation: 'join-server', error })
-      toast.error('Could not join server')
-    }
+    // A pasted link or a bare code both open the invite preview, which joins.
+    const code = parseInviteCode(inviteCode)
+    if (!code) return toast.error('Paste an invite link or code')
+    closeJoinModal()
+    props.onOpenInvite?.(code)
   }
 
   const handleCreateChannelSubmit = async (e) => {
@@ -413,26 +404,6 @@ export default function ServersPage(props) {
     }
   }
 
-  const copyInviteCode = async (server) => {
-    if (!server?.id || isGeneratingInvite) return
-    setIsGeneratingInvite(true)
-    try {
-      const { data, error } = await supabase.rpc('create_server_invite', {
-        target_server_id: server.id,
-        requested_uses: 100,
-        requested_expires_at: null
-      })
-      if (error) throw error
-      await navigator.clipboard.writeText(data.code)
-      toast.success(`Invite code ${data.code} copied`)
-    } catch (error) {
-      debug.error('SERVER_ADMIN', { operation: 'create-invite', error })
-      toast.error('Could not create invite')
-    } finally {
-      setIsGeneratingInvite(false)
-    }
-  }
-
   const askServerAction = (action, server) => {
     const serverName = server?.name || 'this server'
     setDangerPrompt(action === 'delete'
@@ -512,6 +483,9 @@ export default function ServersPage(props) {
               </button>
               <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl md:hidden" />
               <h3 className="min-w-0 flex-1 truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
+              <button type="button" onClick={() => props.onInvite?.(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:h-9 md:w-9" aria-label="Invite people" title="Invite people">
+                <UserPlus size={17} aria-hidden="true" />
+              </button>
               <button type="button" onClick={() => setSheetServer(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
                 <MoreVertical size={17} aria-hidden="true" />
               </button>
@@ -554,7 +528,7 @@ export default function ServersPage(props) {
                         key={channel.id}
                         data-selected={isActive || undefined}
                         className="seg-item long-press-target relative min-h-0 flex-col items-stretch gap-0 p-0"
-                        {...(canManageServer || channel.type !== 'voice' ? bindLongPress({ type: 'channel', item: channel }) : null)}
+                        {...bindLongPress({ type: 'channel', item: channel })}
                       >
                         <button
                           type="button"
@@ -689,8 +663,8 @@ export default function ServersPage(props) {
         <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleJoinServer} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
             <h2 className="type-title font-bold text-[var(--text-main)]">Join a server</h2>
-            <p className="mb-4 mt-1 type-label text-[var(--text-muted)]">Enter the invite code shared with you.</p>
-            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 uppercase text-[var(--text-main)] outline-none" placeholder="Invite code" autoFocus />
+            <p className="mb-4 mt-1 type-label text-[var(--text-muted)]">Paste the invite link or code someone shared with you.</p>
+            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="https://…/invite/AB12CD34EF56" aria-label="Invite link or code" autoFocus />
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={closeJoinModal} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
               <button type="submit" className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)]">Join</button>
@@ -796,7 +770,7 @@ export default function ServersPage(props) {
               Icon: sheetServerLevel === 'none' ? BellOff : sheetServerLevel === 'mentions' ? AtSign : Bell,
               onSelect: () => setSheetServerNotificationLevel(sheetServer, NOTIFICATION_LEVELS[sheetServerLevel].next)
             },
-            { label: 'Add members', Icon: UserPlus, onSelect: () => copyInviteCode(sheetServer) },
+            { label: 'Invite people', Icon: UserPlus, onSelect: () => props.onInvite?.(sheetServer) },
             /* Channel/category/edit mutations target Dashboard's activeServer, so
                they only appear for the server that is open. RLS still gates them. */
             isSheetActive && canManageServer && { label: 'Create category', Icon: FolderPlus, onSelect: () => setIsCategoryModalOpen(true) },
@@ -826,6 +800,9 @@ export default function ServersPage(props) {
             { label: 'Edit category', Icon: Pencil, onSelect: () => openEditServerItemModal('category', serverItemSheet.item) },
             { label: 'Delete category', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('category', serverItemSheet.item) }
           ] : [
+            serverItemSheet.item.type === 'voice'
+              ? { label: 'Invite to voice', Icon: UserPlus, onSelect: () => props.onInvite?.(props.activeServer, serverItemSheet.item) }
+              : { label: 'Invite people', Icon: UserPlus, onSelect: () => props.onInvite?.(props.activeServer) },
             // Voice channels carry no read pointer, so they get no read toggle.
             serverItemSheet.item.type !== 'voice' && (unreadChannels.has(serverItemSheet.item.id)
               ? { label: 'Mark as read', Icon: CheckCheck, onSelect: () => props.setChannelRead(serverItemSheet.item, true) }

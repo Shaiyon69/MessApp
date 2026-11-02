@@ -81,6 +81,9 @@ import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearc
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
 import { fuzzyFilter } from '../lib/fuzzy'
+import InviteModal from './modals/InviteModal'
+import InvitePreviewModal from './modals/InvitePreviewModal'
+import { OPEN_INVITE_EVENT } from '../lib/invites'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -179,7 +182,7 @@ const selectServerMembers = async (serverId) => {
   return result.error?.code === '42703' ? query(SERVER_MEMBER_COLUMNS) : result
 }
 
-export default function Dashboard({ session }) {
+export default function Dashboard({ session, initialInviteCode = null }) {
   const serverListCacheKey = `server_list_${session.user.id}`
   const dmListCacheKey = `dm_list_${session.user.id}`
   const serverWallpaperCacheKey = `server_wallpapers_${session.user.id}`
@@ -1264,6 +1267,15 @@ export default function Dashboard({ session }) {
      deployed) just leaves the feed empty.
      ponytail: newest 50, no paging. */
   const [notificationFeed, setNotificationFeed] = useState([])
+  /* Invites: `invitePreview` is an invite being looked at ({ code, voiceChannelId,
+     voiceChannelName }); `inviteTarget` is the server (and voice channel) being
+     invited to. An invite link the app was opened on starts as a preview. */
+  const [invitePreview, setInvitePreview] = useState(() => (initialInviteCode ? { code: initialInviteCode } : null))
+  const [inviteTarget, setInviteTarget] = useState(null)
+  const [pendingVoiceJoinId, setPendingVoiceJoinId] = useState(null)
+  const announceInviteRef = useRef(null)
+  // allFriends is derived further down; the live invite toast reads it through this.
+  const allFriendsRef = useRef([])
   const fetchNotificationFeed = useCallback(async () => {
     const { data, error } = await supabase
       .from('notifications')
@@ -1278,6 +1290,7 @@ export default function Dashboard({ session }) {
     void fetchNotificationFeed()
     const feedSub = supabase.channel('notification-feed')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, fetchNotificationFeed)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, payload => announceInviteRef.current?.(payload.new))
       .subscribe()
     return () => { supabase.removeChannel(feedSub) }
   }, [fetchNotificationFeed, session.user.id])
@@ -1315,6 +1328,9 @@ export default function Dashboard({ session }) {
       setActiveChannel(null)
       return selectDm(dm)
     }
+    if (action?.type === 'invite') {
+      return setInvitePreview({ code: action.code, voiceChannelId: action.voiceChannelId, voiceChannelName: action.voiceChannelName })
+    }
     if (action?.type === 'server') {
       const server = servers.find(item => item.id === action.serverId)
       if (!server) return toast.error('That server is no longer available.')
@@ -1322,6 +1338,57 @@ export default function Dashboard({ session }) {
       setView('server')
       setActiveDm(null)
     }
+  }
+
+  /* After joining from an invite (or opening one for a server you are already
+     in): open the server, and for a voice invite join its channel once the
+     channel list has loaded. */
+  const handleInviteJoined = async (server, voiceChannelId) => {
+    setInvitePreview(null)
+    await fetchServers()
+    setHomeTab('servers')
+    setView('home')
+    setActiveDm(null)
+    setActiveChannel(null)
+    setActiveServer(server)
+    if (voiceChannelId) setPendingVoiceJoinId(voiceChannelId)
+  }
+  useEffect(() => {
+    if (!pendingVoiceJoinId) return
+    const channel = serverCategories.flatMap(category => category.channels || []).find(item => item.id === pendingVoiceJoinId)
+    if (!channel) return
+    setPendingVoiceJoinId(null)
+    selectChannel(channel)
+  }, [pendingVoiceJoinId, serverCategories, selectChannel])
+
+  // Invite cards in chat ask for the preview through a window event.
+  useEffect(() => {
+    const onOpenInvite = event => { if (event.detail?.code) setInvitePreview({ code: event.detail.code }) }
+    window.addEventListener(OPEN_INVITE_EVENT, onOpenInvite)
+    return () => window.removeEventListener(OPEN_INVITE_EVENT, onOpenInvite)
+  }, [])
+
+  /* A new invite arriving live gets a toast with Join, and a native
+     notification on desktop when the window is in the background. */
+  announceInviteRef.current = (row) => {
+    if (row?.kind !== 'server_invite' && row?.kind !== 'voice_invite') return
+    const data = row.data || {}
+    const sender = allFriendsRef.current.find(friend => friend.id === row.actor_id)?.username || 'A friend'
+    const text = row.kind === 'voice_invite'
+      ? `${sender} invited you to voice in ${data.server_name || 'a server'}`
+      : `${sender} invited you to ${data.server_name || 'a server'}`
+    const open = () => setInvitePreview({
+      code: data.code,
+      voiceChannelId: row.kind === 'voice_invite' ? data.channel_id || null : null,
+      voiceChannelName: row.kind === 'voice_invite' ? data.channel_name || null : null
+    })
+    toast(t => (
+      <span className="flex items-center gap-3">
+        <span className="min-w-0 flex-1">{text}</span>
+        <button type="button" onClick={() => { toast.dismiss(t.id); open() }} className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 type-label font-semibold text-white">View</button>
+      </span>
+    ), { duration: 10000 })
+    void notifyDesktop({ title: 'Messapp', body: text, isOwnMessage: false, isOpenRoom: false })
   }
 
   /* The bottom bar badge. Same derivation the notifications tab renders, so
@@ -2152,6 +2219,7 @@ export default function Dashboard({ session }) {
       .map(profile => ({ dm_room_id: null, profiles: profile, is_new_chat: true }))
     return [...dms, ...selectableFriends].filter(dm => !restrictedUsersSet.has(dm.profiles.id))
   }, [acceptedFriends, dms, restrictedUsersSet]);
+  allFriendsRef.current = acceptedFriends
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
   const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
@@ -2388,6 +2456,8 @@ export default function Dashboard({ session }) {
         handleLeaveServer={handleLeaveServer}
         handleDeleteServer={handleDeleteServer}
         onVoiceParticipantSelect={focusVoiceParticipant}
+        onInvite={(server, voiceChannel) => setInviteTarget({ server, voiceChannel })}
+        onOpenInvite={(code) => setInvitePreview({ code })}
         friendRequests={friendRequests}
         notificationFeed={notificationFeed}
         openNotification={openNotification}
@@ -2480,6 +2550,24 @@ export default function Dashboard({ session }) {
           onReportTarget={setReportTarget}
         />
         </Suspense>
+      )}
+
+      {inviteTarget && (
+        <InviteModal
+          server={inviteTarget.server}
+          voiceChannel={inviteTarget.voiceChannel || null}
+          friends={acceptedFriends}
+          onClose={() => setInviteTarget(null)}
+        />
+      )}
+      {invitePreview?.code && (
+        <InvitePreviewModal
+          code={invitePreview.code}
+          voiceChannelId={invitePreview.voiceChannelId || null}
+          voiceChannelName={invitePreview.voiceChannelName || null}
+          onJoined={handleInviteJoined}
+          onClose={() => setInvitePreview(null)}
+        />
       )}
 
       {forwardText !== null && (

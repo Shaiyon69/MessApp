@@ -27,6 +27,7 @@ import {
   SlidersHorizontal,
   Square,
   SwitchCamera,
+  UserPlus,
   Users,
   Volume2,
   VolumeX,
@@ -631,6 +632,7 @@ export default function SfuScreenShare({
   onToggleDeafen,
   onLeave,
   onOpen,
+  onInvite,
   onStateChange
 }) {
   const [client, setClient] = useState(null)
@@ -1652,6 +1654,11 @@ export default function SfuScreenShare({
             {localCameraStream && (
               <button type="button" onClick={switchCamera} disabled={isSwitchingCamera} className="voice-stage-mobile-action disabled:cursor-wait disabled:opacity-50" aria-label="Switch camera" title="Switch camera">
                 <SwitchCamera size={18} aria-hidden="true" />
+              </button>
+            )}
+            {onInvite && (
+              <button type="button" onClick={onInvite} className="voice-stage-mobile-action" aria-label="Invite friends to this voice channel" title="Invite friends">
+                <UserPlus size={18} aria-hidden="true" />
               </button>
             )}
             <button type="button" onClick={() => setStageControlsOpen(true)} className="voice-stage-mobile-action" aria-label="More call controls" title="More controls" aria-haspopup="dialog" aria-expanded={stageControlsOpen}>

@@ -69,6 +69,10 @@ export default function ChatArea(props) {
      the detail pane and floats in the corner on the list. activeServer
      survives a back press, so it cannot stand in for this. */
   const [serversPanelView, setServersPanelView] = useState(() => (props.activeServer ? 'detail' : 'list'));
+  // Opening a server from elsewhere (an invite, a notification) shows its channels.
+  useEffect(() => {
+    if (props.activeServer?.id) setServersPanelView('detail')
+  }, [props.activeServer?.id]);
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
   const [composerDrawerTab, setComposerDrawerTab] = useState('emoji');
   const drawerPinnedToBottomRef = useRef(false);
@@ -1082,6 +1086,10 @@ useEffect(() => {
           onToggleDeafen={toggleVoiceDeafened}
           onLeave={props.leaveActiveVoice}
           onOpen={props.openActiveVoiceChannel}
+          onInvite={() => {
+            const server = props.servers?.find(item => item.id === props.activeVoiceSession.serverId)
+            if (server) props.onInvite?.(server, { id: props.activeVoiceSession.channelId, name: props.activeVoiceSession.channelName })
+          }}
           onStateChange={props.setVoiceSessionState}
         />
         </Suspense>
