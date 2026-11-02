@@ -6,7 +6,7 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
+import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronDown, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
@@ -60,6 +60,7 @@ export default function ServersPage(props) {
   const [sheetServer, setSheetServer] = useState(null)
   const [sheetServerLevel, setSheetServerLevel] = useState(null)
   const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
+  const [collapsedCategories, toggleCategory] = useStoredSet(`messapp:collapsedCategories:${props.session?.user?.id}`)
   const [serverItemSheet, setServerItemSheet] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
      confirmLabel, run }`, cleared when the prompt closes. */
@@ -464,7 +465,7 @@ export default function ServersPage(props) {
   const showDetail = panelView === 'detail' && props.activeServer
 
   return (
-    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full' : ''} pb-[var(--dock-clear)] md:pb-6`}>
+    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-2 ${showDetail ? 'min-h-full md:pt-0' : 'md:pt-3'} pb-[var(--dock-clear)] md:pb-4`}>
       {!showDetail ? (
         <>
           <div className="seg-group seg-plain">
@@ -503,25 +504,21 @@ export default function ServersPage(props) {
           {/* The server bar sits above the channel list: the server you are in is the
               heading for everything under it, so it stays pinned to the top while
               channels scroll beneath. */}
-          <div className="sticky top-0 z-20 -mx-4 mb-1 bg-[var(--bg-base)] px-4 pb-2 md:-mx-6 md:px-6">
-            <div className="relative flex min-h-14 items-center gap-2 py-2">
-              <button type="button" onClick={() => setPanelView('list')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+          <div className="sticky top-0 z-20 -mx-4 mb-1 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 md:-mx-2 md:px-3">
+            <div className="relative flex min-h-14 items-center gap-2 py-2 md:min-h-12 md:py-1">
+              {/* The desktop rail already lists every server, so only phones need the way back. */}
+              <button type="button" onClick={() => setPanelView('list')} className="flex md:hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
                 <ChevronLeft size={19} aria-hidden="true" />
               </button>
-              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl" />
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
-                {/* Role, not a static label: the manage buttons below hinge on it,
-                    so "member" explains their absence without a trip to the DB. */}
-                <p className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">{props.activeServerRole || 'Server'}</p>
-              </div>
+              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl md:hidden" />
+              <h3 className="min-w-0 flex-1 truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
               <button type="button" onClick={() => setSheetServer(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
                 <MoreVertical size={17} aria-hidden="true" />
               </button>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-1">
             {props.serverChannelsLoading && Array.from({ length: 3 }, (_, index) => (
               <div key={`channel-group-skeleton-${index}`} className="rounded-2xl bg-[var(--surface-container)] p-3" aria-hidden="true">
                 <div className="skeleton mb-3 h-2.5 w-24 rounded-full" />
@@ -529,20 +526,26 @@ export default function ServersPage(props) {
               </div>
             ))}
             {(props.serverCategories || []).map(category => (
-              <section key={category.id} className="server-channel-group first:[&>div]:border-t-0">
+              <section key={category.id} className="server-channel-group">
                 <div
-                  className="server-channel-group-header long-press-target relative flex min-h-9 items-center justify-between gap-2 border-t-2 border-[var(--border-hover)] px-1 pb-1.5 pt-3"
+                  className="server-channel-group-header long-press-target relative flex items-center pt-3"
                   {...(canManageServer ? bindLongPress({ type: 'category', item: category }) : null)}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 truncate type-meta font-black uppercase tracking-[0.12em] text-gray-400">{category.name}</span>
-                    <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg-element)] px-1.5 font-mono type-meta font-bold text-gray-500" aria-label={`${(category.channels || []).length} channels`}>
-                      {(category.channels || []).length}
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleCategory(category.id)}
+                    aria-expanded={!collapsedCategories.has(category.id)}
+                    className="flex min-h-8 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left type-meta font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
+                  >
+                    <ChevronDown size={12} className={`shrink-0 transition-transform duration-150 ${collapsedCategories.has(category.id) ? '-rotate-90' : ''}`} aria-hidden="true" />
+                    <span className="min-w-0 truncate">{category.name}</span>
+                  </button>
                 </div>
-                <div className="seg-group seg-plain pt-1.5">
-                  {(category.channels || []).map(channel => {
+                <div className="seg-group seg-plain">
+                  {(category.channels || []).filter(channel => (
+                    // A collapsed category still shows the open channel, like Discord.
+                    !collapsedCategories.has(category.id) || channel.id === props.activeChannel?.id
+                  )).map(channel => {
                     const isActive = props.activeChannel?.id === channel.id
                     const isUnread = !isActive && unreadChannels.has(channel.id)
                     const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
@@ -563,9 +566,9 @@ export default function ServersPage(props) {
                             tabIndex: channel.id === channelTabStop ? 0 : -1,
                           } : null)}
                           aria-current={isActive ? 'page' : undefined}
-                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-[inherit] px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
-                          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
-                            {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
+                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2 overflow-hidden rounded-[inherit] px-2 py-1.5 pr-7 text-left type-body font-medium md:min-h-9 transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
+                          <span className={`shrink-0 ${isActive ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>
+                            {channel.type === 'voice' ? <Volume2 size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
                           </span>
                           <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
                           {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
@@ -606,7 +609,7 @@ export default function ServersPage(props) {
                       </div>
                     )
                   })}
-                  {(category.channels || []).length === 0 && (
+                  {(category.channels || []).length === 0 && !collapsedCategories.has(category.id) && (
                     <div className="rounded-xl border border-dashed border-[var(--border-subtle)] px-3 py-3 text-center">
                       <p className="type-label text-gray-500">No channels in this category</p>
                       {canManageServer && (

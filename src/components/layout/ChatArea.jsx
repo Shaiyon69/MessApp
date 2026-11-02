@@ -852,7 +852,7 @@ useEffect(() => {
   }, [conversationId, clearUnreadAnchor, scrollToLatestMessages])
 
   /* Desktop list column (rail included), in rem so UI density scales it too. */
-  const [listWidth, setListWidth] = useStoredState('messapp.listWidth', LIST_WIDTH_DEFAULT)
+  const [listWidth, setListWidth] = useStoredState('messapp.listWidth.v2', LIST_WIDTH_DEFAULT)
   const listSectionRef = useRef(null)
   const startListResize = (event) => {
     if (event.button !== 0) return
@@ -901,6 +901,13 @@ useEffect(() => {
     event.preventDefault()
     rows[to]?.focus()
   }
+  const openServerFromRail = (server) => {
+    selectHomeTab('servers')
+    setServersPanelView('detail')
+    props.setView('home')
+    props.setActiveServer(server)
+    props.setActiveChannel(null)
+  }
   // Picking a rail tab while the list is collapsed means "show me that list".
   const selectHomeTab = (tab) => {
     if (props.listCollapsed) props.setListCollapsed(false)
@@ -911,7 +918,7 @@ useEffect(() => {
       <main
         id="messapp-main"
         tabIndex={-1}
-        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)] md:flex-row md:gap-2"
+        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)] md:flex-row"
         style={props.scopedChatStyle}
         onPaste={props.handlePaste}
         onPointerDownCapture={(e) => {
@@ -939,10 +946,10 @@ useEffect(() => {
           layout into the three-column desktop one. */}
       <section
         ref={listSectionRef}
-        className={`relative min-h-0 min-w-0 flex-col md:flex md:flex-none md:flex-row-reverse md:gap-2 ${props.listCollapsed ? '' : 'md:w-[var(--list-w)]'} ${homeVisible ? 'flex flex-1' : 'hidden'}`}
+        className={`relative min-h-0 min-w-0 flex-col md:flex md:flex-none md:flex-row-reverse ${props.listCollapsed ? '' : 'md:w-[var(--list-w)]'} ${homeVisible ? 'flex flex-1' : 'hidden'}`}
         style={{ '--list-w': `${listWidth}rem` }}
       >
-        <div id="conversation-list" className={`home-dashboard relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)] ${props.listCollapsed ? 'md:hidden' : ''}`}>
+        <div id="conversation-list" className={`home-dashboard relative flex min-h-0 flex-1 flex-col overflow-hidden md:border-r md:border-[var(--border-subtle)] ${props.listCollapsed ? 'md:hidden' : ''}`}>
           {/* Minimal header: the wordmark. The account avatar is the dock's Menu tab. Search lives in
               the quick actions button. The dock names the tab. */}
           <header className="ios-app-bar flex h-16 shrink-0 items-center gap-1 pl-4 pr-2 md:pl-5">
@@ -982,6 +989,10 @@ useEffect(() => {
         <BottomBar
           homeTab={props.homeTab}
           setHomeTab={selectHomeTab}
+          servers={props.servers}
+          activeServerId={props.activeServer?.id}
+          onOpenServer={openServerFromRail}
+          onAddServer={() => { selectHomeTab('servers'); setServersPanelView('list'); setPendingServerAction('create') }}
           notificationCount={props.notificationCount}
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
@@ -1005,13 +1016,15 @@ useEffect(() => {
           onPointerDown={startListResize}
           onKeyDown={onListResizeKey}
           onDoubleClick={() => setListWidth(LIST_WIDTH_DEFAULT)}
-          className="list-resize-handle relative -mx-2 hidden w-2 shrink-0 cursor-col-resize touch-none outline-none md:block"
+          className="list-resize-handle relative -mx-1 hidden w-2 shrink-0 cursor-col-resize touch-none outline-none md:block"
         />
       )}
 
-      <section className={`chat-surface min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)] ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
+      <section className={`chat-surface min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
+      {/* Voice channels have no top bar on desktop: the stage is the whole
+          view. Phones keep it for the back button only. */}
       <header
-        className="ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30"
+        className={`ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30 ${props.view === 'server' && isVoiceChannel ? 'md:hidden' : ''}`}
         style={props.isChatActive ? { backgroundColor: 'var(--chat-bg-surface)' } : undefined}
       >
         <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
@@ -1038,7 +1051,7 @@ useEffect(() => {
           ) : null}
         </div>
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
-          {props.isChatActive && (
+          {props.isChatActive && !(props.view === 'server' && isVoiceChannel) && (
             <>
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start voice call" title="Voice call"><Phone size={20} aria-hidden="true" /></button>}
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(true)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start video call" title="Video call"><Video size={20} aria-hidden="true" /></button>}
