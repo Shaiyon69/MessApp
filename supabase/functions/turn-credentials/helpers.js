@@ -23,15 +23,26 @@ export const buildTurnCredential = async ({ secret, ttlSeconds, now = Date.now()
   return { username, credential, expiresAt }
 }
 
+// A falsy tlsPort leaves out the turns: URL, for relays (or free plans) without TLS.
 export const buildIceServers = ({ host, port, tlsPort, username, credential }) => ([
   { urls: [`stun:${host}:${port}`] },
   {
     urls: [
       `turn:${host}:${port}?transport=udp`,
       `turn:${host}:${port}?transport=tcp`,
-      `turns:${host}:${tlsPort}?transport=tcp`
+      ...(tlsPort ? [`turns:${host}:${tlsPort}?transport=tcp`] : [])
     ],
     username,
     credential
   }
 ])
+
+// Picks the credential scheme from what is configured: a shared secret mints
+// short-lived credentials (coturn REST scheme); otherwise a fixed username and
+// password from a provider dashboard (e.g. ExpressTURN's free plan) are passed
+// through as is. Returns null when neither is set.
+export const resolveTurnCredential = async ({ sharedSecret, username, password, ttlSeconds, now = Date.now() }) => {
+  if (sharedSecret) return buildTurnCredential({ secret: sharedSecret, ttlSeconds, now })
+  if (username && password) return { username, credential: password }
+  return null
+}

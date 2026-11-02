@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { supabase } from '../supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
+import { keyStore } from '../lib/keyStore'
 import { configureNativePushRegistration, registerWebPushDevice, reportActiveConversation, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
 import { Search, SearchX, X, Download, Shield, Key, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
@@ -15,6 +16,9 @@ import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
+import useStoredState from '../hooks/useStoredState'
+import { isEditableTarget, stepRowIndex } from '../lib/conversationNav'
+import { KEYBOARD_SHORTCUTS } from '../lib/keyboardShortcuts'
 
 import ChatArea from './layout/ChatArea'
 
@@ -31,9 +35,10 @@ import { normalizeProfileBaseName } from '../lib/security'
 import { downloadFile } from '../lib/downloadFile'
 import { applySurfaceTint, applyThemeMode, applyUiStyle } from '../lib/theme'
 import { getDmRoomErrorMessage, getOrCreateDmRoom } from '../lib/dmRooms'
-import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from '../lib/notifications'
+import { buildNotifications, countUnreadNotifications, notificationAction } from '../lib/notifications'
 import { submitContentReport } from '../lib/moderation'
 import { loadMyProfileSecrets, saveMyProfileKeyBackup } from '../lib/profileSecrets'
+import { signOutAndReset } from '../lib/signOut'
 import {
   consumePendingPushTarget,
   consumePushTargetFromLocation,
@@ -70,10 +75,15 @@ import StatusAvatar from './ui/StatusAvatar'
 import { AtSign, CornerDownLeft, Hash, Users } from 'lucide-react'
 import ActionSheet from './ui/ActionSheet'
 import { debug } from '../lib/debug'
+import { notifyDesktop, isDesktopApp } from '../lib/desktopNotify'
+import { findDesktopUpdate, installDesktopUpdate } from '../lib/desktopUpdater'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
 import { fuzzyFilter } from '../lib/fuzzy'
+import InviteModal from './modals/InviteModal'
+import InvitePreviewModal from './modals/InvitePreviewModal'
+import { OPEN_INVITE_EVENT } from '../lib/invites'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -172,7 +182,7 @@ const selectServerMembers = async (serverId) => {
   return result.error?.code === '42703' ? query(SERVER_MEMBER_COLUMNS) : result
 }
 
-export default function Dashboard({ session }) {
+export default function Dashboard({ session, initialInviteCode = null }) {
   const serverListCacheKey = `server_list_${session.user.id}`
   const dmListCacheKey = `dm_list_${session.user.id}`
   const serverWallpaperCacheKey = `server_wallpapers_${session.user.id}`
@@ -214,8 +224,12 @@ export default function Dashboard({ session }) {
   const [restrictedUsers, setRestrictedUsers] = useState(() => {
     try { return JSON.parse(localStorage.getItem(`restricted_${session.user.id}`)) || [] } catch (_e) { return [] }
   })
-  const [showRightSidebar, setShowRightSidebar] = useState(false)
-  const [rightTab, setRightTab] = useState('search')
+  /* Details panel reopens on load only where it docks as a column (xl); below
+     that it is an overlay and must not pop over the chat unasked. */
+  const [rightSidebarPref, setRightSidebarPref] = useStoredState('messapp.rightSidebarOpen', false)
+  const [showRightSidebar, setShowRightSidebar] = useState(() => rightSidebarPref && Boolean(window.matchMedia?.('(min-width: 1280px)').matches))
+  const [rightTab, setRightTab] = useState(() => showRightSidebar ? 'info' : 'search')
+  const [listCollapsed, setListCollapsed] = useStoredState('messapp.listCollapsed', false)
   const [searchQuery, setSearchQuery] = useState('')
   
   const [settingsModalConfig, setSettingsModalConfig] = useState({ isOpen: false, tab: 'account' })
@@ -242,22 +256,52 @@ export default function Dashboard({ session }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  /* Desktop shortcuts. Read through a ref so the listener is registered once;
+     the ref is refreshed every render below the handlers it calls. */
+  const shortcutHandlersRef = useRef({})
   useEffect(() => {
     const onKeyDown = (event) => {
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+      const mod = (event.ctrlKey || event.metaKey) && !event.altKey
+      const key = event.key.toLowerCase()
+      const handlers = shortcutHandlersRef.current
+      if (mod && key === 'k') {
         event.preventDefault()
         setShowQuickSwitcher(open => !open)
+      } else if (mod && key === '/') {
+        event.preventDefault()
+        setShowShortcuts(open => !open)
+      } else if (event.key === 'Escape' && (handlers.overlayOpen?.())) {
+        event.preventDefault()
+        setShowQuickSwitcher(false)
+        setShowShortcuts(false)
+      } else if (isEditableTarget(event.target)) {
+        return
+      } else if (mod && !event.shiftKey && key === 'b') {
+        event.preventDefault()
+        setListCollapsed(collapsed => !collapsed)
+      } else if (mod && !event.shiftKey && key === 'f' && handlers.openSearch?.()) {
+        event.preventDefault()
+      } else if (event.altKey && !event.ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault()
+        const rows = [...document.querySelectorAll('#conversation-list [data-conv-row]')]
+        const active = rows.findIndex(row => row.dataset.active !== undefined)
+        const dir = event.key === 'ArrowDown' ? 1 : -1
+        const from = active !== -1 ? active : dir === 1 ? -1 : rows.length
+        const to = stepRowIndex(rows.map(row => ({ unread: row.dataset.unread !== undefined })), from, dir, event.shiftKey)
+        rows[to]?.click()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [setListCollapsed])
   
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('')
   
   const [showPinSetupPrompt, setShowPinSetupPrompt] = useState(false)
   const [setupPinInput, setSetupPinInput] = useState('')
+  const [showKeyReplaceWarning, setShowKeyReplaceWarning] = useState(false)
 
   const [dmActionMenuId, setDmActionMenuId] = useState(null) 
   const [messageActionMenuId, setMessageActionMenuId] = useState(null)
@@ -457,6 +501,8 @@ export default function Dashboard({ session }) {
 
   const stateRef = useRef({});
   const activeDmRef = useRef(null);
+  const dmsRef = useRef(dms);
+  dmsRef.current = dms;
   const activeChannelRef = useRef(null);
   const presenceChannelRef = useRef(null);
   const acceptingRefs = useRef(new Set());
@@ -659,6 +705,7 @@ export default function Dashboard({ session }) {
     hasSelectedImage,
     showPinSetupPrompt,
     showRecoveryPrompt,
+    showKeyReplaceWarning,
     webRTCProps.callActive,
     webRTCProps.callMinimized,
     dmActionMenuId,
@@ -675,7 +722,32 @@ export default function Dashboard({ session }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false
+    findDesktopUpdate().then(update => {
+      if (!update || cancelled) return
+      toast(t => (
+        <span className="flex items-center gap-3">
+          <span>MessApp {update.version} is available.</span>
+          <button
+            type="button"
+            className="rounded-lg border border-[var(--border-subtle)] px-2 py-1 type-label text-[var(--app-accent)]"
+            onClick={() => {
+              toast.dismiss(t.id)
+              installDesktopUpdate(update).catch(error => toast.error(`Update failed: ${error?.message || 'unknown error'}`))
+            }}
+          >
+            Install
+          </button>
+        </span>
+      ), { duration: Infinity })
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     if (localStorage.getItem('notificationsEnabled') !== 'true') return undefined
+    // The desktop app notifies natively from Realtime (desktopNotify.js); it has no push service.
+    if (isDesktopApp()) return undefined
     configureNativePushRegistration({ profileId: session.user.id })
       .then(result => {
         const vapidPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY
@@ -842,13 +914,24 @@ export default function Dashboard({ session }) {
 
         let pubKeyStr = profileSecrets?.public_key || existingProfile?.public_key || null;
         let encryptedPrivKey = profileSecrets?.encrypted_private_key || null;
-        let privKeyJwkStr = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-        let pubKeyJwkStr = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+        let privKeyJwkStr = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+        let pubKeyJwkStr = keyStore.getItem(`e2ee_public_key_${session.user.id}`);
         let forceNew = localStorage.getItem(`e2ee_force_new_key_${session.user.id}`) === 'true';
 
         if (encryptedPrivKey && !privKeyJwkStr && !forceNew) {
           setShowRecoveryPrompt(true);
-          return; 
+          return;
+        }
+
+        // A key exists on the server but nowhere we can restore it from: making a
+        // new one silently orphans every DM sent to the old key, so ask first.
+        if (pubKeyStr && !privKeyJwkStr && !forceNew) {
+          // Lookup failed, so a backup may exist; leave the key alone until next load.
+          if (profileSecretsError) return;
+          if (!encryptedPrivKey) {
+            setShowKeyReplaceWarning(true);
+            return;
+          }
         }
 
         if (privKeyJwkStr && !pubKeyJwkStr) {
@@ -856,11 +939,11 @@ export default function Dashboard({ session }) {
              const parsedPriv = JSON.parse(privKeyJwkStr);
              const reconstructedPub = { kty: parsedPriv.kty, crv: parsedPriv.crv, x: parsedPriv.x, y: parsedPriv.y, ext: true };
              pubKeyJwkStr = JSON.stringify(reconstructedPub);
-             localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
+             keyStore.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
            } catch (_e) {
              if (pubKeyStr) {
                pubKeyJwkStr = pubKeyStr;
-               localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyStr);
+               keyStore.setItem(`e2ee_public_key_${session.user.id}`, pubKeyStr);
              }
            }
         }
@@ -873,8 +956,8 @@ export default function Dashboard({ session }) {
             const pubJwk = await exportPublicKey(keyPair.publicKey);
             privKeyJwkStr = JSON.stringify(privJwk);
             pubKeyJwkStr = JSON.stringify(pubJwk);
-            localStorage.setItem(`e2ee_private_key_${session.user.id}`, privKeyJwkStr);
-            localStorage.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
+            keyStore.setItem(`e2ee_private_key_${session.user.id}`, privKeyJwkStr);
+            keyStore.setItem(`e2ee_public_key_${session.user.id}`, pubKeyJwkStr);
           } catch (_err) {}
         }
         pubKeyStr = pubKeyJwkStr || pubKeyStr;
@@ -991,6 +1074,13 @@ export default function Dashboard({ session }) {
           audioSys.playMessageReceived()
           triggerInteractionFeedback('message-received')
         }
+        const sender = dmsRef.current.find(dm => dm.dm_room_id === roomId)?.profiles
+        notifyDesktop({
+          title: sender?.display_name || sender?.username || 'New message',
+          body: 'Sent you a message',
+          isOwnMessage,
+          isOpenRoom
+        }).catch(error => debug.warn('DESKTOP_NOTIFY', { error: error?.message }))
         setDms(current => {
           const next = current.map(dm => dm.dm_room_id === roomId ? {
             ...dm,
@@ -1132,6 +1222,18 @@ export default function Dashboard({ session }) {
   const closeRightSidebar = () => {
     setShowRightSidebar(false)
     setSearchQuery('')
+    setRightSidebarPref(false)
+  }
+
+  shortcutHandlersRef.current = {
+    overlayOpen: () => showQuickSwitcher || showShortcuts,
+    // Ctrl+F opens conversation search, focusing it if the panel is already up.
+    openSearch: () => {
+      if (!isChatActive) return false
+      if (showRightSidebar && rightTab === 'search') document.getElementById('conversation-search-input')?.focus()
+      else { setShowRightSidebar(true); setRightTab('search') }
+      return true
+    },
   }
 
   const toggleRightSidebar = (tab) => {
@@ -1140,6 +1242,7 @@ export default function Dashboard({ session }) {
     } else { 
       setShowRightSidebar(true); 
       setRightTab(tab); 
+      setRightSidebarPref(tab === 'info')
     }
   }
 
@@ -1159,14 +1262,24 @@ export default function Dashboard({ session }) {
 
   handleBackRef.current = handleBack
 
-  /* Stored mentions and replies. Any change for this user refetches the newest
-     page; a missing table (not yet deployed) just leaves the feed empty.
+  /* Stored feed rows (see src/lib/notifications.js for the kinds). Any change
+     for this user refetches the newest page; a missing table (not yet
+     deployed) just leaves the feed empty.
      ponytail: newest 50, no paging. */
   const [notificationFeed, setNotificationFeed] = useState([])
+  /* Invites: `invitePreview` is an invite being looked at ({ code, voiceChannelId,
+     voiceChannelName }); `inviteTarget` is the server (and voice channel) being
+     invited to. An invite link the app was opened on starts as a preview. */
+  const [invitePreview, setInvitePreview] = useState(() => (initialInviteCode ? { code: initialInviteCode } : null))
+  const [inviteTarget, setInviteTarget] = useState(null)
+  const [pendingVoiceJoinId, setPendingVoiceJoinId] = useState(null)
+  const announceInviteRef = useRef(null)
+  // allFriends is derived further down; the live invite toast reads it through this.
+  const allFriendsRef = useRef([])
   const fetchNotificationFeed = useCallback(async () => {
     const { data, error } = await supabase
       .from('notifications')
-      .select('id, kind, created_at, read_at, message_id, channel_id, actor:profiles!notifications_actor_id_fkey(username, avatar_url, unique_tag), message:messages(content, created_at, is_deleted, thread_root_id), channel:channels(name, categories(server_id))')
+      .select('id, kind, created_at, read_at, message_id, channel_id, dm_room_id, server_id, data, actor:profiles!notifications_actor_id_fkey(id, username, avatar_url, unique_tag), message:messages(content, created_at, is_deleted, thread_root_id), channel:channels(name, categories(server_id))')
       .eq('recipient_id', session.user.id)
       .order('created_at', { ascending: false })
       .limit(50)
@@ -1177,20 +1290,106 @@ export default function Dashboard({ session }) {
     void fetchNotificationFeed()
     const feedSub = supabase.channel('notification-feed')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, fetchNotificationFeed)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, payload => announceInviteRef.current?.(payload.new))
       .subscribe()
     return () => { supabase.removeChannel(feedSub) }
   }, [fetchNotificationFeed, session.user.id])
-  // Opening the tab reads everything on it, like a DM thread does.
-  useEffect(() => {
-    if (view !== 'home' || homeTab !== 'notifications' || !notificationFeed.some(row => !row.read_at)) return
+  /* Read state is per row: a click reads that row, "Mark all read" reads the
+     rest. Optimistic; the realtime refetch corrects a failed write. */
+  const markNotificationsRead = (ids) => {
     const readAt = new Date().toISOString()
-    setNotificationFeed(current => current.map(row => (row.read_at ? row : { ...row, read_at: readAt })))
-    void supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', session.user.id).is('read_at', null)
-  }, [view, homeTab, notificationFeed, session.user.id])
-  const openNotification = useCallback((row) => {
+    setNotificationFeed(current => current.map(row => (row.read_at || (ids && !ids.includes(row.id)) ? row : { ...row, read_at: readAt })))
+    let query = supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', session.user.id).is('read_at', null)
+    if (ids) query = query.in('id', ids)
+    void query.then(({ error }) => { if (error) debug.warn('SUPABASE_ERROR', { operation: 'notification-read', code: error.code }) })
+  }
+  const markAllNotificationsRead = () => markNotificationsRead(null)
+  // `ids` null clears every read row; unread rows are never removed unseen.
+  const dismissNotifications = (ids) => {
+    setNotificationFeed(current => current.filter(row => (ids ? !ids.includes(row.id) : !row.read_at)))
+    let query = supabase.from('notifications').delete().eq('recipient_id', session.user.id)
+    query = ids ? query.in('id', ids) : query.not('read_at', 'is', null)
+    void query.then(({ error }) => {
+      if (error) {
+        debug.warn('SUPABASE_ERROR', { operation: 'notification-dismiss', code: error.code })
+        void fetchNotificationFeed()
+      }
+    })
+  }
+  const openNotification = (row) => {
+    if (!row.read_at) markNotificationsRead([row.id])
     if (row.message?.is_deleted) return toast.error('That message was deleted.')
-    selectSearchResultRef.current?.(notificationJumpTarget(row))
+    const action = notificationAction(row)
+    if (action?.type === 'jump') return selectSearchResultRef.current?.(action.target)
+    if (action?.type === 'dm') {
+      const dm = dms.find(item => item.dm_room_id === action.dmRoomId || item.profiles?.id === action.profile.id)
+      if (!dm) return void createOrOpenDm({ profiles: action.profile })
+      setView('home')
+      setActiveChannel(null)
+      return selectDm(dm)
+    }
+    if (action?.type === 'invite') {
+      return setInvitePreview({ code: action.code, voiceChannelId: action.voiceChannelId, voiceChannelName: action.voiceChannelName })
+    }
+    if (action?.type === 'server') {
+      const server = servers.find(item => item.id === action.serverId)
+      if (!server) return toast.error('That server is no longer available.')
+      setActiveServer(server)
+      setView('server')
+      setActiveDm(null)
+    }
+  }
+
+  /* After joining from an invite (or opening one for a server you are already
+     in): open the server, and for a voice invite join its channel once the
+     channel list has loaded. */
+  const handleInviteJoined = async (server, voiceChannelId) => {
+    setInvitePreview(null)
+    await fetchServers()
+    setHomeTab('servers')
+    setView('home')
+    setActiveDm(null)
+    setActiveChannel(null)
+    setActiveServer(server)
+    if (voiceChannelId) setPendingVoiceJoinId(voiceChannelId)
+  }
+  useEffect(() => {
+    if (!pendingVoiceJoinId) return
+    const channel = serverCategories.flatMap(category => category.channels || []).find(item => item.id === pendingVoiceJoinId)
+    if (!channel) return
+    setPendingVoiceJoinId(null)
+    selectChannel(channel)
+  }, [pendingVoiceJoinId, serverCategories, selectChannel])
+
+  // Invite cards in chat ask for the preview through a window event.
+  useEffect(() => {
+    const onOpenInvite = event => { if (event.detail?.code) setInvitePreview({ code: event.detail.code }) }
+    window.addEventListener(OPEN_INVITE_EVENT, onOpenInvite)
+    return () => window.removeEventListener(OPEN_INVITE_EVENT, onOpenInvite)
   }, [])
+
+  /* A new invite arriving live gets a toast with Join, and a native
+     notification on desktop when the window is in the background. */
+  announceInviteRef.current = (row) => {
+    if (row?.kind !== 'server_invite' && row?.kind !== 'voice_invite') return
+    const data = row.data || {}
+    const sender = allFriendsRef.current.find(friend => friend.id === row.actor_id)?.username || 'A friend'
+    const text = row.kind === 'voice_invite'
+      ? `${sender} invited you to voice in ${data.server_name || 'a server'}`
+      : `${sender} invited you to ${data.server_name || 'a server'}`
+    const open = () => setInvitePreview({
+      code: data.code,
+      voiceChannelId: row.kind === 'voice_invite' ? data.channel_id || null : null,
+      voiceChannelName: row.kind === 'voice_invite' ? data.channel_name || null : null
+    })
+    toast(t => (
+      <span className="flex items-center gap-3">
+        <span className="min-w-0 flex-1">{text}</span>
+        <button type="button" onClick={() => { toast.dismiss(t.id); open() }} className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 type-label font-semibold text-white">View</button>
+      </span>
+    ), { duration: 10000 })
+    void notifyDesktop({ title: 'Messapp', body: text, isOwnMessage: false, isOpenRoom: false })
+  }
 
   /* The bottom bar badge. Same derivation the notifications tab renders, so
      the count and the list can never disagree. */
@@ -2020,6 +2219,7 @@ export default function Dashboard({ session }) {
       .map(profile => ({ dm_room_id: null, profiles: profile, is_new_chat: true }))
     return [...dms, ...selectableFriends].filter(dm => !restrictedUsersSet.has(dm.profiles.id))
   }, [acceptedFriends, dms, restrictedUsersSet]);
+  allFriendsRef.current = acceptedFriends
   const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
   const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
@@ -2072,7 +2272,8 @@ export default function Dashboard({ session }) {
     selectChannel(place.channel)
   }, [selectChannel])
   const currentConversationThemeId = resolveConversationThemeId(
-    view === 'server' ? activeServer?.theme_id : activeDm?.dm_rooms?.theme_id,
+    // A channel's own theme wins over its server's.
+    view === 'server' ? (activeChannel?.theme_id || activeServer?.theme_id) : activeDm?.dm_rooms?.theme_id,
     view === 'home' ? activeDm?.dm_rooms?.theme_color : null
   )
   const currentConversationTheme = getConversationTheme(currentConversationThemeId, appThemeMode)
@@ -2167,7 +2368,7 @@ export default function Dashboard({ session }) {
   }
 
   return (
-    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0 md:gap-2 md:p-2">
+    <div className="ambient-shell flex h-full min-h-0 w-full text-[var(--text-main)] overflow-hidden font-sans selection:bg-[var(--theme-50)] relative z-0">
       <a href="#messapp-main" className="skip-link">Skip to conversation</a>
       {/* CallOverlay already self-guards on callActive; gating here as well keeps
           its lazy chunk out of the boot path. */}
@@ -2190,7 +2391,7 @@ export default function Dashboard({ session }) {
       <Toaster
         position="top-center"
         containerStyle={{ top: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}
-        toastOptions={{ className: 'app-toast', style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
+        toastOptions={{ className: 'app-toast menu-glass', style: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)' } }}
       />
 
 <ChatArea
@@ -2217,6 +2418,8 @@ export default function Dashboard({ session }) {
         setView={setView}
         homeTab={homeTab}
         setHomeTab={setHomeTab}
+        listCollapsed={listCollapsed}
+        setListCollapsed={setListCollapsed}
         myTag={myTag}
         myPronouns={myPronouns}
         myBanner={myBanner}
@@ -2254,9 +2457,14 @@ export default function Dashboard({ session }) {
         handleLeaveServer={handleLeaveServer}
         handleDeleteServer={handleDeleteServer}
         onVoiceParticipantSelect={focusVoiceParticipant}
+        onInvite={(server, voiceChannel) => setInviteTarget({ server, voiceChannel })}
+        onOpenInvite={(code) => setInvitePreview({ code })}
+        onChannelsChanged={() => fetchServerChannels(activeServer?.id)}
         friendRequests={friendRequests}
         notificationFeed={notificationFeed}
         openNotification={openNotification}
+        markAllNotificationsRead={markAllNotificationsRead}
+        dismissNotifications={dismissNotifications}
         onlineFriends={onlineFriends}
         allFriends={allFriends}
         selectDm={selectDm}
@@ -2346,6 +2554,24 @@ export default function Dashboard({ session }) {
         </Suspense>
       )}
 
+      {inviteTarget && (
+        <InviteModal
+          server={inviteTarget.server}
+          voiceChannel={inviteTarget.voiceChannel || null}
+          friends={acceptedFriends}
+          onClose={() => setInviteTarget(null)}
+        />
+      )}
+      {invitePreview?.code && (
+        <InvitePreviewModal
+          code={invitePreview.code}
+          voiceChannelId={invitePreview.voiceChannelId || null}
+          voiceChannelName={invitePreview.voiceChannelName || null}
+          onJoined={handleInviteJoined}
+          onClose={() => setInvitePreview(null)}
+        />
+      )}
+
       {forwardText !== null && (
         <ActionSheet
           aria-label="Forward message"
@@ -2377,9 +2603,28 @@ export default function Dashboard({ session }) {
         />
       )}
 
+      {showShortcuts && (
+        <div data-ui-overlay-owner="Dashboard:shortcuts" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowShortcuts(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" className="premium-modal w-full max-w-md rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 id="shortcuts-title" className="type-title font-bold text-[var(--text-main)]">Keyboard shortcuts</h2>
+              <button type="button" autoFocus onClick={() => setShowShortcuts(false)} className="grid h-10 w-10 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Close shortcuts"><X size={18} aria-hidden="true" /></button>
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2.5 type-body">
+              {KEYBOARD_SHORTCUTS.map(([keys, action]) => (
+                <React.Fragment key={keys}>
+                  <dt><kbd className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-element)] px-2 py-0.5 font-mono type-meta font-bold text-[var(--text-main)]">{keys}</kbd></dt>
+                  <dd className="text-[var(--text-muted)]">{action}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
+
       {showQuickSwitcher && (
         <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowQuickSwitcher(false)}>
-          <div className="premium-modal w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="Quick switcher" className="premium-modal menu-glass w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
               <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500" />
@@ -2603,8 +2848,8 @@ export default function Dashboard({ session }) {
             <button
               onClick={async () => {
                 if (setupPinInput.length !== 6 || isNaN(setupPinInput)) return toast.error('PIN must be exactly 6 digits.');
-                const priv = localStorage.getItem(`e2ee_private_key_${session.user.id}`);
-                const pubKey = localStorage.getItem(`e2ee_public_key_${session.user.id}`);
+                const priv = keyStore.getItem(`e2ee_private_key_${session.user.id}`);
+                const pubKey = keyStore.getItem(`e2ee_public_key_${session.user.id}`);
                 if (!priv) return toast.error('Fatal error: No local keys found. Refresh page.');
 
                 const toastId = toast.loading('Encrypting and securing keys...');
@@ -2676,7 +2921,7 @@ export default function Dashboard({ session }) {
                       throw new Error("Incorrect PIN");
                     }
                     
-                    localStorage.setItem(`e2ee_private_key_${session.user.id}`, decryptedKeyStr);
+                    keyStore.setItem(`e2ee_private_key_${session.user.id}`, decryptedKeyStr);
                     
                     const recoveredPubJwk = {
                       kty: parsedKey.kty,
@@ -2685,12 +2930,15 @@ export default function Dashboard({ session }) {
                       y: parsedKey.y,
                       ext: true
                     };
-                    localStorage.setItem(`e2ee_public_key_${session.user.id}`, JSON.stringify(recoveredPubJwk));
+                    keyStore.setItem(`e2ee_public_key_${session.user.id}`, JSON.stringify(recoveredPubJwk));
 
                     toast.success('Keys restored! Reloading system...');
-                    setTimeout(() => window.location.reload(), 1000);
-                  } catch (_e) {
-                    toast.error('Incorrect PIN. Please try again.');
+                    setTimeout(() => keyStore.flush().then(() => window.location.reload()), 1000);
+                  } catch (e) {
+                    // Only a failed decrypt means a wrong PIN; surface load/backup errors as they are.
+                    debug.error('PIN_RECOVERY', e);
+                    const wrongPin = e?.message === 'Incorrect PIN' || e?.message === 'Decryption failed' || e?.name === 'OperationError';
+                    toast.error(wrongPin ? 'Incorrect PIN. Please try again.' : `Could not unlock: ${e?.message || e}`);
                   }
                 }}
                 className="premium-button w-full py-4 font-bold cursor-pointer"
@@ -2706,6 +2954,43 @@ export default function Dashboard({ session }) {
                 className="premium-secondary-button w-full py-4 font-bold cursor-pointer"
               >
                 Skip (Lose old messages)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showKeyReplaceWarning && (
+        <div data-ui-overlay-owner="Dashboard:key-replace" className="premium-backdrop fixed inset-0 z-[500] flex items-center justify-center p-4 animate-fade-in text-[var(--text-main)]">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="key-replace-title" aria-describedby="key-replace-body" className="premium-modal w-full max-w-md rounded-3xl p-6 md:p-8 text-center">
+            <div className="premium-brand-mark relative z-10 w-16 h-16 rounded-full flex items-center justify-center mb-6 mx-auto">
+               <Shield size={32} />
+            </div>
+            <h3 id="key-replace-title" className="gradient-text relative z-10 type-view-title font-semibold mb-2 font-display">No Key Backup Found</h3>
+            <p id="key-replace-body" className="relative z-10 text-gray-400 type-label mb-6 leading-relaxed">
+              Your account already has an encryption key on another device, but it was never backed up with a PIN. If you continue here, this device gets a <strong>new key</strong> and can't read your earlier DMs. To keep them, sign out, open MessApp on your other device and set a PIN there first.
+            </p>
+            <div className="relative z-10 flex flex-col gap-3">
+              <button
+                onClick={async () => {
+                  try {
+                    await signOutAndReset({ profileId: session.user.id })
+                  } catch (_e) {
+                    toast.error('Sign out failed. Please try again.')
+                  }
+                }}
+                className="premium-button w-full py-4 font-bold cursor-pointer"
+              >
+                Sign Out
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.setItem(`e2ee_force_new_key_${session.user.id}`, 'true');
+                  window.location.reload();
+                }}
+                className="premium-secondary-button w-full py-4 font-bold cursor-pointer"
+              >
+                Create New Key (Lose old messages)
               </button>
             </div>
           </div>

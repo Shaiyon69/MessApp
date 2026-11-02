@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
 import { ORIGIN_FILTERS, messageOrigin, stepOriginFilter } from '../../lib/messageOrigin'
-import { Loader2, WifiOff, Hash, Phone, Video, Search, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3 } from 'lucide-react'
+import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -37,6 +37,10 @@ import {
 } from '../../lib/voiceMessages'
 import { getVoiceMediaStream, VOICE_MESSAGE_BITRATE } from '../../lib/voiceAudioProcessing'
 import { createDraftStore } from '../../lib/drafts'
+import useStoredState from '../../hooks/useStoredState'
+import { clampListWidth, LIST_WIDTH_DEFAULT } from '../../lib/listWidth'
+import { firstUnreadIndex, countUnreadFrom } from '../../lib/unreadAnchor'
+import { stepRowIndex } from '../../lib/conversationNav'
 
 // Kept out of the boot bundle — each is only mounted behind a user action
 // (opening a picker, editing media, joining a voice channel).
@@ -65,6 +69,10 @@ export default function ChatArea(props) {
      the detail pane and floats in the corner on the list. activeServer
      survives a back press, so it cannot stand in for this. */
   const [serversPanelView, setServersPanelView] = useState(() => (props.activeServer ? 'detail' : 'list'));
+  // Opening a server from elsewhere (an invite, a notification) shows its channels.
+  useEffect(() => {
+    if (props.activeServer?.id) setServersPanelView('detail')
+  }, [props.activeServer?.id]);
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
   const [composerDrawerTab, setComposerDrawerTab] = useState('emoji');
   const drawerPinnedToBottomRef = useRef(false);
@@ -810,11 +818,111 @@ useEffect(() => {
     else if (delta < -8) setDockHidden(false)
   }
 
+  const conversationId = props.view === 'server' ? props.activeChannel?.id : props.activeDm?.dm_room_id
+  const ownId = props.session.user.id
+  const unreadIndex = useMemo(() => (
+    props.unreadAnchor && props.unreadAnchor.targetId === conversationId
+      ? firstUnreadIndex(props.visibleMessages, props.unreadAnchor.at, ownId)
+      : -1
+  ), [props.unreadAnchor, conversationId, props.visibleMessages, ownId])
+  const unreadCount = useMemo(() => countUnreadFrom(props.visibleMessages, unreadIndex, ownId), [props.visibleMessages, unreadIndex, ownId])
+  // The jump bar shows only while the divider sits above the visible area.
+  const [unreadDivider, setUnreadDivider] = useState(null)
+  const [dividerAbove, setDividerAbove] = useState(false)
+  useEffect(() => {
+    const root = props.scrollContainerRef.current
+    if (!unreadDivider || !root) { setDividerAbove(false); return }
+    const observer = new IntersectionObserver(([entry]) => {
+      setDividerAbove(!entry.isIntersecting && entry.boundingClientRect.top < (entry.rootBounds?.top ?? 0))
+    }, { root })
+    observer.observe(unreadDivider)
+    return () => observer.disconnect()
+  }, [unreadDivider, props.scrollContainerRef])
+  const jumpToUnread = () => unreadDivider?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const { clearUnreadAnchor, scrollToLatestMessages } = props
+  // Esc: Discord's "mark read and jump to present", when nothing else claims it.
+  useEffect(() => {
+    if (!conversationId) return
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      const target = event.target
+      if (target?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]')) return
+      if (document.querySelector('[aria-modal="true"]')) return
+      clearUnreadAnchor?.()
+      scrollToLatestMessages?.()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [conversationId, clearUnreadAnchor, scrollToLatestMessages])
+
+  /* Desktop list column (rail included), in rem so UI density scales it too. */
+  const [listWidth, setListWidth] = useStoredState('messapp.listWidth.v2', LIST_WIDTH_DEFAULT)
+  const listSectionRef = useRef(null)
+  const startListResize = (event) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    const left = listSectionRef.current.getBoundingClientRect().left
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    const onMove = (moveEvent) => setListWidth(clampListWidth((moveEvent.clientX - left) / rem))
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
+  const onListResizeKey = (event) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key]
+    if (event.key === 'Home') setListWidth(clampListWidth(0))
+    else if (event.key === 'End') setListWidth(clampListWidth(Infinity))
+    else if (step) setListWidth(width => clampListWidth(width + step))
+    else return
+    event.preventDefault()
+  }
+  const headerPanelButton = (tab, Icon, label, title) => {
+    const active = props.showRightSidebar && props.rightTab === tab
+    return (
+      <button type="button" onClick={() => props.toggleRightSidebar(tab)} className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${active ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`} aria-label={label} aria-pressed={active} title={title}>
+        <Icon size={20} aria-hidden="true" />
+      </button>
+    )
+  }
+  // Arrows move between rows; the list itself is a single Tab stop.
+  const onListKeyDown = (event) => {
+    if (!event.target.matches?.('[data-conv-row]') || event.altKey || event.ctrlKey || event.metaKey) return
+    const rows = [...event.currentTarget.querySelectorAll('[data-conv-row]')]
+    const from = rows.indexOf(event.target)
+    const to = event.key === 'ArrowDown' ? stepRowIndex(rows, from, 1)
+      : event.key === 'ArrowUp' ? stepRowIndex(rows, from, -1)
+      : event.key === 'Home' ? 0
+      : event.key === 'End' ? rows.length - 1
+      : null
+    if (to === null) return
+    event.preventDefault()
+    rows[to]?.focus()
+  }
+  const openServerFromRail = (server) => {
+    selectHomeTab('servers')
+    setServersPanelView('detail')
+    props.setView('home')
+    props.setActiveServer(server)
+    props.setActiveChannel(null)
+  }
+  // Picking a rail tab while the list is collapsed means "show me that list".
+  const selectHomeTab = (tab) => {
+    if (props.listCollapsed) props.setListCollapsed(false)
+    props.setHomeTab(tab)
+  }
+
   return (
       <main
         id="messapp-main"
         tabIndex={-1}
-        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)] md:flex-row md:gap-2"
+        className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-hidden relative bg-[var(--bg-base)] md:flex-row"
         style={props.scopedChatStyle}
         onPaste={props.handlePaste}
         onPointerDownCapture={(e) => {
@@ -840,19 +948,26 @@ useEffect(() => {
       {/* Nav rail + conversation list. Hidden on mobile while a thread is open,
           always docked from md up — that is what turns the single-pane phone
           layout into the three-column desktop one. */}
-      <section className={`relative min-h-0 min-w-0 flex-col md:flex md:w-[27rem] md:flex-none md:flex-row-reverse md:gap-2 ${homeVisible ? 'flex flex-1' : 'hidden'}`}>
-        <div className="home-dashboard relative flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)]">
+      <section
+        ref={listSectionRef}
+        className={`relative min-h-0 min-w-0 flex-col md:flex md:flex-none md:flex-row-reverse ${props.listCollapsed ? '' : 'md:w-[var(--list-w)]'} ${homeVisible ? 'flex flex-1' : 'hidden'}`}
+        style={{ '--list-w': `${listWidth}rem` }}
+      >
+        <div id="conversation-list" className={`home-dashboard relative flex min-h-0 flex-1 flex-col overflow-hidden md:border-r md:border-[var(--border-subtle)] ${props.listCollapsed ? 'md:hidden' : ''}`}>
           {/* Minimal header: the wordmark. The account avatar is the dock's Menu tab. Search lives in
               the quick actions button. The dock names the tab. */}
           <header className="ios-app-bar flex h-16 shrink-0 items-center gap-1 pl-4 pr-2 md:pl-5">
             <h1 className="sr-only">{TABS.find(tab => tab.id === props.homeTab)?.label}</h1>
             <span className="min-w-0 flex-1 truncate type-view-title font-bold lowercase tracking-[-0.045em] text-[var(--text-main)]" aria-hidden="true">messapp</span>
+            <button type="button" onClick={() => props.setListCollapsed(true)} className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:flex" aria-label="Hide conversation list" aria-controls="conversation-list" aria-expanded="true" title="Hide list (Ctrl+B)">
+              <PanelLeftClose size={20} aria-hidden="true" />
+            </button>
           </header>
           {/* The FAB is positioned against this wrapper, not the shell, so its
               bottom edge lands exactly where the bottom bar starts. */}
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Keyed so each tab mounts fresh: replays the entrance and starts at the top. */}
-            <div key={props.homeTab} className="home-tab-page min-h-0 flex-1 overflow-y-auto custom-scrollbar" style={{ '--tab-dir': tabMotion.dir }} onScroll={onHomeScroll}>
+            <div key={props.homeTab} className="home-tab-page min-h-0 flex-1 overflow-y-auto custom-scrollbar" style={{ '--tab-dir': tabMotion.dir }} onScroll={onHomeScroll} onKeyDown={onListKeyDown}>
               {props.homeTab === 'menu' ? (
                 <MenuPage {...props} />
               ) : props.homeTab === 'servers' ? (
@@ -877,7 +992,11 @@ useEffect(() => {
         </div>
         <BottomBar
           homeTab={props.homeTab}
-          setHomeTab={props.setHomeTab}
+          setHomeTab={selectHomeTab}
+          servers={props.servers}
+          activeServerId={props.activeServer?.id}
+          onOpenServer={openServerFromRail}
+          onAddServer={() => { selectHomeTab('servers'); setServersPanelView('list'); setPendingServerAction('create') }}
           notificationCount={props.notificationCount}
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
@@ -887,9 +1006,29 @@ useEffect(() => {
         />
       </section>
 
-      <section className={`chat-surface min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden md:rounded-2xl md:border md:border-[var(--border-subtle)] ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
+      {!props.listCollapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize conversation list"
+          aria-controls="conversation-list"
+          aria-valuenow={Math.round(listWidth)}
+          aria-valuemin={clampListWidth(0)}
+          aria-valuemax={clampListWidth(Infinity)}
+          tabIndex={0}
+          title="Drag to resize. Double-click to reset."
+          onPointerDown={startListResize}
+          onKeyDown={onListResizeKey}
+          onDoubleClick={() => setListWidth(LIST_WIDTH_DEFAULT)}
+          className="list-resize-handle relative -mx-1 hidden w-2 shrink-0 cursor-col-resize touch-none outline-none md:block"
+        />
+      )}
+
+      <section className={`chat-surface min-h-0 min-w-0 flex-col bg-[var(--chat-bg-base)] md:flex md:flex-1 md:overflow-hidden ${homeVisible ? 'hidden' : 'flex flex-1'}`}>
+      {/* Voice channels have no top bar on desktop: the stage is the whole
+          view. Phones keep it for the back button only. */}
       <header
-        className="ios-app-bar chat-glass h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30"
+        className={`ios-app-bar h-16 flex items-center justify-between px-4 md:px-6 shrink-0 z-30 ${props.view === 'server' && isVoiceChannel ? 'md:hidden' : ''}`}
         style={props.isChatActive ? { backgroundColor: 'var(--chat-bg-surface)' } : undefined}
       >
         <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
@@ -908,7 +1047,7 @@ useEffect(() => {
                   <p className="type-meta font-semibold text-gray-500 leading-none">{props.getPresenceLabel?.(props.activeDm.profiles.id) || 'Offline'}</p>
                 </div>
             </div>
-          ) : props.view === 'server' && props.activeChannel ? (
+          ) : props.view === 'server' && props.activeChannel && !isVoiceChannel ? (
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-chan-${props.activeChannel.id}`}>
               {isVoiceChannel ? <Volume2 size={20} className="text-gray-500 shrink-0" aria-hidden="true" /> : <Hash size={20} className="text-gray-500 shrink-0" aria-hidden="true" />}
               <h2 className="font-display font-bold text-[var(--chat-text,var(--text-main))] type-title tracking-tight truncate">{props.activeChannel.name}</h2>
@@ -916,11 +1055,12 @@ useEffect(() => {
           ) : null}
         </div>
         <div className="flex items-center gap-1 md:gap-2 shrink-0 ml-2 md:ml-4">
-          {props.isChatActive && (
+          {props.isChatActive && !(props.view === 'server' && isVoiceChannel) && (
             <>
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(false)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start voice call" title="Voice call"><Phone size={20} aria-hidden="true" /></button>}
               {props.view === 'home' && props.activeDm && <button onClick={() => props.startCall(true)} className="flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Start video call" title="Video call"><Video size={20} aria-hidden="true" /></button>}
               {props.view === 'home' && props.activeDm && <div className="w-[1px] h-6 bg-[var(--border-subtle)] mx-1"></div>}
+              {props.view === 'server' && headerPanelButton('members', Users, 'Show members', 'Members')}
               <button onClick={() => props.toggleRightSidebar('info')} className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${props.rightTab === 'info' && props.showRightSidebar ? 'bg-[var(--theme-20)] text-[var(--theme-base)]' : 'text-gray-400 hover:bg-[var(--bg-surface)] hover:text-[var(--theme-base)]'}`} aria-label="Show conversation details" aria-pressed={props.rightTab === 'info' && props.showRightSidebar} title="Conversation details"><Info size={20} aria-hidden="true" /></button>
             </>
           )}
@@ -946,6 +1086,10 @@ useEffect(() => {
           onToggleDeafen={toggleVoiceDeafened}
           onLeave={props.leaveActiveVoice}
           onOpen={props.openActiveVoiceChannel}
+          onInvite={() => {
+            const server = props.servers?.find(item => item.id === props.activeVoiceSession.serverId)
+            if (server) props.onInvite?.(server, { id: props.activeVoiceSession.channelId, name: props.activeVoiceSession.channelName })
+          }}
           onStateChange={props.setVoiceSessionState}
         />
         </Suspense>
@@ -1100,6 +1244,20 @@ useEffect(() => {
             </div>
           ) : (
             <>
+              {dividerAbove && unreadCount > 0 && (
+                <div className="pointer-events-none relative z-30 h-0">
+                  <div className="absolute inset-x-0 top-2 flex justify-center px-4">
+                    <div className="premium-menu pointer-events-auto flex items-center gap-1 rounded-full py-1 pl-4 pr-1 shadow-xl">
+                      <button type="button" onClick={jumpToUnread} className="type-label font-bold text-[var(--theme-base)] outline-none focus-visible:underline">
+                        {unreadCount} new {unreadCount === 1 ? 'message' : 'messages'} · Jump
+                      </button>
+                      <button type="button" onClick={() => props.clearUnreadAnchor?.()} className="grid h-8 w-8 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-element)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Dismiss new messages marker" title="Mark as read (Esc)">
+                        <X size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div 
                 className="flex-1 min-w-0 max-w-full overflow-y-auto overflow-x-hidden custom-scrollbar p-4 md:p-8 relative z-10 transition-[padding] duration-300 ease-out touch-pan-y"
                 ref={props.scrollContainerRef}
@@ -1151,8 +1309,15 @@ useEffect(() => {
                   const isInlineDeleting = props.inlineDeleteMessageId === m.id;
                   const repliedMsg = m.reply_to_message_id ? validMessagesById.get(m.reply_to_message_id) : null;
                   return (
+                    <React.Fragment key={uniqueKey}>
+                    {index === unreadIndex && (
+                      <div ref={setUnreadDivider} className="my-3 flex items-center gap-3" role="separator" aria-label="New messages">
+                        <span className="h-px flex-1 bg-[var(--theme-base)] opacity-60" aria-hidden="true" />
+                        <span className="type-meta font-bold uppercase tracking-wider text-[var(--theme-base)]">New messages</span>
+                        <span className="h-px flex-1 bg-[var(--theme-base)] opacity-60" aria-hidden="true" />
+                      </div>
+                    )}
                     <MemoizedMessage 
-                      key={uniqueKey}
                       m={m}
                       isMe={isMe}
                       showHeader={showHeader}
@@ -1181,6 +1346,7 @@ useEffect(() => {
                       togglePinnedMessage={props.togglePinnedMessage}
                       presenceStatus={props.getPresenceStatus?.(m.profile_id)}
 	                      peerReadAt={props.peerReadAt}
+	                      peerOnline={props.view === 'home' && (props.getPresenceStatus?.(props.activeDm?.profiles?.id) ?? 'offline') !== 'offline'}
 	                      retryFailedMessage={props.retryFailedMessage}
 	                      showDeliveryStatus={m.id === latestOutgoingMessageId}
 	                      messageActionMenuId={props.messageActionMenuId}
@@ -1190,6 +1356,7 @@ useEffect(() => {
 	                      onForwardMessage={props.onForwardMessage}
 	                      onOpenThread={props.view === 'server' ? setOpenThreadId : undefined}
 	                    />
+                    </React.Fragment>
                   )
                 })}
                 {/* Taller when the dots pill floats over the bottom, so it never covers the last message. */}
@@ -1535,6 +1702,17 @@ useEffect(() => {
                             return
                           }
 
+                          // Up on an empty composer edits your last text message, as in Slack/Discord.
+                          if (e.key === 'ArrowUp' && !e.currentTarget.value && !props.replyingTo) {
+                            const last = props.visibleMessages.findLast(m => m.profile_id === ownId && !String(m.id).startsWith('local-'))
+                            if (last && !last.message_attachments?.length && !last.is_deleted && !last.is_unreadable) {
+                              e.preventDefault()
+                              props.setEditingMessageId(last.id)
+                              props.setEditContent(last.content || '')
+                            }
+                            return
+                          }
+
                           if (mentionCandidates.length > 0) {
                             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                               e.preventDefault()
@@ -1708,16 +1886,6 @@ useEffect(() => {
                       </button>
                     </div>
                   </form>
-                  {openThreadId && props.view === 'server' && props.activeChannel?.id && (
-                    <Suspense fallback={null}>
-                      <ThreadPanel
-                        root={validMessagesById.get(openThreadId)}
-                        channelId={props.activeChannel.id}
-                        currentUserId={props.session.user.id}
-                        onClose={() => setOpenThreadId(null)}
-                      />
-                    </Suspense>
-                  )}
                   {showPollComposer && props.activeChannel?.id && (
                     <PollComposer channelId={props.activeChannel.id} onClose={() => setShowPollComposer(false)} />
                   )}
@@ -1745,6 +1913,17 @@ useEffect(() => {
       </div>
       )}
       </section>
+      {/* A main-level sibling so it can dock as its own column from xl up. */}
+      {openThreadId && props.view === 'server' && props.activeChannel?.id && (
+        <Suspense fallback={null}>
+          <ThreadPanel
+            root={validMessagesById.get(openThreadId)}
+            channelId={props.activeChannel.id}
+            currentUserId={props.session.user.id}
+            onClose={() => setOpenThreadId(null)}
+          />
+        </Suspense>
+      )}
       {mediaEditorTarget && (
         <Suspense fallback={null}>
           <MediaEditorModal

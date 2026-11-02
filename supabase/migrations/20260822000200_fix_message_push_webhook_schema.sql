@@ -13,7 +13,7 @@ begin
     url := 'https://boxhdygkyopixoejztuk.supabase.co/functions/v1/send-message-push',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'x-messapp-webhook-secret', '<redacted: see 20261025000100_push_webhook_vault>'
+      'x-messapp-webhook-secret', '<redacted: see 20261025124955_push_webhook_vault>'
     ),
     body := jsonb_build_object(
       'type', 'INSERT',

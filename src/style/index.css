@@ -2212,21 +2212,29 @@ iframe {
     outline-offset: 2px;
   }
 
-  .voice-stage-mobile-dock,
   .voice-stage-controls-drawer {
     border: 1px solid var(--border-subtle);
     background: var(--surface-container-high);
     box-shadow: var(--shadow-premium);
   }
 
+  /* No panel behind the call controls: a row of round buttons, each on a
+     black fill with a hairline so it holds over video too. */
+  .voice-stage-mobile-dock {
+    gap: 0.5rem;
+  }
+
   .voice-stage-mobile-action {
     display: flex;
-    min-height: 2.75rem;
-    min-width: 0;
+    height: 3rem;
+    width: 3rem;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    border-radius: 0.85rem;
-    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+    border-radius: 9999px;
+    background: var(--bg-base);
+    color: var(--text-main);
     transition: background 150ms ease, color 150ms ease;
   }
 
@@ -2243,6 +2251,20 @@ iframe {
   .voice-stage-mobile-action.is-danger {
     background: rgba(239,68,68,0.14);
     color: #fca5a5;
+  }
+
+  /* Leave is the one filled control, set apart from the toggles. */
+  .voice-stage-mobile-action.is-leave {
+    width: 4rem;
+    margin-left: 0.5rem;
+    border-color: transparent;
+    background: #dc2626;
+    color: #fff;
+  }
+
+  .voice-stage-mobile-action.is-leave:hover {
+    background: #b91c1c;
+    color: #fff;
   }
 
   .voice-stage-mobile-action:disabled {
@@ -2482,7 +2504,6 @@ iframe {
     background: rgba(15,23,42,0.05);
   }
 
-  [data-theme="light"] .voice-stage-mobile-dock,
   [data-theme="light"] .voice-stage-controls-drawer {
     border-color: rgba(15,23,42,0.09);
     background: var(--surface-container-high);
@@ -2856,6 +2877,39 @@ iframe {
   transition: none !important;
 }
 
+/* The voice mini player drags from anywhere, so the whole card wears the
+   grab cursor; its controls only show while the pointer is over it. Touch
+   screens have no hover, so they keep the controls visible. */
+.voice-mini-panel {
+  cursor: grab;
+  touch-action: none;
+}
+
+.voice-mini-panel.is-dragging {
+  cursor: grabbing;
+}
+
+.voice-mini-panel [data-no-drag] {
+  cursor: default;
+}
+
+.voice-mini-panel:focus-visible {
+  outline: 2px solid var(--theme-base, var(--app-accent));
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .voice-mini-panel .mini-hover-controls {
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .voice-mini-panel:hover .mini-hover-controls,
+  .voice-mini-panel:focus-within .mini-hover-controls {
+    opacity: 1;
+  }
+}
+
 .floating-mini-player.is-dragging .mini-player-drag-handle {
   cursor: grabbing;
   color: #d1d5db;
@@ -3188,9 +3242,25 @@ iframe {
   background: var(--surface-container);
 }
 
+/* Each grid cell is a size container, so a tile can stay 16:9 and centred
+   however wide or tall its cell is. */
+.voice-tile-cell {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  container-type: size;
+}
+
+.voice-tile-fit {
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  aspect-ratio: 16 / 9;
+}
+
+/* No band behind the dock: the round buttons are the only chrome. */
 .voice-stage-footer {
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-container-high);
+  border-top: 0;
+  background: transparent;
 }
 
 .voice-control-dock {
@@ -3517,13 +3587,13 @@ iframe {
 }
 
 .voice-stage-card.is-speaking {
-  border-color: #46c77b;
+  border-color: #22c55e;
   animation: none;
-  box-shadow: 0 0 0 2px #245f3d;
+  box-shadow: inset 0 0 0 1px #22c55e;
 }
 
 .voice-stage-footer {
-  background: #000;
+  background: transparent;
 }
 
 .voice-control-dock {
@@ -4918,3 +4988,185 @@ iframe {
   .typing-dot { animation: none; opacity: 0.7; }
 }
 
+
+/* Desktop list resize handle: invisible until hovered, dragged or focused. */
+.list-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 1rem;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+.list-resize-handle:hover::after,
+.list-resize-handle:active::after,
+.list-resize-handle:focus-visible::after {
+  background: var(--theme-base);
+}
+
+/* Desktop rail (md up): squircle indicators instead of the phone's pills, and
+   a larger account avatar on the Menu slot. */
+@media (min-width: 768px) {
+  .m3-nav-indicator {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .m3-nav-indicator::before {
+    border-radius: 0.875rem;
+    transform: scale(0.6);
+  }
+
+  @supports (corner-shape: squircle) {
+    .m3-nav-indicator::before {
+      border-radius: 40%;
+      corner-shape: squircle;
+    }
+  }
+
+  .m3-nav-item:hover .m3-nav-indicator::before,
+  .m3-nav-item[data-active="true"] .m3-nav-indicator::before,
+  .m3-nav-item:focus-visible .m3-nav-indicator::before {
+    transform: scale(1);
+  }
+
+  .m3-nav-item[data-tab="menu"] .m3-nav-indicator {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+}
+
+/* ── Desktop server rail ──────────────────────────────────────────────────
+   Discord's column of server icons under the nav tabs. Round at rest, the
+   squircle and the left pill mark hover and the open server. */
+.server-rail {
+  scrollbar-width: none;
+}
+
+.server-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.server-rail-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  flex-shrink: 0;
+  justify-content: center;
+  outline: none;
+}
+
+.server-rail-item::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 0.25rem;
+  height: 0;
+  border-radius: 0 0.25rem 0.25rem 0;
+  background: var(--text-main);
+  content: "";
+  transform: translateY(-50%);
+  transition: height 150ms ease;
+}
+
+.server-rail-item:hover::before {
+  height: 1.25rem;
+}
+
+.server-rail-item[data-active]::before {
+  height: 2.5rem;
+}
+
+.server-rail-icon {
+  display: flex;
+  height: 3rem;
+  width: 3rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9999px;
+  background: var(--surface-container-high);
+  color: var(--text-main);
+  font-size: var(--type-label);
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: border-radius 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.server-rail-item:hover .server-rail-icon,
+.server-rail-item[data-active] .server-rail-icon {
+  border-radius: 0.875rem;
+}
+
+.server-rail-add {
+  color: #22c55e;
+}
+
+.server-rail-item:hover .server-rail-add {
+  background: #16a34a;
+  color: #fff;
+}
+
+.server-rail-item:focus-visible .server-rail-icon {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+/* ── Media editor ─────────────────────────────────────────────────────────
+   The stage keeps the crop's aspect inside whatever room the screen leaves;
+   it is itself a size container so captions scale with the picture. */
+.media-editor-area {
+  container-type: size;
+}
+
+.media-editor-stage {
+  width: min(100cqw, calc(100cqh * var(--media-aspect, 1)));
+  aspect-ratio: var(--media-aspect, 1);
+  container-type: size;
+}
+
+.media-editor-caption {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  touch-action: none;
+}
+
+/* Two range inputs share one track: only their thumbs take the pointer. */
+.media-trim-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.media-trim-input::-webkit-slider-thumb {
+  height: 1.5rem;
+  width: 0.75rem;
+  appearance: none;
+  border-radius: 0.25rem;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.media-trim-input::-moz-range-thumb {
+  height: 1.5rem;
+  width: 0.75rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: #fff;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.media-trim-input:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}

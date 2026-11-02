@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildNotifications, countUnreadNotifications, notificationJumpTarget } from './notifications.js'
+import { buildNotifications, countUnreadNotifications, filterNotifications, groupByDay, notificationAction, notificationJumpTarget } from './notifications.js'
 
 test('friend requests are listed newest first', () => {
   const items = buildNotifications({
@@ -59,4 +59,51 @@ test('a feed row jumps to its channel message', () => {
 
 test('a thread reply jumps to its root', () => {
   assert.equal(notificationJumpTarget({ message_id: 'm2', channel_id: 'c1', message: { thread_root_id: 'm1' } }).id, 'm1')
+})
+
+test('a DM row jumps into its conversation', () => {
+  assert.deepEqual(notificationJumpTarget({ message_id: 'm1', dm_room_id: 'd1', created_at: 't' }).__search, { type: 'dm', dmRoomId: 'd1' })
+})
+
+test('rows without a message open the DM or server, or nothing after a kick', () => {
+  assert.equal(notificationAction({ message_id: 'm1', channel_id: 'c1' }).type, 'jump')
+  assert.deepEqual(notificationAction({ kind: 'missed_call', dm_room_id: 'd1', actor: { id: 'p1' } }), { type: 'dm', profile: { id: 'p1' }, dmRoomId: 'd1' })
+  assert.equal(notificationAction({ kind: 'friend_accepted', actor: { id: 'p1' } }).type, 'dm')
+  assert.equal(notificationAction({ kind: 'friend_accepted', actor: null }), null)
+  assert.deepEqual(notificationAction({ kind: 'moderation', server_id: 's1', data: { action: 'timeout' } }), { type: 'server', serverId: 's1' })
+  assert.equal(notificationAction({ kind: 'moderation', server_id: 's1', data: { action: 'kick' } }), null)
+})
+
+test('filters keep only their kinds; all keeps everything', () => {
+  const items = [{ type: 'mention' }, { type: 'reaction' }, { type: 'friend_request' }, { type: 'missed_call' }, { type: 'moderation' }]
+  assert.equal(filterNotifications(items, 'all').length, 5)
+  assert.deepEqual(filterNotifications(items, 'requests').map(i => i.type), ['friend_request'])
+  assert.deepEqual(filterNotifications(items, 'calls').map(i => i.type), ['missed_call'])
+  assert.equal(filterNotifications(items, 'unknown').length, 5)
+})
+
+test('groupByDay splits by local calendar day and drops empty sections', () => {
+  const now = new Date(2026, 9, 27, 9, 0)
+  const items = [
+    { id: 'a', timestamp: new Date(2026, 9, 27, 0, 5).toISOString() },
+    { id: 'b', timestamp: new Date(2026, 9, 26, 23, 59).toISOString() },
+    { id: 'c', timestamp: new Date(2026, 9, 20).toISOString() },
+    { id: 'd', timestamp: null }
+  ]
+  assert.deepEqual(groupByDay(items, now).map(s => [s.label, s.items.map(i => i.id)]), [
+    ['Today', ['a']], ['Yesterday', ['b']], ['Earlier', ['c', 'd']]
+  ])
+  assert.deepEqual(groupByDay([{ id: 'a', timestamp: now.toISOString() }], now).map(s => s.label), ['Today'])
+})
+
+test('invite rows open the invite preview', () => {
+  assert.deepEqual(
+    notificationAction({ kind: 'server_invite', data: { code: 'AB12CD34EF56' } }),
+    { type: 'invite', code: 'AB12CD34EF56', voiceChannelId: null, voiceChannelName: null }
+  )
+  assert.deepEqual(
+    notificationAction({ kind: 'voice_invite', data: { code: 'AB12CD34EF56', channel_id: 'c1', channel_name: 'Lounge' } }),
+    { type: 'invite', code: 'AB12CD34EF56', voiceChannelId: 'c1', voiceChannelName: 'Lounge' }
+  )
+  assert.equal(notificationAction({ kind: 'server_invite', data: {} }), null)
 })

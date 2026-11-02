@@ -81,6 +81,7 @@ export function useWebRTC(session, activeDm) {
   const pendingIceCandidatesRef = useRef([]);
   const callChannelRef = useRef(null);
   const activeCallTargetRef = useRef(null);
+  const outgoingCallRef = useRef(null);
   const incomingVideoRef = useRef(false);
   const outgoingTimeoutRef = useRef(null);
   const callDirectionRef = useRef(null);
@@ -703,12 +704,23 @@ export function useWebRTC(session, activeDm) {
   const isCurrentCallLifecycle = (lifecycleId) =>
     !endingCallRef.current && lifecycleId === callLifecycleIdRef.current;
 
+  /** Feed entry for the callee. They may be offline and never see the offer,
+      so only the caller knows the call happened. Only for a call still ringing. */
+  const recordMissedCall = () => {
+    const call = outgoingCallRef.current;
+    if (!call?.roomId || callDirectionRef.current !== 'ringing') return;
+    void supabase.rpc('record_missed_call', { target_room_id: call.roomId, is_video: call.video }).then(({ error }) => {
+      if (error) debug.warn('SUPABASE_ERROR', { operation: 'record-missed-call', code: error.code });
+    });
+  };
+
   /** Ends a call that never gets answered — used by both the caller and the callee. */
   const scheduleCallTimeout = (finalState = 'timed_out') => {
     clearOutgoingTimeout();
     outgoingTimeoutRef.current = setTimeout(() => {
       const targetId = activeCallTargetRef.current;
       if (!targetId || !callActiveRef.current || callDirectionRef.current === 'connected') return;
+      recordMissedCall();
       void sendSignal(targetId, 'timeout', {});
       audioSys.playCallFailed();
       endCallLocal(finalState);
@@ -762,6 +774,7 @@ export function useWebRTC(session, activeDm) {
     endingCallRef.current = false
     setRemoteCaller(activeDm.profiles);
     activeCallTargetRef.current = activeDm.profiles.id;
+    outgoingCallRef.current = { roomId: activeDm.dm_room_id, video: withVideo };
     politeRef.current = isPolite(session.user.id, activeDm.profiles.id);
     iceRestartedRef.current = false;
     // Synchronous so a simultaneous inbound offer is answered `busy` instead of
@@ -897,6 +910,7 @@ export function useWebRTC(session, activeDm) {
     const currentState = callDirectionRef.current;
     const nextReason = reason || (currentState === 'incoming' ? 'rejected' : currentState === 'connected' ? 'ended' : 'cancelled');
     if (!endingCallRef.current && targetId) {
+      if (nextReason === 'cancelled') recordMissedCall();
       void sendSignal(targetId, nextReason === 'rejected' ? 'reject' : 'end', {});
       logCallEndDebug('signal sent', { targetId, type: nextReason === 'rejected' ? 'reject' : 'end', reason: nextReason });
     }

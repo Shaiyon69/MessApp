@@ -1,6 +1,20 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hmacSha1Base64, buildTurnCredential, buildIceServers } from './helpers.js'
+import { hmacSha1Base64, buildTurnCredential, buildIceServers, resolveTurnCredential } from './helpers.js'
+
+test('resolveTurnCredential prefers the shared secret, then fixed credentials', async () => {
+  const now = Date.UTC(2026, 0, 1, 0, 0, 0)
+  const minted = await resolveTurnCredential({ sharedSecret: 'shh', username: 'u', password: 'p', ttlSeconds: 60, now })
+  assert.deepEqual(minted, await buildTurnCredential({ secret: 'shh', ttlSeconds: 60, now }))
+  assert.deepEqual(await resolveTurnCredential({ username: 'u', password: 'p', ttlSeconds: 60 }), { username: 'u', credential: 'p' })
+  assert.equal(await resolveTurnCredential({ username: 'u', ttlSeconds: 60 }), null)
+  assert.equal(await resolveTurnCredential({ ttlSeconds: 60 }), null)
+})
+
+test('buildIceServers leaves out turns: without a TLS port', () => {
+  const [, relay] = buildIceServers({ host: 'h', port: '3478', tlsPort: null, username: 'u', credential: 'p' })
+  assert.deepEqual(relay.urls, ['turn:h:3478?transport=udp', 'turn:h:3478?transport=tcp'])
+})
 
 test('hmacSha1Base64 matches a known HMAC-SHA1 vector', async () => {
   const digest = await hmacSha1Base64('test-secret', '1234567890')

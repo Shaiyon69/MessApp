@@ -166,11 +166,71 @@ export default function MenuPage(props) {
 
   return (
     <div className="menu-page mx-auto w-full max-w-3xl p-4 pb-[var(--dock-clear)] md:p-6" aria-label="Menu">
-      <div className="h-28 rounded-2xl bg-cover bg-center md:h-32" style={getBannerStyle()} aria-hidden="true" />
+      {/* The custom status sits on the banner, right of the avatar; no overflow-hidden so the emoji picker can drop below it. */}
+      <div className="relative h-28 rounded-2xl bg-cover bg-center md:h-32" style={getBannerStyle()}>
+        <div className="absolute bottom-2 left-[6.75rem] right-3 flex">
+          {noteDraft !== null && <button type="button" className="fixed inset-0 z-[60] cursor-default" onClick={closeNoteEditor} aria-label="Cancel custom status" />}
+          <div className={`menu-glass glass-surface border border-[var(--border-subtle)] bg-[var(--surface-container-high)] relative h-11 min-w-[9rem] flex-1 rounded-full ${noteDraft !== null ? 'z-[70]' : ''}`}>
+            {noteDraft === null ? (
+              <button
+                key="closed"
+                type="button"
+                onClick={openNoteEditor}
+                title={statusText || undefined}
+                className={`h-full w-full animate-fade-in truncate rounded-full px-4 text-left type-label font-semibold text-[var(--text-main)] outline-none transition-colors [text-shadow:0_0_6px_var(--bg-base)] hover:bg-[var(--state-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${statusText ? '' : 'opacity-80'}`}
+              >
+                {statusText || 'Set Status'}
+              </button>
+            ) : (
+              <form
+                key="open"
+                onSubmit={saveStatusNote}
+                onKeyDown={event => { if (event.key === 'Escape') emojiOpen ? setEmojiOpen(false) : closeNoteEditor() }}
+                className="flex h-full animate-fade-in items-center gap-1 px-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => setEmojiOpen(open => !open)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg text-[var(--text-muted)] outline-none hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                  aria-label={noteEmoji ? `Status emoji ${noteEmoji}. Change emoji` : 'Pick a status emoji'}
+                  aria-expanded={emojiOpen}
+                >
+                  {noteEmoji || <Smile size={18} aria-hidden="true" />}
+                </button>
+                <input
+                  autoFocus
+                  value={noteDraft}
+                  onChange={event => setNoteDraft(event.target.value)}
+                  maxLength={STATUS_NOTE_MAX - (noteEmoji ? noteEmoji.length + 1 : 0)}
+                  placeholder="What's up?"
+                  aria-label="Custom status"
+                  className="h-full min-w-0 flex-1 bg-transparent px-1 type-label text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
+                />
+                <button type="submit" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-white outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-main)]" aria-label="Save status"><Check size={18} aria-hidden="true" /></button>
+                {emojiOpen && (
+                  <>
+                    <button type="button" className="fixed inset-0 z-[10] cursor-default" onClick={() => setEmojiOpen(false)} aria-label="Close emoji picker" />
+                    <div className="absolute right-0 top-full z-[20] mt-2 flex h-[360px] w-[min(350px,calc(100vw-2rem))] border border-[var(--border-subtle)] bg-[var(--surface-container-high)] flex-col overflow-hidden rounded-xl text-left animate-fade-in">
+                      {noteEmoji && (
+                        <button type="button" onClick={() => { setNoteEmoji(''); setEmojiOpen(false) }} className="min-h-11 shrink-0 px-3 text-left type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">No emoji</button>
+                      )}
+                      <div className="min-h-0 flex-1">
+                        <Suspense fallback={<div className="h-full w-full" />}>
+                          <ChatEmojiPicker width="100%" height="100%" onEmojiClick={emojiData => { setNoteEmoji(emojiData.emoji); setEmojiOpen(false) }} />
+                        </Suspense>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </form>
+            )}
+          </div>
+        </div>
+      </div>
       {/* menu-glass: refractive like the dock under Liquid Glass (glass.css
           exempts it from flattening), OLED black with a hairline otherwise. */}
       {/* Avatar on the left, overlapping the banner, with the presence dots
-          under it. Name, pronouns and custom status share the row to its right. */}
+          under it. Name and tag fill the row to its right. */}
       <div className="flex gap-3 px-1">
         <div className="-mt-10 flex shrink-0 flex-col items-center gap-1.5 self-start">
           <button
@@ -212,80 +272,21 @@ export default function MenuPage(props) {
             ))}
           </div>
         </div>
-        {/* Name and tag stack beside the note pill, so the block is about as tall as the avatar's lower half. */}
-        <div className="flex min-w-0 flex-1 items-center gap-2 pt-1.5">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <h2 title={props.myUsername} className="min-w-0 truncate font-display type-title font-bold leading-tight text-[var(--text-main)]">{props.myUsername}</h2>
-              {props.myPronouns && <span className="shrink-0 type-label text-[var(--text-muted)]">{props.myPronouns}</span>}
-            </div>
-            {/* Tapping the tag copies it; the separate Copy ID button is gone. */}
-            <button
-              type="button"
-              onClick={() => { navigator.clipboard.writeText(props.myTag); toast.success('User ID copied!') }}
-              className="max-w-full truncate rounded font-mono type-label text-[var(--text-muted)] outline-none hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-              title="Copy user ID"
-            >
-              {props.myTag}
-            </button>
+        {/* Name and tag get the full row, tag under the name. */}
+        <div className="min-w-0 flex-1 pt-1.5">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <h2 title={props.myUsername} className="min-w-0 break-words font-display type-title font-bold leading-tight text-[var(--text-main)] line-clamp-2">{props.myUsername}</h2>
+            {props.myPronouns && <span className="shrink-0 type-label text-[var(--text-muted)]">{props.myPronouns}</span>}
           </div>
-
-        {noteDraft !== null && <button type="button" className="fixed inset-0 z-[60] cursor-default" onClick={closeNoteEditor} aria-label="Cancel custom status" />}
-        <div className={`menu-glass glass-surface border border-[var(--border-subtle)] bg-[var(--surface-container-high)] relative h-11 min-w-[9rem] flex-1 rounded-full ${noteDraft !== null ? 'z-[70]' : ''}`}>
-          {noteDraft === null ? (
-            <button
-              key="closed"
-              type="button"
-              onClick={openNoteEditor}
-              title={statusText || undefined}
-              className={`h-full w-full animate-fade-in truncate rounded-full px-4 text-left type-label outline-none transition-colors hover:bg-[var(--state-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${statusText ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}
-            >
-              {statusText || 'Set Status'}
-            </button>
-          ) : (
-            <form
-              key="open"
-              onSubmit={saveStatusNote}
-              onKeyDown={event => { if (event.key === 'Escape') emojiOpen ? setEmojiOpen(false) : closeNoteEditor() }}
-              className="flex h-full animate-fade-in items-center gap-1 px-1"
-            >
-              <button
-                type="button"
-                onClick={() => setEmojiOpen(open => !open)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg text-[var(--text-muted)] outline-none hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                aria-label={noteEmoji ? `Status emoji ${noteEmoji}. Change emoji` : 'Pick a status emoji'}
-                aria-expanded={emojiOpen}
-              >
-                {noteEmoji || <Smile size={18} aria-hidden="true" />}
-              </button>
-              <input
-                autoFocus
-                value={noteDraft}
-                onChange={event => setNoteDraft(event.target.value)}
-                maxLength={STATUS_NOTE_MAX - (noteEmoji ? noteEmoji.length + 1 : 0)}
-                placeholder="What's up?"
-                aria-label="Custom status"
-                className="h-full min-w-0 flex-1 bg-transparent px-1 type-label text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
-              />
-              <button type="submit" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-white outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-main)]" aria-label="Save status"><Check size={18} aria-hidden="true" /></button>
-              {emojiOpen && (
-                <>
-                  <button type="button" className="fixed inset-0 z-[10] cursor-default" onClick={() => setEmojiOpen(false)} aria-label="Close emoji picker" />
-                  <div className="absolute right-0 top-full z-[20] mt-2 flex h-[360px] w-[min(350px,calc(100vw-2rem))] border border-[var(--border-subtle)] bg-[var(--surface-container-high)] flex-col overflow-hidden rounded-xl text-left animate-fade-in">
-                    {noteEmoji && (
-                      <button type="button" onClick={() => { setNoteEmoji(''); setEmojiOpen(false) }} className="min-h-11 shrink-0 px-3 text-left type-label text-[var(--text-muted)] hover:text-[var(--text-main)]">No emoji</button>
-                    )}
-                    <div className="min-h-0 flex-1">
-                      <Suspense fallback={<div className="h-full w-full" />}>
-                        <ChatEmojiPicker width="100%" height="100%" onEmojiClick={emojiData => { setNoteEmoji(emojiData.emoji); setEmojiOpen(false) }} />
-                      </Suspense>
-                    </div>
-                  </div>
-                </>
-              )}
-            </form>
-          )}
-        </div>
+          {/* Tapping the tag copies it; the separate Copy ID button is gone. */}
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard.writeText(props.myTag); toast.success('User ID copied!') }}
+            className="block max-w-full truncate rounded font-mono type-label text-[var(--text-muted)] outline-none hover:text-[var(--text-main)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            title="Copy user ID"
+          >
+            {props.myTag}
+          </button>
         </div>
       </div>
 

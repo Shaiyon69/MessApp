@@ -11,7 +11,8 @@ export default [
       'android/app/src/main/assets/**',
       'android/app/build/**',
       'android/build/**',
-      'ios/App/App/public/**'
+      'ios/App/App/public/**',
+      'src-tauri/target/**'
     ]
   },
   {

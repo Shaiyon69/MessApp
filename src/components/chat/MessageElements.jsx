@@ -13,6 +13,9 @@ import { getTouchMessageActionPosition } from '../../lib/messageActionPosition'
 import { getVideoAspectRatio, primeVideoPreview } from '../../lib/videoPreview'
 import VoiceMessagePlayer from './VoiceMessagePlayer'
 import StatusAvatar from '../ui/StatusAvatar'
+import ServerIcon from '../ui/ServerIcon'
+import { supabase } from '../../supabaseClient'
+import { findInviteCodes, OPEN_INVITE_EVENT } from '../../lib/invites'
 import { debug } from '../../lib/debug'
 import { downloadFile } from '../../lib/downloadFile'
 import { blurComposer } from '../../lib/composerFocus'
@@ -397,17 +400,19 @@ const resolveAttachmentUrl = (attachment) => {
     : safeDownloadUrl(value)
 }
 
-const getDeliveryStatus = (message, peerReadAt) => {
+const getDeliveryStatus = (message, peerReadAt, peerOnline) => {
   if (message.__delivery_status === 'failed') return 'failed'
   if (message.__delivery_status === 'sending') return 'sending'
   if (message.seen_at || message.read_at) return 'seen'
   if (peerReadAt && message.created_at && new Date(peerReadAt) >= new Date(message.created_at)) return 'seen'
-  return 'sent'
+  // shortcut: Delivered follows the peer's live presence, not stored delivery; add a delivered_at column if it must survive reloads.
+  return peerOnline ? 'delivered' : 'sent'
 }
 
 const deliveryStatusMeta = {
   sending: { label: 'Sending', icon: Clock3, className: 'text-gray-400' },
   sent: { label: 'Sent', icon: Check, className: 'text-gray-400' },
+  delivered: { label: 'Delivered', icon: CheckCheck, className: 'text-gray-400' },
   seen: { label: 'Seen', icon: CheckCheck, className: 'text-[var(--theme-base)]' },
   failed: { label: 'Failed', icon: AlertCircle, className: 'text-red-400' }
 }
@@ -498,7 +503,48 @@ const LinkPreviewShell = ({ href, children }) => (
   </a>
 )
 
+/* An invite link renders as the server's card with Join, like Discord. Join
+   hands the code to Dashboard, which owns the invite preview. */
+
+
+const InviteCard = ({ code }) => {
+  const [preview, setPreview] = useState(null)
+  useEffect(() => {
+    let active = true
+    supabase.rpc('preview_invite', { invite: code }).then(({ data }) => {
+      if (active) setPreview((Array.isArray(data) ? data[0] : data) || { status: 'invalid' })
+    })
+    return () => { active = false }
+  }, [code])
+  const usable = preview?.status === 'valid' || preview?.is_member
+  return (
+    <div className="mt-2 w-full max-w-[20rem] rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3 text-[var(--text-main)] sm:max-w-sm">
+      <p className="mb-2 type-meta font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Server invite</p>
+      <div className="flex items-center gap-3">
+        <ServerIcon url={preview?.icon_url} name={preview?.server_name || '?'} className="server-list-icon h-11 w-11 shrink-0 rounded-xl" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate type-body font-semibold">{preview ? (preview.server_name || 'Invalid invite') : 'Loading…'}</p>
+          {preview?.member_count != null && <p className="type-meta text-[var(--text-muted)]">{preview.member_count} {preview.member_count === 1 ? 'member' : 'members'}</p>}
+        </div>
+        <button
+          type="button"
+          disabled={!usable}
+          onClick={() => window.dispatchEvent(new CustomEvent(OPEN_INVITE_EVENT, { detail: { code } }))}
+          className="h-9 shrink-0 rounded-md bg-green-600 px-4 type-label font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-40"
+        >
+          {preview?.is_member ? 'Open' : 'Join'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export const LinkPreview = ({ url }) => {
+  const inviteCode = useMemo(() => findInviteCodes(url)[0] || null, [url])
+  return inviteCode ? <InviteCard code={inviteCode} /> : <UrlPreview url={url} />
+}
+
+const UrlPreview = ({ url }) => {
   const safeUrl = useMemo(() => safeHttpUrl(url), [url])
   const [preview, setPreview] = useState(() => linkPreviewCache.get(safeUrl) ?? null)
   const [loading, setLoading] = useState(() => !linkPreviewCache.has(safeUrl))
@@ -609,7 +655,7 @@ export const MemoizedMessage = React.memo(({
   handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
   toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
-  peerReadAt, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
+  peerReadAt, peerOnline = false, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
   setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, onForwardMessage, onOpenThread, canModerateMessage = false, myMention = ''
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false)
@@ -1215,7 +1261,7 @@ export const MemoizedMessage = React.memo(({
   const firstImageUrl = hasImageAttachments ? resolveAttachmentUrl(imageAttachments[0], message) : ''
   const isEditingCaption = isEditing && hasImageAttachments
   const showCaptionBelowMedia = hasImageAttachments && hasVisibleContent
-  const deliveryStatus = isMe ? getDeliveryStatus(m, peerReadAt) : null
+  const deliveryStatus = isMe ? getDeliveryStatus(m, peerReadAt, peerOnline) : null
   const deliveryMeta = deliveryStatus ? deliveryStatusMeta[deliveryStatus] : null
   const DeliveryIcon = deliveryMeta?.icon
   const shouldShowDeliveryStatus = isMe && deliveryMeta && (showDeliveryStatus || deliveryStatus === 'failed')
@@ -1227,7 +1273,9 @@ export const MemoizedMessage = React.memo(({
   const seenTimestamp = getSeenTimestamp(m, peerReadAt)
   const receiptRows = isMe ? [
     { label: 'Sent', value: formatReceiptTime(m.created_at) },
-    { label: 'Seen', value: formatReceiptTime(seenTimestamp) }
+    seenTimestamp
+      ? { label: 'Seen', value: formatReceiptTime(seenTimestamp) }
+      : { label: '', value: deliveryMeta?.label }
   ] : [
     { label: 'Sent', value: formatReceiptTime(m.created_at) }
   ]
@@ -1484,7 +1532,10 @@ export const MemoizedMessage = React.memo(({
             onPointerLeave={(event) => {
               if (event.pointerType === 'mouse') scheduleDesktopToolbarClose()
             }}
-            onFocus={keepDesktopToolbarOpen}
+            onFocus={(event) => {
+              // Tap focuses the tabIndex bubble too; only keyboard focus should open the toolbar.
+              if (event.target.matches?.(':focus-visible')) keepDesktopToolbarOpen()
+            }}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) scheduleDesktopToolbarClose()
             }}

@@ -1,0 +1,3 @@
+[net]
+# Lets cargo use the system git, and so its credentials, for the private shaiyon-core repo.
+git-fetch-with-cli = true
