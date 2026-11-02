@@ -688,7 +688,7 @@ export default function SfuScreenShare({
 
   useEffect(() => {
     if (!roomId || !localParticipant.id) return undefined
-    const channel = supabase.channel(`voice-presence:${roomId}`, { config: { presence: { key: localParticipant.id } } })
+    const channel = supabase.channel(`voice-presence:${roomId}`, { config: { private: true, presence: { key: localParticipant.id } } })
     voicePresenceChannelRef.current = channel
     const syncParticipants = () => {
       const entries = Object.values(channel.presenceState()).flatMap(value => value)

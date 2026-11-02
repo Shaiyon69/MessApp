@@ -57,7 +57,7 @@ export function useServerVoicePresence({
     }
 
     const presenceChannel = supabase.channel(`voice-presence:${serverId}`, {
-      config: { presence: { key: profileId } }
+      config: { private: true, presence: { key: profileId } }
     })
     const syncPresence = () => setParticipantsByChannel(groupPresenceByChannel(presenceChannel.presenceState()))
 

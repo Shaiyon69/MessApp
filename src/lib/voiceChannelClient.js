@@ -351,7 +351,7 @@ export function createVoiceChannelClient({
         if (!isCurrent()) throw new Error('Voice media connection was cancelled.')
 
         const nextChannel = supabaseClient.channel(`voice-media:${roomId}`, {
-          config: { presence: { key: connectionId }, broadcast: { self: false } }
+          config: { private: true, presence: { key: connectionId }, broadcast: { self: false } }
         })
         nextChannel.on('broadcast', { event: 'media-signal' }, ({ payload }) => {
           handleSignal(payload)
