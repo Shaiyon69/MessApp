@@ -2272,7 +2272,8 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     selectChannel(place.channel)
   }, [selectChannel])
   const currentConversationThemeId = resolveConversationThemeId(
-    view === 'server' ? activeServer?.theme_id : activeDm?.dm_rooms?.theme_id,
+    // A channel's own theme wins over its server's.
+    view === 'server' ? (activeChannel?.theme_id || activeServer?.theme_id) : activeDm?.dm_rooms?.theme_id,
     view === 'home' ? activeDm?.dm_rooms?.theme_color : null
   )
   const currentConversationTheme = getConversationTheme(currentConversationThemeId, appThemeMode)
@@ -2458,6 +2459,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         onVoiceParticipantSelect={focusVoiceParticipant}
         onInvite={(server, voiceChannel) => setInviteTarget({ server, voiceChannel })}
         onOpenInvite={(code) => setInvitePreview({ code })}
+        onChannelsChanged={() => fetchServerChannels(activeServer?.id)}
         friendRequests={friendRequests}
         notificationFeed={notificationFeed}
         openNotification={openNotification}

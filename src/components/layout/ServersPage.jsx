@@ -6,7 +6,7 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronDown, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
+import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronDown, ChevronLeft, Lock, Settings, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
@@ -21,6 +21,8 @@ import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
 import { debug } from '../../lib/debug'
 import { parseInviteCode } from '../../lib/invites'
+import ServerSettings from '../modals/ServerSettings'
+import ChannelEditor from '../modals/ChannelEditor'
 
 // Same flag and table as RightSidebar's mute button; separate instance, same rows.
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
@@ -60,6 +62,8 @@ export default function ServersPage(props) {
   const [sheetServer, setSheetServer] = useState(null)
   const [sheetServerLevel, setSheetServerLevel] = useState(null)
   const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
+  const [settingsServer, setSettingsServer] = useState(null)
+  const [editingChannel, setEditingChannel] = useState(null)
   const [collapsedCategories, toggleCategory] = useStoredSet(`messapp:collapsedCategories:${props.session?.user?.id}`)
   const [serverItemSheet, setServerItemSheet] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
@@ -545,6 +549,7 @@ export default function ServersPage(props) {
                             {channel.type === 'voice' ? <Volume2 size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
                           </span>
                           <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
+                          {channel.is_private && <Lock size={12} className="shrink-0 text-[var(--text-muted)]" aria-label="Private channel" />}
                           {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
                           {/* Gated on unread: the notification row stays unread until the Notifications tab opens. */}
                           {isUnread && mentionedChannels.has(channel.id)
@@ -740,6 +745,28 @@ export default function ServersPage(props) {
         </div>
       )}
 
+      {settingsServer && (
+        <ServerSettings
+          server={settingsServer}
+          categories={props.serverCategories || []}
+          members={props.serverMembers || []}
+          canManage={canManageServer}
+          onEditServer={() => { setSettingsServer(null); openEditServerItemModal('server', settingsServer) }}
+          onInvite={() => props.onInvite?.(settingsServer)}
+          onEditChannel={channel => setEditingChannel(channel)}
+          onClose={() => setSettingsServer(null)}
+        />
+      )}
+      {editingChannel && (
+        <ChannelEditor
+          channel={editingChannel}
+          members={props.serverMembers || []}
+          currentUserId={props.session?.user?.id}
+          appThemeMode={props.appThemeMode}
+          onSaved={() => props.onChannelsChanged?.()}
+          onClose={() => setEditingChannel(null)}
+        />
+      )}
       <input ref={serverIconInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" onChange={selectServerIcon} className="hidden" />
       {serverIconFile && (
         <Suspense fallback={null}>
@@ -775,6 +802,7 @@ export default function ServersPage(props) {
                they only appear for the server that is open. RLS still gates them. */
             isSheetActive && canManageServer && { label: 'Create category', Icon: FolderPlus, onSelect: () => setIsCategoryModalOpen(true) },
             isSheetActive && canManageServer && { label: 'Create channel', Icon: Hash, onSelect: () => openChannelModal(firstCategoryId) },
+            isSheetActive && { label: 'Server settings', Icon: Settings, onSelect: () => setSettingsServer(sheetServer) },
             isSheetActive && canManageServer && { label: 'Edit server', Icon: Pencil, onSelect: () => openEditServerItemModal('server', sheetServer) },
             /* Deleting is the owner's alone — the delete_server RPC raises for
                anyone else, so an admin gets Leave instead of a button that fails. */
@@ -807,7 +835,7 @@ export default function ServersPage(props) {
             serverItemSheet.item.type !== 'voice' && (unreadChannels.has(serverItemSheet.item.id)
               ? { label: 'Mark as read', Icon: CheckCheck, onSelect: () => props.setChannelRead(serverItemSheet.item, true) }
               : { label: 'Mark as unread', Icon: MailOpen, onSelect: () => props.setChannelRead(serverItemSheet.item, false) }),
-            canManageServer && { label: 'Edit channel', Icon: Pencil, onSelect: () => openEditServerItemModal('channel', serverItemSheet.item) },
+            canManageServer && { label: 'Channel settings', Icon: Pencil, onSelect: () => setEditingChannel(serverItemSheet.item) },
             canManageServer && { label: 'Delete channel', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('channel', serverItemSheet.item) }
           ]}
         />
