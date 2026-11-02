@@ -7,7 +7,7 @@
  */
 import { useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { AtSign, Bell, ChartColumn, Check, CornerDownRight, MessagesSquare, PhoneMissed, Shield, SmilePlus, Trash2, UserCheck, UserPlus, X } from 'lucide-react'
+import { AtSign, Bell, ChartColumn, Check, CornerDownRight, MessagesSquare, PhoneMissed, Shield, SmilePlus, Trash2, UserCheck, UserPlus, Volume2, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import useStoredState from '../../hooks/useStoredState'
@@ -50,6 +50,8 @@ const KINDS = {
   poll_vote: { icon: ChartColumn, text: (name, data) => `${withOthers(name, data.count)} voted on your poll`, detail: row => row.data?.question },
   missed_call: { icon: PhoneMissed, tone: 'text-red-400', text: (name, data) => `Missed ${data.video ? 'video' : 'voice'} call from ${name}`, detail: () => null },
   friend_accepted: { icon: UserCheck, text: name => `${name} accepted your friend request`, detail: () => null },
+  server_invite: { icon: UserPlus, text: (name, data) => `${name} invited you to ${data.server_name || 'a server'}`, detail: () => 'Tap to see the invite' },
+  voice_invite: { icon: Volume2, tone: 'text-green-400', text: (name, data) => `${name} invited you to voice in ${data.server_name || 'a server'}`, detail: row => (row.data?.channel_name ? `🔊 ${row.data.channel_name}` : null) },
   moderation: {
     icon: Shield,
     text: (name, data) => `${name} ${MODERATION_TEXT[data.action] || 'moderated you in'} ${data.server_name || 'a server'}`,

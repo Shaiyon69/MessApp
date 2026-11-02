@@ -472,9 +472,12 @@ footer {
   participants and streams; the component owns only view state — pin, grid, carousel, page,
   and watch selection. Stream identity should use stable participant and track identifiers
   rather than array position.</p>
-  <p>TURN credentials are minted short-lived by a Supabase Edge Function using coturn's HMAC
-  time-limited REST scheme, and consumed through <code>src/lib/iceServers.js</code>. There is
-  no built-in default relay. Without a configured TURN host and shared secret the function
+  <p>TURN credentials come from a Supabase Edge Function, consumed through
+  <code>src/lib/iceServers.js</code>. It either mints short-lived credentials with coturn's
+  HMAC time-limited REST scheme (<code>TURN_SHARED_SECRET</code>) or passes through fixed
+  provider credentials such as ExpressTURN's (<code>TURN_USERNAME</code>,
+  <code>TURN_PASSWORD</code>). There is no built-in default relay. Without a TURN host and
+  one of those credential schemes the function
   returns 503 and every call degrades to STUN-only, which connects only when both peers are
   directly reachable.</p>
 </section>

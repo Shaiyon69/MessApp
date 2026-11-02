@@ -12,8 +12,9 @@
  * #dock-accessory above the tabs. See design.md §5.
  * Menu shows the user's avatar instead of an icon: it is the account entry point.
  */
-import { Bell, LayoutGrid, MessageSquare, UserPlus } from 'lucide-react'
+import { Bell, LayoutGrid, MessageSquare, Plus, UserPlus } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
+import ServerIcon from '../ui/ServerIcon'
 
 export const TABS = [
   { id: 'menu', Icon: null, label: 'Menu' },
@@ -25,12 +26,12 @@ export const TABS = [
 
 export const DOCK_ACCESSORY_ID = 'dock-accessory'
 
-export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, expanded = false, avatarUrl, username }) {
+export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, expanded = false, avatarUrl, username, servers = [], activeServerId, onOpenServer, onAddServer }) {
   return (
     <div
       data-hidden={hidden || undefined}
       data-expanded={expanded || undefined}
-      className="home-tab-shell dock-shell pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[var(--dock-lift)] md:pointer-events-auto md:relative md:w-[5rem] md:shrink-0 md:rounded-2xl md:border md:border-[var(--border-subtle)] md:px-1 md:py-3"
+      className="home-tab-shell dock-shell pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[var(--dock-lift)] md:pointer-events-auto md:relative md:w-[4.5rem] md:shrink-0 md:border-r md:border-[var(--border-subtle)] md:px-1 md:py-3"
     >
       <div className="dock pointer-events-auto flex flex-col md:h-full">
         <div id={DOCK_ACCESSORY_ID} className="dock-accessory md:hidden" />
@@ -61,6 +62,34 @@ export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, 
               </button>
             )
           })}
+          {/* Desktop only: every server as an icon under the tabs, Discord's
+              server rail. Phones reach servers through the Servers tab. */}
+          {onOpenServer && (
+            <div className="server-rail custom-scrollbar hidden min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto border-t border-[var(--border-subtle)] pt-3 md:flex" aria-label="Servers">
+              {servers.map(server => {
+                const isActive = homeTab === 'servers' && server.id === activeServerId
+                return (
+                  <button
+                    key={server.id}
+                    type="button"
+                    onClick={() => onOpenServer(server)}
+                    data-active={isActive || undefined}
+                    aria-current={isActive ? 'page' : undefined}
+                    className="server-rail-item"
+                    aria-label={server.name}
+                    title={server.name}
+                  >
+                    <ServerIcon url={server.icon_url} name={server.name} className="server-rail-icon" />
+                  </button>
+                )
+              })}
+              {onAddServer && (
+                <button type="button" onClick={onAddServer} className="server-rail-item" aria-label="Add a server" title="Add a server">
+                  <span className="server-rail-icon server-rail-add"><Plus size={20} aria-hidden="true" /></span>
+                </button>
+              )}
+            </div>
+          )}
         </nav>
       </div>
     </div>

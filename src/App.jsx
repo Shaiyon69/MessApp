@@ -4,6 +4,7 @@
  * auth screens consume the resulting session; subscriptions require cleanup.
  */
 import { useState, useEffect, useLayoutEffect } from 'react'
+import { inviteCodeFromPath } from './lib/invites'
 import { Sun, Moon } from 'lucide-react'
 import { supabase, supabaseConfigError } from './supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
@@ -35,6 +36,8 @@ export default function App() {
   const [keysReadyFor, setKeysReadyFor] = useState(null)
   const [showRegister, setShowRegister] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
+  // Read once: the entry path is replaced with '/' after getSession() settles.
+  const [entryInviteCode] = useState(() => inviteCodeFromPath(window.location.pathname))
   const [loginMessage, setLoginMessage] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [resetExpired, setResetExpired] = useState(false)
@@ -213,7 +216,7 @@ export default function App() {
       ) : path === '/forgot-password' ? (
         <ForgotPassword email={authEmail} onEmailChange={setAuthEmail} expiredLink={resetExpired} onBackToLogin={() => { setResetExpired(false); navigateTo('/') }} />
       ) : session ? (
-        keysReadyFor === session.user.id ? <Dashboard session={session} /> : null
+        keysReadyFor === session.user.id ? <Dashboard session={session} initialInviteCode={entryInviteCode} /> : null
       ) : showRegister ? (
         <Register email={authEmail} onEmailChange={setAuthEmail} switchToLogin={() => setShowRegister(false)} onRegistrationComplete={handleRegistrationComplete} />
       ) : (

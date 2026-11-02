@@ -95,3 +95,15 @@ test('groupByDay splits by local calendar day and drops empty sections', () => {
   ])
   assert.deepEqual(groupByDay([{ id: 'a', timestamp: now.toISOString() }], now).map(s => s.label), ['Today'])
 })
+
+test('invite rows open the invite preview', () => {
+  assert.deepEqual(
+    notificationAction({ kind: 'server_invite', data: { code: 'AB12CD34EF56' } }),
+    { type: 'invite', code: 'AB12CD34EF56', voiceChannelId: null, voiceChannelName: null }
+  )
+  assert.deepEqual(
+    notificationAction({ kind: 'voice_invite', data: { code: 'AB12CD34EF56', channel_id: 'c1', channel_name: 'Lounge' } }),
+    { type: 'invite', code: 'AB12CD34EF56', voiceChannelId: 'c1', voiceChannelName: 'Lounge' }
+  )
+  assert.equal(notificationAction({ kind: 'server_invite', data: {} }), null)
+})

@@ -13,7 +13,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Grid2X2,
-  GripHorizontal,
   Maximize2,
   Mic,
   MicOff,
@@ -24,9 +23,11 @@ import {
   PhoneOff,
   Pin,
   ScreenShare,
+  Signal,
   SlidersHorizontal,
   Square,
   SwitchCamera,
+  UserPlus,
   Users,
   Volume2,
   VolumeX,
@@ -37,7 +38,7 @@ import { audioSys } from '../../lib/SoundEngine'
 import { supabase } from '../../supabaseClient'
 import useFloatingMiniPlayer from '../../hooks/useFloatingMiniPlayer'
 import useAutoHideCallChrome from '../../hooks/useAutoHideCallChrome'
-import useVideoAspectRatio, { DEFAULT_ASPECT_RATIO } from '../../hooks/useVideoAspectRatio'
+import { DEFAULT_ASPECT_RATIO } from '../../hooks/useVideoAspectRatio'
 import { applyVoiceAudioProcessing, getVoiceMediaStream } from '../../lib/voiceAudioProcessing'
 import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../../lib/screenCapture'
 import { acquireAlternateCamera } from '../../lib/mediaDevices'
@@ -179,18 +180,6 @@ function StreamFallback({ participant, type }) {
   )
 }
 
-function ParticipantBadge({ participant, streamSummary = '', compact = false }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 type-meta">
-      <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} status="online" className={compact ? 'h-7 w-7' : 'h-8 w-8'} />
-      <div className="min-w-0">
-        <p className="truncate font-black text-[var(--text-main)]">{participant?.displayName || 'Participant'}</p>
-        <p className="truncate font-bold text-gray-500">{streamSummary || 'In voice'}</p>
-      </div>
-    </div>
-  )
-}
-
 /** `bare` strips the name plate and hover buttons: the mini player is the
     picture, and its own floating chrome already carries the controls. */
 function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, cameraVolume = 1, isPinned = false, onPin, onStopWatching, bare = false, videoAspectProps }) {
@@ -222,12 +211,11 @@ function StreamTile({ streamItem, participant, cameraOverlay, volume = 1, camera
       )}
 
       {!bare && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent p-2 pt-10 sm:p-3 sm:pt-12">
-          <div className="flex items-end justify-between gap-3">
-            <ParticipantBadge participant={participant} streamSummary={summary} compact />
-            <span className="shrink-0 rounded-full border border-white/10 bg-black/70 px-2 py-1 type-meta font-black uppercase tracking-widest text-white backdrop-blur-md">{summary}</span>
-          </div>
-        </div>
+        <span className="pointer-events-none absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md bg-black/70 px-2 py-1 type-meta font-semibold text-white">
+          {streamItem.type === 'camera' ? <Camera size={12} className="shrink-0" aria-hidden="true" /> : <ScreenShare size={12} className="shrink-0" aria-hidden="true" />}
+          <span className="truncate">{participant?.displayName || 'Participant'}</span>
+          <span className="sr-only">{summary}</span>
+        </span>
       )}
 
       <div className={`absolute right-2 top-2 flex gap-1 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 ${bare ? 'hidden' : ''}`}>
@@ -272,44 +260,16 @@ function AvatarParticipantTile({ participant, onPin }) {
     <button
       type="button"
       onClick={() => onPin?.(participant?.id)}
-      className={`voice-stage-card relative flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden rounded-2xl border px-4 text-center shadow-xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant?.speaking ? 'is-speaking border-green-300/80' : 'border-[var(--border-subtle)]'}`}
+      className={`voice-stage-card relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-xl border outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant?.speaking ? 'is-speaking border-green-500 ring-2 ring-inset ring-green-500' : 'border-[var(--border-subtle)]'}`}
       aria-label={`${participant?.displayName || 'Participant'}: ${statusText}`}
       title={statusText}
     >
-      <div className={`voice-stage-avatar-halo relative flex items-center justify-center ${participant?.speaking ? 'is-speaking' : ''}`}>
-        <span className={`voice-stage-speaking-wave absolute h-24 w-24 rounded-full border border-green-400/50 transition-opacity duration-200 ${participant?.speaking ? 'opacity-100' : 'opacity-0'}`} aria-hidden="true" />
-        <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} status="online" className={`h-16 w-16 sm:h-20 sm:w-20 ${participant?.speaking ? 'ring-2 ring-green-400 ring-offset-4 ring-offset-[#12131c]' : ''}`} />
-      </div>
-      <div className="mt-4 flex h-5 items-end gap-1" aria-label={participant?.speaking ? 'Microphone activity detected' : 'No microphone activity'}>
-        {[0.55, 1, 0.72, 0.9].map((weight, index) => (
-          <span
-            key={`voice-bar-${index}`}
-            className={`voice-level-bar w-1 rounded-full transition-[height,background-color] duration-150 ease-out ${participant?.speaking ? 'bg-green-400' : 'bg-gray-700'}`}
-            data-active={participant?.speaking ? 'true' : undefined}
-            style={{ height: `${Math.max(3, Math.round((participant?.voiceLevel || 0) * 20 * weight))}px` }}
-          />
-        ))}
-      </div>
-      <span
-        className={`mt-3 min-h-6 rounded-full bg-green-500/15 px-2 py-1 type-meta font-black uppercase tracking-widest text-green-200 transition-opacity duration-200 ${participant?.speaking ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-        aria-hidden={!participant?.speaking}
-      >
-        Speaking
+      <StatusAvatar url={participant?.avatarUrl} username={participant?.displayName} showStatus={false} className="h-14 w-14 sm:h-20 sm:w-20" />
+      <span className="absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-md bg-black/70 px-2 py-1 type-meta font-semibold text-white">
+        <span className="truncate">{participant?.displayName || 'Participant'}</span>
+        {participant?.muted && <MicOff size={12} className="shrink-0 text-red-400" aria-label="Muted" />}
+        {participant?.deafened && <VolumeX size={12} className="shrink-0 text-red-400" aria-label="Deafened" />}
       </span>
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 sm:p-3">
-        <div className="flex min-w-0 items-end justify-between gap-2">
-          <div className="min-w-0 text-left">
-            <p className="truncate type-label font-bold text-white">{participant?.displayName || 'Participant'}</p>
-            <p className="truncate type-meta font-bold text-gray-400">{statusText || 'Connected'}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1 text-gray-300">
-            {participant?.muted && <MicOff size={13} aria-label="Muted" />}
-            {participant?.deafened && <VolumeX size={13} aria-label="Deafened" />}
-            {participant?.cameraActive && <Camera size={13} aria-label="Camera on" />}
-            {participant?.screenShareActive && <ScreenShare size={13} aria-label="Sharing screen" />}
-          </div>
-        </div>
-      </div>
     </button>
   )
 }
@@ -672,10 +632,13 @@ export default function SfuScreenShare({
   onToggleDeafen,
   onLeave,
   onOpen,
+  onInvite,
   onStateChange
 }) {
   const [client, setClient] = useState(null)
   const [localScreenStream, setLocalScreenStream] = useState(null)
+  const [shareStarting, setShareStarting] = useState(false)
+  const shareStartingRef = useRef(false)
   const [localCameraStream, setLocalCameraStream] = useState(null)
   const [localAudioStream, setLocalAudioStream] = useState(null)
   const [voiceLevel, setVoiceLevel] = useState(0)
@@ -1151,7 +1114,13 @@ export default function SfuScreenShare({
   }, [client, localParticipant])
 
   const startShare = async () => {
-    if (!client) return
+    // A second click while the picker is open, or a retry after a failure,
+    // used to start another capture without stopping the first: the browser
+    // then showed two "Stop sharing" bars and one capture leaked.
+    if (!client || shareStartingRef.current) return
+    shareStartingRef.current = true
+    setShareStarting(true)
+    if (localScreenRef.current) await stopShare(localScreenRef.current)
     let stream = null
     try {
       stream = await getScreenCaptureStream(navigator.mediaDevices)
@@ -1166,12 +1135,17 @@ export default function SfuScreenShare({
       // session intact and clean up any partially acquired tracks.
       if (stream) {
         stream.getTracks().forEach(track => track.stop())
+        // publish may have reached some peers before it threw.
+        await unpublishStream(stream, 'screen').catch(() => {})
         if (localScreenRef.current === stream) {
           localScreenRef.current = null
           setLocalScreenStream(null)
         }
       }
       toast.error(getScreenCaptureErrorMessage(error))
+    } finally {
+      shareStartingRef.current = false
+      setShareStarting(false)
     }
   }
 
@@ -1306,7 +1280,10 @@ export default function SfuScreenShare({
 
   // The stage only goes immersive once there is shared media to fill it; an
   // avatar-only channel keeps its header and dock in the layout.
-  const immersiveStage = variant === 'full' && displayStreams.length > 0
+  // shortcut: the full stage never goes immersive (auto-hiding chrome over the
+  // video). That mode resized the picture as the chrome came and went; the
+  // immersive branches below are dormant until it is wanted back.
+  const immersiveStage = false
   // The mini player earns the same treatment: showing a stream, its chrome is
   // the only thing between the viewer and the picture.
   const miniStage = variant === 'mini' && displayStreams.length > 0
@@ -1315,14 +1292,10 @@ export default function SfuScreenShare({
     overlayOpen: stageControlsOpen || micTestOpen || volumeMixerOpen
   })
   const chromeHidden = (immersiveStage || miniStage) && !chromeVisible
-  const { aspectRatio: miniAspectRatio, videoAspectProps } = useVideoAspectRatio()
 
   const pinnedStream = streamsById.get(viewMode === VIEW_MODES.CAROUSEL ? carouselStreamId : pinnedStreamId) || displayStreams[0] || null
   const secondaryStreams = displayStreams.filter(item => item.id !== pinnedStream?.id)
-  const participantCount = participants.length
   const connectionLabel = status === 'connected' ? 'Connected' : status
-  const sharingCount = participants.filter(participant => participant.screenShareActive).length
-  const cameraCount = participants.filter(participant => participant.cameraActive).length
   const participantIdsWithTiles = useMemo(() => new Set(displayStreams.map(item => item.participant.id)), [displayStreams])
   const avatarParticipants = useMemo(() => (
     participants.filter(participant => !participantIdsWithTiles.has(participant.id))
@@ -1409,6 +1382,43 @@ export default function SfuScreenShare({
     </div>
   )
 
+  /* The whole mini player is the drag handle, like a Discord pop-out; only
+     the controls opt out. A press that barely moves is a click and returns
+     to the call. */
+  const miniPressRef = useRef(null)
+  const startMiniDrag = (event) => {
+    if (event.target.closest('[data-no-drag]')) return
+    miniPressRef.current = { x: event.clientX, y: event.clientY }
+    miniPlayerDragHandleProps.onPointerDown(event)
+  }
+  const openMiniOnClick = (event) => {
+    const press = miniPressRef.current
+    miniPressRef.current = null
+    if (!press || event.target.closest('[data-no-drag]')) return
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 5) onOpen?.()
+  }
+
+  // The mini player only carries what you reach for mid-conversation.
+  const renderMiniControls = () => (
+    <div data-no-drag className="mini-hover-controls flex shrink-0 items-center gap-0.5">
+      {onToggleMute && (
+        <button type="button" onClick={onToggleMute} className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--state-hover)] ${muted ? 'text-red-400' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`} aria-label={muted ? 'Unmute' : 'Mute'} aria-pressed={muted} title={muted ? 'Unmute' : 'Mute'}>
+          {muted ? <MicOff size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
+        </button>
+      )}
+      {onToggleDeafen && (
+        <button type="button" onClick={onToggleDeafen} className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--state-hover)] ${deafened ? 'text-red-400' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`} aria-label={deafened ? 'Undeafen' : 'Deafen'} aria-pressed={deafened} title={deafened ? 'Undeafen' : 'Deafen'}>
+          {deafened ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
+        </button>
+      )}
+      {onLeave && (
+        <button type="button" onClick={onLeave} className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-red-500/15 hover:text-red-400" aria-label="Leave voice" title="Disconnect">
+          <PhoneOff size={16} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  )
+
   if (variant === 'mini') {
     /* Showing a stream, the card is the picture: no title block, no roster, and
        chrome that floats over the video and fades out. The shape follows the
@@ -1418,15 +1428,24 @@ export default function SfuScreenShare({
         ref={miniPlayerRef}
         style={miniPlayerStyle}
         {...(miniStage ? stageActivityProps : {})}
-        className={`floating-mini-player fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] w-[min(248px,calc(100vw-1rem))] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-black md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] md:w-[min(340px,calc(100vw-2.5rem))] md:rounded-2xl ${miniStage ? '' : 'p-1.5 md:overflow-y-auto md:p-2.5'} ${className}`}
+        tabIndex={0}
+        aria-label={`${title}. Click or press Enter to return to the call. Drag or use the arrow keys to move.`}
+        onPointerDown={startMiniDrag}
+        onLostPointerCapture={miniPlayerDragHandleProps.onLostPointerCapture}
+        onClick={openMiniOnClick}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return
+          if (event.key === 'Enter') onOpen?.()
+          else miniPlayerDragHandleProps.onKeyDown(event)
+        }}
+        className={`floating-mini-player voice-mini-panel fixed left-auto right-2 bottom-[calc(var(--minimized-call-offset,4.75rem)+env(safe-area-inset-bottom))] z-[90] max-h-[62dvh] ${miniStage ? 'w-[min(248px,calc(100vw-1rem))]' : 'w-[min(18rem,calc(100vw-1rem))]'} overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-black md:right-5 md:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:max-h-[70dvh] ${miniStage ? 'md:w-[min(340px,calc(100vw-2.5rem))]' : ''} md:rounded-2xl ${miniStage ? '' : 'bg-[var(--bg-base)] p-1.5'} ${className}`}
       >
         {remoteAudioPlayers}
         {miniStage && pinnedStream ? (
-          <div className="relative w-full overflow-hidden bg-black" style={{ aspectRatio: miniAspectRatio || DEFAULT_ASPECT_RATIO }}>
+          <div className="relative w-full overflow-hidden bg-black" style={{ aspectRatio: DEFAULT_ASPECT_RATIO }}>
             <div className="absolute inset-0">
               <StreamTile
                 bare
-                videoAspectProps={videoAspectProps}
                 streamItem={pinnedStream}
                 participant={pinnedStream.participant}
                 cameraOverlay={pinnedStream.type === 'screen' ? cameraByOwner.get(pinnedStream.participant.id) : null}
@@ -1439,18 +1458,10 @@ export default function SfuScreenShare({
               data-chrome-hidden={chromeHidden ? 'true' : 'false'}
               className="call-chrome call-chrome-top absolute inset-x-0 top-0 z-10 flex items-center gap-1 bg-gradient-to-b from-black/70 to-transparent px-1.5 py-1.5"
             >
-              <button
-                type="button"
-                {...miniPlayerDragHandleProps}
-                className="mini-player-drag-handle flex min-w-0 flex-1 touch-none cursor-grab items-center gap-1.5 rounded-lg px-1 py-1 text-white/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
-                aria-grabbed="false"
-                aria-label="Move voice channel mini player"
-                title="Drag to move. Use arrow keys to move, or double-click to reset."
-              >
-                <GripHorizontal size={16} aria-hidden="true" />
+              <span className="flex min-w-0 flex-1 items-center px-1 py-1">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} aria-label={connectionLabel} />
-              </button>
-              <button type="button" onClick={onOpen} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-white/80 hover:text-white md:h-8 md:w-8" aria-label={`Return to ${title}`} title={`Return to ${title}`}>
+              </span>
+              <button type="button" data-no-drag onClick={onOpen} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40 text-white/80 hover:text-white md:h-8 md:w-8" aria-label={`Return to ${title}`} title={`Return to ${title}`}>
                 <Maximize2 size={14} aria-hidden="true" />
               </button>
             </div>
@@ -1459,65 +1470,22 @@ export default function SfuScreenShare({
               data-chrome-hidden={chromeHidden ? 'true' : 'false'}
               className="call-chrome call-chrome-bottom absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1.5"
             >
-              {renderControls(true)}
+              {renderMiniControls()}
             </div>
           </div>
         ) : (
-          <>
-        <button
-          type="button"
-          {...miniPlayerDragHandleProps}
-          className="mini-player-drag-handle mb-0.5 flex h-5 w-full touch-none cursor-grab items-center justify-center rounded-lg text-gray-500 hover:bg-white/5 hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:mb-1 md:h-6"
-          aria-grabbed="false"
-          aria-label="Move voice channel mini player"
-          title="Drag to move. Use arrow keys to move, or double-click to reset."
-        >
-          <GripHorizontal size={16} aria-hidden="true" />
-        </button>
-        <button type="button" onClick={onOpen} className="mb-2 flex w-full items-center gap-2 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:mb-3 md:gap-3" aria-label={`Return to ${title}`}>
-          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full md:h-10 md:w-10 ${status === 'connected' ? 'bg-green-500/15 text-green-300' : 'bg-amber-500/15 text-amber-300'}`}>
-            <Volume2 size={17} aria-hidden="true" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate type-label font-black text-[var(--text-main)]">{title}</span>
-            <span className="block truncate type-meta font-bold uppercase tracking-widest text-gray-500">
-              {connectionLabel} - {participantCount} connected{localScreenStream ? ' - sharing screen' : ''}{localCameraStream ? ' - camera on' : ''}
-            </span>
-          </span>
-        </button>
-        {(
-          <div className="mb-2 space-y-1 rounded-lg border border-[var(--border-subtle)] bg-white/[0.03] p-1.5 md:mb-3 md:space-y-1.5 md:rounded-xl md:p-2">
-            {participants.slice(0, 2).map(participant => (
-              <div key={participant.id} className="flex min-w-0 items-center gap-2 rounded-lg bg-black/15 px-1.5 py-1 md:gap-2.5 md:px-2 md:py-1.5">
-                <div
-                  className={`relative shrink-0 rounded-full border-2 p-0.5 ${participant.speaking ? 'border-green-400' : 'border-transparent'}`}
-                  title={`${participant.displayName}${participant.speaking ? ' - speaking' : ''}`}
-                >
-                  <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-7 w-7 md:h-8 md:w-8" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate type-meta font-black text-[var(--text-main)]">{participant.displayName}</p>
-                  <p className={`truncate type-meta font-bold uppercase tracking-widest ${participant.speaking ? 'text-green-400' : 'text-gray-500'}`}>
-                    {participant.speaking ? 'Speaking' : 'Listening'}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1 text-gray-500">
-                  {participant.muted && <MicOff size={12} aria-label="Muted" />}
-                  {participant.deafened && <VolumeX size={12} aria-label="Deafened" />}
-                  {participant.cameraActive && <Camera size={12} aria-label="Camera on" />}
-                  {participant.screenShareActive && <ScreenShare size={12} aria-label="Sharing screen" />}
-                </div>
-              </div>
-            ))}
-            {participants.length > 2 && (
-              <button type="button" onClick={onOpen} className="w-full rounded-lg px-2 py-1 text-center type-meta font-black text-gray-500 hover:bg-white/5 hover:text-gray-300">
-                +{participants.length - 2} more {participants.length - 2 === 1 ? 'person' : 'people'}
-              </button>
-            )}
+          /* Discord's "Voice Connected" panel: where you are, and the three
+             controls you reach for without going back to the channel. */
+          <div className="flex items-center gap-1">
+            <div className="min-w-0 flex-1 px-1.5 py-1">
+              <span className={`flex items-center gap-1.5 type-label font-semibold ${status === 'connected' ? 'text-green-400' : 'text-amber-300'}`}>
+                <Signal size={14} aria-hidden="true" />
+                <span className="truncate capitalize">{status === 'connected' ? 'Voice connected' : connectionLabel}</span>
+              </span>
+              <span className="block truncate type-meta text-[var(--text-muted)]">{title}</span>
+            </div>
+            {renderMiniControls()}
           </div>
-        )}
-        {renderControls(true)}
-          </>
         )}
       </section>
     )
@@ -1527,67 +1495,25 @@ export default function SfuScreenShare({
     return (
       <section
         {...stageActivityProps}
-        className={`voice-stage-shell relative grid h-full max-h-full min-h-0 w-full max-w-full flex-1 overflow-hidden bg-[var(--bg-base)] ${immersiveStage ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)_auto]'} ${className}`}
+        className={`voice-stage-shell relative grid h-full max-h-full min-h-0 w-full max-w-full flex-1 overflow-hidden bg-[var(--bg-base)] ${immersiveStage ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[minmax(0,1fr)_auto]'} ${className}`}
         data-status={status}
       >
         {remoteAudioPlayers}
         <div className="voice-stage-ambient voice-stage-ambient-one" aria-hidden="true" />
         <div className="voice-stage-ambient voice-stage-ambient-two" aria-hidden="true" />
 
-        <header
-          {...(immersiveStage ? chromeHoldProps : {})}
-          data-immersive={immersiveStage ? 'true' : 'false'}
-          data-chrome-hidden={chromeHidden ? 'true' : 'false'}
-          className={`voice-stage-header call-chrome call-chrome-top z-10 min-h-16 shrink-0 border-b border-[var(--border-subtle)] px-3 py-3 md:px-5 md:py-3.5 ${immersiveStage ? 'absolute inset-x-0 top-0' : 'relative'}`}
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className={`voice-channel-live-icon relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${status === 'connected' ? 'is-connected text-green-300' : 'text-amber-300'}`}>
-                <Volume2 size={20} aria-hidden="true" />
-                <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#11131a] ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} />
-              </div>
-              <div className="min-w-0">
-                <p className="mb-0.5 flex items-center gap-1.5 type-meta font-black uppercase tracking-[0.2em] text-gray-500">
-                  <span className={`h-1.5 w-1.5 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-amber-400'}`} />
-                  Live voice channel
-                </p>
-                <h2 className="truncate type-title font-bold tracking-tight text-[var(--text-main)]">{title}</h2>
-                <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
-                  <span className={`shrink-0 type-meta font-bold ${status === 'connected' ? 'text-green-300' : 'text-amber-300'}`}>{connectionLabel}</span>
-                  {sharingCount > 0 && <span className="voice-stage-stat shrink-0"><ScreenShare size={10} />{sharingCount}</span>}
-                  {cameraCount > 0 && <span className="voice-stage-stat shrink-0"><Camera size={10} />{cameraCount}</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="hidden -space-x-2 sm:flex" aria-hidden="true">
-                {participants.slice(0, 4).map(participant => (
-                  <div key={participant.id} className={`rounded-full border-2 border-[#11131a] ${participant.speaking ? 'ring-2 ring-green-400/80' : ''}`}>
-                    <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-7 w-7" />
-                  </div>
-                ))}
-              </div>
-              <div className="voice-participant-count flex items-center gap-2 rounded-full border border-[var(--border-subtle)] px-3 py-1.5">
-                <Users size={15} className="text-gray-500" aria-hidden="true" />
-                <span className="type-meta font-black text-gray-300">{participantCount}</span>
-                <span className="hidden type-meta font-bold text-gray-500 md:inline">{participantCount === 1 ? 'person' : 'people'}</span>
-              </div>
-            </div>
-          </div>
-        </header>
 
         {/* The mobile dock spans the full width, so immersive stages keep a
             bottom gutter for it; the desktop dock is a centred pill that can
             safely float over the media. */}
         <div
           ref={stageRef}
-          className={`relative z-[1] h-full max-h-full min-h-0 w-full max-w-full overflow-hidden p-2 sm:p-3 md:p-5 ${immersiveStage ? 'pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-5' : ''}`}
+          className={`relative z-[1] h-full max-h-full min-h-0 w-full max-w-full overflow-hidden p-1.5 md:p-2.5 ${immersiveStage ? 'pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-5' : ''}`}
           tabIndex={0}
           aria-label="Voice stage"
         >
           {viewMode === VIEW_MODES.GRID || !pinnedStream ? (
-            <section className="voice-stage-surface relative h-full min-h-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] p-2 shadow-2xl sm:p-3">
+            <section className="relative h-full min-h-0 overflow-hidden">
               <div
                 className="voice-stage-grid grid h-full min-h-0 gap-2.5"
                 style={{
@@ -1596,7 +1522,8 @@ export default function SfuScreenShare({
                 }}
               >
                 {visibleGridItems.map((item, index) => (
-                  <div key={item.id} className="voice-stage-grid-item min-h-0 min-w-0" style={{ '--voice-tile-index': index }}>
+                  <div key={item.id} className="voice-stage-grid-item voice-tile-cell" style={{ '--voice-tile-index': index }}>
+                    <div className="voice-tile-fit">
                     {item.type === 'stream' ? (
                       <StreamTile
                         streamItem={item.streamItem}
@@ -1606,11 +1533,12 @@ export default function SfuScreenShare({
                         cameraVolume={effectiveStreamVolume(cameraByOwner.get(item.participant.id))}
                         isPinned={item.streamItem.id === pinnedStreamId}
                         onPin={pinStream}
-                        onStopWatching={stopWatching}
+                        onStopWatching={item.streamItem.local ? undefined : stopWatching}
                       />
                     ) : (
                       <AvatarParticipantTile participant={item.participant} onPin={focusParticipant} />
                     )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1637,7 +1565,7 @@ export default function SfuScreenShare({
                   cameraVolume={effectiveStreamVolume(cameraByOwner.get(pinnedStream.participant.id))}
                   isPinned
                   onPin={pinStream}
-                  onStopWatching={stopWatching}
+                  onStopWatching={pinnedStream.local ? undefined : stopWatching}
                 />
                 {/* Slides are changed from the thumbnail strip or the arrow
                     keys; overlay arrows sat on top of the stream itself. */}
@@ -1704,7 +1632,9 @@ export default function SfuScreenShare({
           data-chrome-hidden={chromeHidden ? 'true' : 'false'}
           className={`voice-stage-footer call-chrome call-chrome-bottom z-10 shrink-0 px-2 py-2.5 pb-[calc(0.65rem+env(safe-area-inset-bottom))] sm:py-3 ${immersiveStage ? 'absolute inset-x-0 bottom-0' : 'relative'}`}
         >
-          <div className="voice-stage-mobile-dock mx-auto grid max-w-md grid-cols-6 gap-1 rounded-2xl p-1.5 md:hidden">
+          {/* One dock at every size: the everyday actions only. View modes and
+              audio tools live behind More. */}
+          <div className="voice-stage-mobile-dock mx-auto flex w-fit max-w-full items-center gap-1 rounded-2xl p-1.5">
             {onToggleMute && (
               <button type="button" onClick={onToggleMute} className={`voice-stage-mobile-action ${muted ? 'is-danger' : 'is-live'}`} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'}>
                 {muted ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
@@ -1715,10 +1645,10 @@ export default function SfuScreenShare({
                 {deafened ? <VolumeX size={18} aria-hidden="true" /> : <Volume2 size={18} aria-hidden="true" />}
               </button>
             )}
-            <button type="button" onClick={localScreenStream ? () => stopShare() : startShare} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localScreenStream ? 'is-sharing' : ''}`} aria-label={localScreenStream ? 'Stop sharing screen' : 'Share screen'} title={localScreenStream ? 'Stop sharing' : 'Share screen'}>
+            <button type="button" onClick={localScreenStream ? () => stopShare() : startShare} disabled={status !== 'connected' || shareStarting} className={`voice-stage-mobile-action ${localScreenStream ? 'is-sharing' : ''}`} aria-label={localScreenStream ? 'Stop sharing screen' : 'Share screen'} title={localScreenStream ? 'Stop sharing' : 'Share screen'}>
               {localScreenStream ? <MonitorX size={18} aria-hidden="true" /> : <MonitorUp size={18} aria-hidden="true" />}
             </button>
-            <button type="button" onClick={localCameraStream ? () => stopCamera() : startCamera} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localCameraStream ? 'is-active' : 'is-danger'}`} aria-label={localCameraStream ? 'Turn camera off' : 'Turn camera on'} title={localCameraStream ? 'Camera off' : 'Camera on'}>
+            <button type="button" onClick={localCameraStream ? () => stopCamera() : startCamera} disabled={status !== 'connected'} className={`voice-stage-mobile-action ${localCameraStream ? 'is-active' : ''}`} aria-label={localCameraStream ? 'Turn camera off' : 'Turn camera on'} title={localCameraStream ? 'Camera off' : 'Camera on'}>
               {localCameraStream ? <CameraOff size={18} aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
             </button>
             {localCameraStream && (
@@ -1726,44 +1656,26 @@ export default function SfuScreenShare({
                 <SwitchCamera size={18} aria-hidden="true" />
               </button>
             )}
-            {onLeave && (
-              <button type="button" onClick={onLeave} className="voice-stage-mobile-action is-danger" aria-label="Leave voice" title="Leave voice">
-                <PhoneOff size={18} aria-hidden="true" />
+            {onInvite && (
+              <button type="button" onClick={onInvite} className="voice-stage-mobile-action" aria-label="Invite friends to this voice channel" title="Invite friends">
+                <UserPlus size={18} aria-hidden="true" />
               </button>
             )}
             <button type="button" onClick={() => setStageControlsOpen(true)} className="voice-stage-mobile-action" aria-label="More call controls" title="More controls" aria-haspopup="dialog" aria-expanded={stageControlsOpen}>
               <MoreHorizontal size={19} aria-hidden="true" />
             </button>
-          </div>
-          <div className="voice-control-dock custom-scrollbar mx-auto hidden w-fit max-w-full items-center justify-center gap-2 overflow-x-auto rounded-2xl border border-[var(--border-subtle)] p-2 shadow-2xl md:flex">
-            <div className="voice-view-switcher flex rounded-xl border border-[var(--border-subtle)] p-0.5 sm:p-1">
-              <button type="button" onClick={() => setViewMode(VIEW_MODES.PINNED)} aria-pressed={viewMode === VIEW_MODES.PINNED} aria-label="Focus view" title="Focus view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.PINNED ? 'is-active border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'text-gray-400 hover:text-white'}`}>
-                <Maximize2 size={17} />
+            {onLeave && (
+              <button type="button" onClick={onLeave} className="voice-stage-mobile-action is-leave" aria-label="Leave voice" title="Leave voice">
+                <PhoneOff size={18} aria-hidden="true" />
               </button>
-              <button type="button" onClick={() => setViewMode(VIEW_MODES.GRID)} aria-pressed={viewMode === VIEW_MODES.GRID} aria-label="Grid view" title="Grid view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.GRID ? 'is-active border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'text-gray-400 hover:text-white'}`}>
-                <Grid2X2 size={17} />
-              </button>
-              <button type="button" onClick={() => setViewMode(VIEW_MODES.CAROUSEL)} aria-pressed={viewMode === VIEW_MODES.CAROUSEL} aria-label="Slideshow view" title="Slideshow view" className={`voice-view-button rounded-lg p-2 sm:p-2.5 ${viewMode === VIEW_MODES.CAROUSEL ? 'is-active border border-[var(--chat-control-border)] bg-[var(--chat-control-bg)] text-[var(--chat-control-text)]' : 'text-gray-400 hover:text-white'}`}>
-                <ChevronRight size={17} />
-              </button>
-            </div>
-            {renderControls()}
-            <button type="button" onClick={() => setVolumeMixerOpen(true)} disabled={status !== 'connected'} className="voice-control-button rounded-full bg-[var(--bg-element)] p-2 text-gray-300 disabled:opacity-40 sm:p-2.5" aria-label="Open volume mixer" title="Volume mixer">
-              <SlidersHorizontal size={18} />
-            </button>
-            <button type="button" onClick={() => setMicTestOpen(true)} disabled={status !== 'connected' || !localAudioStream} className="voice-control-button rounded-full bg-[var(--bg-element)] p-2 text-gray-300 disabled:opacity-40 sm:p-2.5" aria-label="Test microphone" title="Test microphone">
-              <AudioLines size={18} />
-            </button>
-            <button type="button" onClick={() => setHiddenStreamIds(new Set())} disabled={hiddenStreamIds.size === 0} className="voice-control-button rounded-full bg-[var(--bg-element)] p-2 text-gray-300 disabled:opacity-40 sm:p-2.5" aria-label="Show hidden streams" title="Show hidden streams">
-              <MoreHorizontal size={18} />
-            </button>
+            )}
           </div>
         </footer>
 
         {stageControlsOpen && (
-          <div className="fixed inset-0 z-[120] md:hidden" data-ui-overlay-owner="SfuScreenShare:stage-controls">
-            <button type="button" className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={() => setStageControlsOpen(false)} aria-label="Close voice stage controls" />
-            <section className="voice-stage-controls-drawer absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[82dvh] overflow-y-auto rounded-[1.75rem] p-3" role="dialog" aria-modal="true" aria-label="Call controls">
+          <div className="fixed inset-0 z-[120]" data-ui-overlay-owner="SfuScreenShare:stage-controls">
+            <button type="button" className="absolute inset-0 bg-black/55" onClick={() => setStageControlsOpen(false)} aria-label="Close voice stage controls" />
+            <section className="voice-stage-controls-drawer absolute inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] max-h-[82dvh] overflow-y-auto rounded-[1.75rem] p-3 md:inset-x-auto md:bottom-24 md:left-1/2 md:w-[26rem] md:-translate-x-1/2" role="dialog" aria-modal="true" aria-label="Call controls">
               <div className="mb-3 flex items-center justify-between px-1">
                 <div>
                   <p className="type-label font-bold text-[var(--text-main)]">Call controls</p>

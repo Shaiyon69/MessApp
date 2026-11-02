@@ -6,7 +6,7 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronLeft, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
+import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronDown, ChevronLeft, Lock, Settings, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
@@ -20,6 +20,9 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 import { provisionServerPreset, SERVER_PRESETS } from '../../lib/serverPresets'
 import { assertAvatarFile, avatarObjectName, deleteAvatarImage, uploadAvatarImage, MAX_AVATAR_SOURCE_SIZE_BYTES } from '../../lib/avatarUpload'
 import { debug } from '../../lib/debug'
+import { parseInviteCode } from '../../lib/invites'
+import ServerSettings from '../modals/ServerSettings'
+import ChannelEditor from '../modals/ChannelEditor'
 
 // Same flag and table as RightSidebar's mute button; separate instance, same rows.
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
@@ -54,12 +57,14 @@ export default function ServersPage(props) {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [isCreatingCategory, setIsCreatingCategory] = useState(false)
-  const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   /* The options sheet: opened from the detail bar's ⋮ for the active server, or
      by holding a row in the server list for that row's server. */
   const [sheetServer, setSheetServer] = useState(null)
   const [sheetServerLevel, setSheetServerLevel] = useState(null)
   const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
+  const [settingsServer, setSettingsServer] = useState(null)
+  const [editingChannel, setEditingChannel] = useState(null)
+  const [collapsedCategories, toggleCategory] = useStoredSet(`messapp:collapsedCategories:${props.session?.user?.id}`)
   const [serverItemSheet, setServerItemSheet] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
      confirmLabel, run }`, cleared when the prompt closes. */
@@ -293,20 +298,11 @@ export default function ServersPage(props) {
 
   const handleJoinServer = async (e) => {
     e.preventDefault()
-    const code = inviteCode.trim().toUpperCase()
-    if (!code) return toast.error('Enter an invite code')
-    try {
-      const { data: server, error } = await supabase.rpc('join_server_by_code', { invite: code })
-      if (error) throw error
-      if (!server) throw new Error('Server not found')
-
-      closeJoinModal()
-      await refreshServers(server)
-      toast.success('Server joined')
-    } catch (error) {
-      debug.error('SERVER_ADMIN', { operation: 'join-server', error })
-      toast.error('Could not join server')
-    }
+    // A pasted link or a bare code both open the invite preview, which joins.
+    const code = parseInviteCode(inviteCode)
+    if (!code) return toast.error('Paste an invite link or code')
+    closeJoinModal()
+    props.onOpenInvite?.(code)
   }
 
   const handleCreateChannelSubmit = async (e) => {
@@ -412,26 +408,6 @@ export default function ServersPage(props) {
     }
   }
 
-  const copyInviteCode = async (server) => {
-    if (!server?.id || isGeneratingInvite) return
-    setIsGeneratingInvite(true)
-    try {
-      const { data, error } = await supabase.rpc('create_server_invite', {
-        target_server_id: server.id,
-        requested_uses: 100,
-        requested_expires_at: null
-      })
-      if (error) throw error
-      await navigator.clipboard.writeText(data.code)
-      toast.success(`Invite code ${data.code} copied`)
-    } catch (error) {
-      debug.error('SERVER_ADMIN', { operation: 'create-invite', error })
-      toast.error('Could not create invite')
-    } finally {
-      setIsGeneratingInvite(false)
-    }
-  }
-
   const askServerAction = (action, server) => {
     const serverName = server?.name || 'this server'
     setDangerPrompt(action === 'delete'
@@ -464,7 +440,7 @@ export default function ServersPage(props) {
   const showDetail = panelView === 'detail' && props.activeServer
 
   return (
-    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-6 md:pt-6 ${showDetail ? 'min-h-full' : ''} pb-[var(--dock-clear)] md:pb-6`}>
+    <div className={`mx-auto flex w-full max-w-3xl flex-col px-4 pt-4 md:px-2 ${showDetail ? 'min-h-full md:pt-0' : 'md:pt-3'} pb-[var(--dock-clear)] md:pb-4`}>
       {!showDetail ? (
         <>
           <div className="seg-group seg-plain">
@@ -503,25 +479,24 @@ export default function ServersPage(props) {
           {/* The server bar sits above the channel list: the server you are in is the
               heading for everything under it, so it stays pinned to the top while
               channels scroll beneath. */}
-          <div className="sticky top-0 z-20 -mx-4 mb-1 bg-[var(--bg-base)] px-4 pb-2 md:-mx-6 md:px-6">
-            <div className="relative flex min-h-14 items-center gap-2 py-2">
-              <button type="button" onClick={() => setPanelView('list')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+          <div className="sticky top-0 z-20 -mx-4 mb-1 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 md:-mx-2 md:px-3">
+            <div className="relative flex min-h-14 items-center gap-2 py-2 md:min-h-12 md:py-1">
+              {/* The desktop rail already lists every server, so only phones need the way back. */}
+              <button type="button" onClick={() => setPanelView('list')} className="flex md:hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
                 <ChevronLeft size={19} aria-hidden="true" />
               </button>
-              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl" />
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
-                {/* Role, not a static label: the manage buttons below hinge on it,
-                    so "member" explains their absence without a trip to the DB. */}
-                <p className="type-meta font-black uppercase tracking-[0.18em] text-gray-500">{props.activeServerRole || 'Server'}</p>
-              </div>
+              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl md:hidden" />
+              <h3 className="min-w-0 flex-1 truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
+              <button type="button" onClick={() => props.onInvite?.(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:h-9 md:w-9" aria-label="Invite people" title="Invite people">
+                <UserPlus size={17} aria-hidden="true" />
+              </button>
               <button type="button" onClick={() => setSheetServer(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
                 <MoreVertical size={17} aria-hidden="true" />
               </button>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-1">
             {props.serverChannelsLoading && Array.from({ length: 3 }, (_, index) => (
               <div key={`channel-group-skeleton-${index}`} className="rounded-2xl bg-[var(--surface-container)] p-3" aria-hidden="true">
                 <div className="skeleton mb-3 h-2.5 w-24 rounded-full" />
@@ -529,20 +504,26 @@ export default function ServersPage(props) {
               </div>
             ))}
             {(props.serverCategories || []).map(category => (
-              <section key={category.id} className="server-channel-group first:[&>div]:border-t-0">
+              <section key={category.id} className="server-channel-group">
                 <div
-                  className="server-channel-group-header long-press-target relative flex min-h-9 items-center justify-between gap-2 border-t-2 border-[var(--border-hover)] px-1 pb-1.5 pt-3"
+                  className="server-channel-group-header long-press-target relative flex items-center pt-3"
                   {...(canManageServer ? bindLongPress({ type: 'category', item: category }) : null)}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 truncate type-meta font-black uppercase tracking-[0.12em] text-gray-400">{category.name}</span>
-                    <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg-element)] px-1.5 font-mono type-meta font-bold text-gray-500" aria-label={`${(category.channels || []).length} channels`}>
-                      {(category.channels || []).length}
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleCategory(category.id)}
+                    aria-expanded={!collapsedCategories.has(category.id)}
+                    className="flex min-h-8 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left type-meta font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]"
+                  >
+                    <ChevronDown size={12} className={`shrink-0 transition-transform duration-150 ${collapsedCategories.has(category.id) ? '-rotate-90' : ''}`} aria-hidden="true" />
+                    <span className="min-w-0 truncate">{category.name}</span>
+                  </button>
                 </div>
-                <div className="seg-group seg-plain pt-1.5">
-                  {(category.channels || []).map(channel => {
+                <div className="seg-group seg-plain">
+                  {(category.channels || []).filter(channel => (
+                    // A collapsed category still shows the open channel, like Discord.
+                    !collapsedCategories.has(category.id) || channel.id === props.activeChannel?.id
+                  )).map(channel => {
                     const isActive = props.activeChannel?.id === channel.id
                     const isUnread = !isActive && unreadChannels.has(channel.id)
                     const voiceParticipants = channel.type === 'voice' ? getVoiceParticipantsForChannel(channel.id) : []
@@ -550,8 +531,8 @@ export default function ServersPage(props) {
                       <div
                         key={channel.id}
                         data-selected={isActive || undefined}
-                        className="seg-item long-press-target relative flex-col items-stretch gap-0 p-0"
-                        {...(canManageServer || channel.type !== 'voice' ? bindLongPress({ type: 'channel', item: channel }) : null)}
+                        className="seg-item long-press-target relative min-h-0 flex-col items-stretch gap-0 p-0"
+                        {...bindLongPress({ type: 'channel', item: channel })}
                       >
                         <button
                           type="button"
@@ -563,22 +544,20 @@ export default function ServersPage(props) {
                             tabIndex: channel.id === channelTabStop ? 0 : -1,
                           } : null)}
                           aria-current={isActive ? 'page' : undefined}
-                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2.5 overflow-hidden rounded-[inherit] px-2.5 py-2 pr-7 text-left type-body font-semibold transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
-                          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors ${isActive ? 'border-[var(--theme-base)]/30 bg-[var(--theme-20)] text-[var(--theme-base)]' : channel.type === 'voice' && voiceParticipants.length > 0 ? 'border-green-500/20 bg-green-500/10 text-green-400' : 'border-[var(--border-subtle)] bg-[var(--bg-element)]/60 text-gray-500 group-hover:text-gray-300'}`}>
-                            {channel.type === 'voice' ? <Volume2 size={14} aria-hidden="true" /> : <Hash size={14} aria-hidden="true" />}
+                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2 overflow-hidden rounded-[inherit] px-2 py-1.5 pr-7 text-left type-body font-medium md:min-h-9 transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
+                          <span className={`shrink-0 ${isActive ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>
+                            {channel.type === 'voice' ? <Volume2 size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
                           </span>
                           <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
+                          {channel.is_private && <Lock size={12} className="shrink-0 text-[var(--text-muted)]" aria-label="Private channel" />}
                           {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
                           {/* Gated on unread: the notification row stays unread until the Notifications tab opens. */}
                           {isUnread && mentionedChannels.has(channel.id)
                             ? <AtSign size={14} strokeWidth={3} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--theme-base)]" aria-label="You were mentioned" />
                             : isUnread && <span className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
-                          {channel.type === 'voice' && voiceParticipants.length > 0 && (
-                            <span className="shrink-0 rounded-full border border-green-500/15 bg-green-500/10 px-1.5 py-0.5 font-mono type-meta font-black uppercase tracking-wide text-green-300">{voiceParticipants.length} live</span>
-                          )}
                         </button>
                         {voiceParticipants.length > 0 && (
-                          <div data-no-long-press className="voice-participant-list ml-5 space-y-1 border-l border-green-500/15 px-2 pb-2 pl-3 pt-1">
+                          <div data-no-long-press className="voice-participant-list space-y-0.5 pb-1.5 pl-9 pr-1.5">
                             {voiceParticipants.map(participant => {
                               const hasStream = participant.cameraActive || participant.screenShareActive
                               return (
@@ -586,20 +565,16 @@ export default function ServersPage(props) {
                                   type="button"
                                   key={`${channel.id}-${participant.id}`}
                                   onClick={() => props.onVoiceParticipantSelect?.(participant)}
-                                  className={`flex min-h-8 w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left type-label transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'bg-green-500/10 text-green-200' : participant.muted ? 'text-gray-600' : 'text-gray-400 hover:bg-[var(--bg-base)] hover:text-[var(--text-main)]'}`}
+                                  className={`flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left type-label transition-colors hover:bg-[var(--state-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${participant.speaking ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
                                   title={hasStream ? `Watch ${participant.displayName}` : participant.displayName}
+                                  aria-label={`${participant.displayName}${participant.speaking ? ', speaking' : ''}`}
                                 >
-                                  <StatusAvatar url={participant.avatarUrl} username={participant.displayName} status="online" className="h-6 w-6" />
-                                  <span className="min-w-0 flex-1 truncate font-bold">{participant.displayName}</span>
-                                  <span className="flex h-3 shrink-0 items-end gap-0.5" aria-label={participant.speaking ? 'Speaking' : 'Listening'}>
-                                    {[0.6, 1, 0.75].map((weight, levelIndex) => (
-                                      <span key={`${participant.id}-level-${levelIndex}`} className={`w-0.5 rounded-full transition-[height,background-color] duration-150 ease-out ${participant.speaking ? 'bg-green-400' : 'bg-gray-700'}`} style={{ height: `${Math.max(2, Math.round((participant.voiceLevel || 0) * 12 * weight))}px` }} />
-                                    ))}
+                                  {/* Speaking is the green ring on the avatar, nothing else. */}
+                                  <span className={`shrink-0 rounded-full ring-2 transition-shadow duration-150 ${participant.speaking ? 'ring-green-500' : 'ring-transparent'}`}>
+                                    <StatusAvatar url={participant.avatarUrl} username={participant.displayName} showStatus={false} className="h-6 w-6" />
                                   </span>
-                                  <span className="flex min-w-12 shrink-0 items-center justify-end gap-1 text-gray-500">
-                                    <span className="flex h-3 w-3 items-center justify-center" aria-hidden={!participant.speaking}>
-                                      {participant.speaking && <Volume2 size={12} aria-label="Speaking" />}
-                                    </span>
+                                  <span className="min-w-0 flex-1 truncate font-medium">{participant.displayName}</span>
+                                  <span className="flex shrink-0 items-center gap-1 text-[var(--text-muted)]">
                                     {participant.muted && <MicOff size={12} aria-label="Muted" />}
                                     {participant.deafened && <VolumeX size={12} aria-label="Deafened" />}
                                     {participant.cameraActive && <Camera size={12} aria-label="Camera active" />}
@@ -613,7 +588,7 @@ export default function ServersPage(props) {
                       </div>
                     )
                   })}
-                  {(category.channels || []).length === 0 && (
+                  {(category.channels || []).length === 0 && !collapsedCategories.has(category.id) && (
                     <div className="rounded-xl border border-dashed border-[var(--border-subtle)] px-3 py-3 text-center">
                       <p className="type-label text-gray-500">No channels in this category</p>
                       {canManageServer && (
@@ -693,8 +668,8 @@ export default function ServersPage(props) {
         <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
           <form onSubmit={handleJoinServer} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
             <h2 className="type-title font-bold text-[var(--text-main)]">Join a server</h2>
-            <p className="mb-4 mt-1 type-label text-[var(--text-muted)]">Enter the invite code shared with you.</p>
-            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 uppercase text-[var(--text-main)] outline-none" placeholder="Invite code" autoFocus />
+            <p className="mb-4 mt-1 type-label text-[var(--text-muted)]">Paste the invite link or code someone shared with you.</p>
+            <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="https://…/invite/AB12CD34EF56" aria-label="Invite link or code" autoFocus />
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={closeJoinModal} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
               <button type="submit" className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)]">Join</button>
@@ -770,6 +745,28 @@ export default function ServersPage(props) {
         </div>
       )}
 
+      {settingsServer && (
+        <ServerSettings
+          server={settingsServer}
+          categories={props.serverCategories || []}
+          members={props.serverMembers || []}
+          canManage={canManageServer}
+          onEditServer={() => { setSettingsServer(null); openEditServerItemModal('server', settingsServer) }}
+          onInvite={() => props.onInvite?.(settingsServer)}
+          onEditChannel={channel => setEditingChannel(channel)}
+          onClose={() => setSettingsServer(null)}
+        />
+      )}
+      {editingChannel && (
+        <ChannelEditor
+          channel={editingChannel}
+          members={props.serverMembers || []}
+          currentUserId={props.session?.user?.id}
+          appThemeMode={props.appThemeMode}
+          onSaved={() => props.onChannelsChanged?.()}
+          onClose={() => setEditingChannel(null)}
+        />
+      )}
       <input ref={serverIconInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" onChange={selectServerIcon} className="hidden" />
       {serverIconFile && (
         <Suspense fallback={null}>
@@ -800,11 +797,12 @@ export default function ServersPage(props) {
               Icon: sheetServerLevel === 'none' ? BellOff : sheetServerLevel === 'mentions' ? AtSign : Bell,
               onSelect: () => setSheetServerNotificationLevel(sheetServer, NOTIFICATION_LEVELS[sheetServerLevel].next)
             },
-            { label: 'Add members', Icon: UserPlus, onSelect: () => copyInviteCode(sheetServer) },
+            { label: 'Invite people', Icon: UserPlus, onSelect: () => props.onInvite?.(sheetServer) },
             /* Channel/category/edit mutations target Dashboard's activeServer, so
                they only appear for the server that is open. RLS still gates them. */
             isSheetActive && canManageServer && { label: 'Create category', Icon: FolderPlus, onSelect: () => setIsCategoryModalOpen(true) },
             isSheetActive && canManageServer && { label: 'Create channel', Icon: Hash, onSelect: () => openChannelModal(firstCategoryId) },
+            isSheetActive && { label: 'Server settings', Icon: Settings, onSelect: () => setSettingsServer(sheetServer) },
             isSheetActive && canManageServer && { label: 'Edit server', Icon: Pencil, onSelect: () => openEditServerItemModal('server', sheetServer) },
             /* Deleting is the owner's alone — the delete_server RPC raises for
                anyone else, so an admin gets Leave instead of a button that fails. */
@@ -830,11 +828,14 @@ export default function ServersPage(props) {
             { label: 'Edit category', Icon: Pencil, onSelect: () => openEditServerItemModal('category', serverItemSheet.item) },
             { label: 'Delete category', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('category', serverItemSheet.item) }
           ] : [
+            serverItemSheet.item.type === 'voice'
+              ? { label: 'Invite to voice', Icon: UserPlus, onSelect: () => props.onInvite?.(props.activeServer, serverItemSheet.item) }
+              : { label: 'Invite people', Icon: UserPlus, onSelect: () => props.onInvite?.(props.activeServer) },
             // Voice channels carry no read pointer, so they get no read toggle.
             serverItemSheet.item.type !== 'voice' && (unreadChannels.has(serverItemSheet.item.id)
               ? { label: 'Mark as read', Icon: CheckCheck, onSelect: () => props.setChannelRead(serverItemSheet.item, true) }
               : { label: 'Mark as unread', Icon: MailOpen, onSelect: () => props.setChannelRead(serverItemSheet.item, false) }),
-            canManageServer && { label: 'Edit channel', Icon: Pencil, onSelect: () => openEditServerItemModal('channel', serverItemSheet.item) },
+            canManageServer && { label: 'Channel settings', Icon: Pencil, onSelect: () => setEditingChannel(serverItemSheet.item) },
             canManageServer && { label: 'Delete channel', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('channel', serverItemSheet.item) }
           ]}
         />

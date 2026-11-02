@@ -321,7 +321,7 @@ export default function RightSidebar({
     <>
       <div data-ui-overlay-owner="RightSidebar:backdrop" className="fixed inset-0 z-40 bg-[var(--bg-deep)]/20 backdrop-blur-[2px] animate-fade-in cursor-pointer transition-all duration-300 ease-out transform xl:hidden" onClick={closeRightSidebar}></div>
       
-      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform xl:relative xl:inset-y-auto xl:z-20 xl:h-full xl:w-80 xl:max-w-none xl:shadow-none xl:backdrop-blur-none xl:overflow-hidden xl:rounded-2xl xl:border xl:border-[var(--chat-border)] 2xl:w-96" style={scopedChatStyle}>
+      <aside className="right-sidebar-panel fixed right-0 top-[env(safe-area-inset-top)] bottom-[env(safe-area-inset-bottom)] z-50 w-[min(22rem,92vw)] bg-[var(--chat-bg-surface)] border-l border-[var(--chat-border)] flex flex-col shrink-0 shadow-[-20px_0_56px_rgba(0,0,0,0.42)] backdrop-blur-xl animate-slide-right transition-all duration-300 ease-out transform xl:relative xl:inset-y-auto xl:z-20 xl:h-full xl:w-80 xl:max-w-none xl:shadow-none xl:backdrop-blur-none xl:overflow-hidden xl:border-l xl:border-[var(--chat-border)] 2xl:w-96" style={scopedChatStyle}>
         
         {showsInfo && activeServer && !activeDm && (
           <div className="relative flex h-full flex-col overflow-hidden">

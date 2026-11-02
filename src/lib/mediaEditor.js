@@ -38,8 +38,58 @@ export function normalizeMediaEdits(edits = {}) {
     brightness: clampMediaValue(edits.brightness || 100, 50, 150),
     saturation: clampMediaValue(edits.saturation || 100, 0, 200),
     hue: clampMediaValue(edits.hue, -180, 180),
-    strokes: Array.isArray(edits.strokes) ? edits.strokes : []
+    strokes: Array.isArray(edits.strokes) ? edits.strokes : [],
+    texts: Array.isArray(edits.texts) ? edits.texts.filter(item => String(item?.text || '').trim()) : [],
+    // Video only: seconds into the clip; trimEnd null means "to the end".
+    trimStart: Math.max(0, Number(edits.trimStart) || 0),
+    trimEnd: Number.isFinite(Number(edits.trimEnd)) && edits.trimEnd !== null ? Math.max(0, Number(edits.trimEnd)) : null,
+    muted: Boolean(edits.muted)
   }
+}
+
+/* Text sizes are fractions of the frame's shorter side, so a caption keeps its
+   proportion from the small preview to the full-size export. */
+export const TEXT_SIZE = 0.07
+
+export function drawMediaTexts(context, texts, width, height) {
+  const base = Math.min(width, height)
+  for (const item of texts || []) {
+    const text = String(item?.text || '').trim()
+    if (!text) continue
+    const size = Math.max(8, (Number(item.size) || TEXT_SIZE) * base)
+    context.save()
+    context.font = `700 ${size}px system-ui, -apple-system, "Segoe UI", sans-serif`
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.lineJoin = 'round'
+    // A dark outline keeps white text readable on a bright photo and vice versa.
+    context.lineWidth = Math.max(2, size * 0.14)
+    context.strokeStyle = item.color === '#000000' ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)'
+    const x = clampMediaValue(item.x, 0, 1) * width
+    const lines = text.split('\n')
+    lines.forEach((line, index) => {
+      const y = clampMediaValue(item.y, 0, 1) * height + (index - (lines.length - 1) / 2) * size * 1.15
+      context.strokeText(line, x, y)
+      context.fillStyle = item.color || '#ffffff'
+      context.fillText(line, x, y)
+    })
+    context.restore()
+  }
+}
+
+/** True when a video edit changes nothing, so the original file can be sent as is. */
+export function isUntouchedVideoEdit(edits, duration) {
+  const normalized = normalizeMediaEdits(edits)
+  const end = normalized.trimEnd
+  return normalized.aspect === 'original'
+    && normalized.rotation === 0
+    && normalized.zoom === 1
+    && normalized.offsetX === 0
+    && normalized.offsetY === 0
+    && normalized.texts.length === 0
+    && !normalized.muted
+    && normalized.trimStart <= 0.05
+    && (end === null || !Number.isFinite(duration) || end >= duration - 0.05)
 }
 
 export function drawEditedMediaFrame(context, source, edits, width, height) {
@@ -82,6 +132,8 @@ export function drawEditedMediaFrame(context, source, edits, width, height) {
     context.stroke()
     context.restore()
   }
+
+  drawMediaTexts(context, normalized.texts, width, height)
 }
 
 const waitForMediaEvent = (target, eventName, errorName = 'error') => new Promise((resolve, reject) => {
@@ -150,7 +202,13 @@ export async function createEditedVideoFile(file, edits, options = {}) {
   try {
     await waitForMediaEvent(video, 'loadedmetadata')
     if (!Number.isFinite(video.duration) || video.duration <= 0) throw new Error('The video duration is unavailable.')
-    if (video.duration > (options.maxDuration || 90)) throw new Error('Video cropping currently supports clips up to 90 seconds.')
+    // Nothing to change: send the original rather than a slower re-encode.
+    if (isUntouchedVideoEdit(edits, video.duration)) return file
+    const normalized = normalizeMediaEdits(edits)
+    const clipStart = Math.min(normalized.trimStart, video.duration)
+    const clipEnd = Math.min(normalized.trimEnd ?? video.duration, video.duration)
+    if (clipEnd - clipStart < 0.3) throw new Error('The trimmed clip is too short.')
+    if (clipEnd - clipStart > (options.maxDuration || 90)) throw new Error('Edited videos can be up to 90 seconds. Trim it shorter.')
     const { width, height } = getMediaOutputSize({
       sourceWidth: video.videoWidth,
       sourceHeight: video.videoHeight,
@@ -163,7 +221,7 @@ export async function createEditedVideoFile(file, edits, options = {}) {
     const context = canvas.getContext('2d', { alpha: false })
     const outputStream = canvas.captureStream(options.frameRate || 30)
     const sourceStream = video.captureStream?.()
-    sourceStream?.getAudioTracks?.().forEach(track => outputStream.addTrack(track))
+    if (!normalized.muted) sourceStream?.getAudioTracks?.().forEach(track => outputStream.addTrack(track))
     const mimeType = getSupportedEditedVideoType()
     if (!mimeType) throw new Error('This browser cannot export an edited video.')
     const recorder = new MediaRecorder(outputStream, {
@@ -179,20 +237,29 @@ export async function createEditedVideoFile(file, edits, options = {}) {
       recorder.onerror = () => reject(new Error('The edited video could not be encoded.'))
     })
     let frameHandle = null
+    let finishClip = null
+    const clipDone = new Promise(resolve => { finishClip = resolve })
     const drawFrame = () => {
       drawEditedMediaFrame(context, video, { ...edits, strokes: [] }, width, height)
-      options.onProgress?.(Math.min(1, video.currentTime / video.duration))
-      if (!video.ended && !video.paused) {
+      options.onProgress?.(Math.min(1, Math.max(0, (video.currentTime - clipStart) / (clipEnd - clipStart))))
+      if (video.ended || video.currentTime >= clipEnd) {
+        video.pause()
+        finishClip()
+        return
+      }
+      if (!video.paused) {
         frameHandle = video.requestVideoFrameCallback
           ? video.requestVideoFrameCallback(drawFrame)
           : requestAnimationFrame(drawFrame)
       }
     }
+    video.currentTime = clipStart
+    if (clipStart > 0) await waitForMediaEvent(video, 'seeked')
+    video.addEventListener('ended', () => finishClip(), { once: true })
     recorder.start(500)
-    video.currentTime = 0
     await video.play()
     drawFrame()
-    await waitForMediaEvent(video, 'ended')
+    await clipDone
     if (video.cancelVideoFrameCallback && frameHandle) video.cancelVideoFrameCallback(frameHandle)
     else if (frameHandle) cancelAnimationFrame(frameHandle)
     recorder.stop()
@@ -201,7 +268,7 @@ export async function createEditedVideoFile(file, edits, options = {}) {
     const blob = new Blob(chunks, { type: mimeType.split(';')[0] })
     if (!blob.size) throw new Error('The edited video is empty.')
     const baseName = String(file.name || 'video').replace(/\.[^.]+$/, '')
-    return new File([blob], `${baseName}-cropped.webm`, { type: 'video/webm', lastModified: Date.now() })
+    return new File([blob], `${baseName}-edited.webm`, { type: 'video/webm', lastModified: Date.now() })
   } finally {
     video.pause()
     video.removeAttribute('src')
