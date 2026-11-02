@@ -6,14 +6,18 @@
 // Credentials are computed locally using coturn's time-limited REST API
 // scheme (see helpers.js), so no third-party credential API is called.
 //
-// TURN_HOST and TURN_SHARED_SECRET are REQUIRED — there is deliberately no
+// TURN_HOST plus either TURN_SHARED_SECRET (short-lived credentials) or
+// TURN_USERNAME + TURN_PASSWORD (fixed credentials from a provider dashboard,
+// such as ExpressTURN's free plan) are REQUIRED. Fixed credentials are visible to
+// every signed-in client; rotate them in the provider dashboard if they leak.
+// Set TURN_TLS_PORT=off when the relay has no TLS port. There is deliberately no
 // built-in default relay. The Open Relay Project endpoints this previously
 // defaulted to (openrelay.metered.ca / staticauth.openrelay.metered.ca) were
 // verified unreachable: they answer neither a STUN binding request nor a TURN
 // Allocate, so they would hand clients credentials for a dead host and leave
 // calls stuck in "connecting". Point these at a relay you control or a
 // provider account — see infra/coturn/README.md.
-import { buildIceServers, buildTurnCredential } from './helpers.js'
+import { buildIceServers, resolveTurnCredential } from './helpers.js'
 
 // Browsers preflight this function with OPTIONS because supabase-js sends an
 // Authorization header. Without these headers (and a 2xx OPTIONS reply) the
@@ -42,19 +46,27 @@ Deno.serve(async request => {
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
 
   const turnHost = Deno.env.get('TURN_HOST')?.trim()
-  const sharedSecret = Deno.env.get('TURN_SHARED_SECRET')?.trim()
-  if (!turnHost || !sharedSecret) {
+  const notConfigured = () => {
     // Fail loudly rather than issuing credentials for a relay that isn't set
     // up; the client degrades to STUN-only and logs why.
     logEvent('TURN_CREDENTIALS', { status: 'not_configured' })
-    return jsonResponse({ error: 'TURN relay is not configured (set TURN_HOST and TURN_SHARED_SECRET)' }, 503)
+    return jsonResponse({ error: 'TURN relay is not configured (set TURN_HOST and TURN_SHARED_SECRET, or TURN_USERNAME and TURN_PASSWORD)' }, 503)
   }
+  if (!turnHost) return notConfigured()
 
   try {
     const turnPort = envOrDefault('TURN_PORT', '3478')
-    const turnTlsPort = envOrDefault('TURN_TLS_PORT', '5349')
+    const tlsSetting = envOrDefault('TURN_TLS_PORT', '5349')
+    const turnTlsPort = tlsSetting.toLowerCase() === 'off' ? null : tlsSetting
 
-    const { username, credential } = await buildTurnCredential({ secret: sharedSecret, ttlSeconds: TTL_SECONDS })
+    const resolved = await resolveTurnCredential({
+      sharedSecret: Deno.env.get('TURN_SHARED_SECRET')?.trim(),
+      username: Deno.env.get('TURN_USERNAME')?.trim(),
+      password: Deno.env.get('TURN_PASSWORD')?.trim(),
+      ttlSeconds: TTL_SECONDS
+    })
+    if (!resolved) return notConfigured()
+    const { username, credential } = resolved
     const iceServers = buildIceServers({ host: turnHost, port: turnPort, tlsPort: turnTlsPort, username, credential })
 
     logEvent('TURN_CREDENTIALS', { status: 'issued', host: turnHost, ttlSeconds: TTL_SECONDS })
