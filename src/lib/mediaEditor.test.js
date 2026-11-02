@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getMediaOutputSize, normalizeMediaEdits, resolveMediaAspect } from './mediaEditor.js'
+import { getMediaOutputSize, isUntouchedVideoEdit, normalizeMediaEdits, resolveMediaAspect } from './mediaEditor.js'
 
 test('profile crop produces a high-resolution square', () => {
   assert.deepEqual(getMediaOutputSize({
@@ -38,6 +38,32 @@ test('editor values are normalized to safe rendering bounds', () => {
     brightness: 50,
     saturation: 200,
     hue: 180,
-    strokes: []
+    strokes: [],
+    texts: [],
+    trimStart: 0,
+    trimEnd: null,
+    muted: false
   })
+})
+
+test('blank captions are dropped and trims are kept non-negative', () => {
+  const normalized = normalizeMediaEdits({
+    texts: [{ text: '  ' }, { text: 'hi', x: 0.5, y: 0.5 }],
+    trimStart: -3,
+    trimEnd: 4.5,
+    muted: 1
+  })
+  assert.deepEqual(normalized.texts, [{ text: 'hi', x: 0.5, y: 0.5 }])
+  assert.equal(normalized.trimStart, 0)
+  assert.equal(normalized.trimEnd, 4.5)
+  assert.equal(normalized.muted, true)
+})
+
+test('an untouched video edit sends the original file', () => {
+  assert.equal(isUntouchedVideoEdit({}, 12), true)
+  assert.equal(isUntouchedVideoEdit({ trimEnd: 12 }, 12), true)
+  assert.equal(isUntouchedVideoEdit({ trimEnd: 8 }, 12), false)
+  assert.equal(isUntouchedVideoEdit({ muted: true }, 12), false)
+  assert.equal(isUntouchedVideoEdit({ texts: [{ text: 'hey' }] }, 12), false)
+  assert.equal(isUntouchedVideoEdit({ rotation: 90 }, 12), false)
 })

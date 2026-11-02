@@ -5115,3 +5115,58 @@ iframe {
   outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
+
+/* ── Media editor ─────────────────────────────────────────────────────────
+   The stage keeps the crop's aspect inside whatever room the screen leaves;
+   it is itself a size container so captions scale with the picture. */
+.media-editor-area {
+  container-type: size;
+}
+
+.media-editor-stage {
+  width: min(100cqw, calc(100cqh * var(--media-aspect, 1)));
+  aspect-ratio: var(--media-aspect, 1);
+  container-type: size;
+}
+
+.media-editor-caption {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  touch-action: none;
+}
+
+/* Two range inputs share one track: only their thumbs take the pointer. */
+.media-trim-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+.media-trim-input::-webkit-slider-thumb {
+  height: 1.5rem;
+  width: 0.75rem;
+  appearance: none;
+  border-radius: 0.25rem;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.media-trim-input::-moz-range-thumb {
+  height: 1.5rem;
+  width: 0.75rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: #fff;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.media-trim-input:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
