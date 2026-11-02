@@ -2844,8 +2844,11 @@ export default function Dashboard({ session }) {
 
                     toast.success('Keys restored! Reloading system...');
                     setTimeout(() => keyStore.flush().then(() => window.location.reload()), 1000);
-                  } catch (_e) {
-                    toast.error('Incorrect PIN. Please try again.');
+                  } catch (e) {
+                    // Only a failed decrypt means a wrong PIN; surface load/backup errors as they are.
+                    debug.error('PIN_RECOVERY', e);
+                    const wrongPin = e?.message === 'Incorrect PIN' || e?.message === 'Decryption failed' || e?.name === 'OperationError';
+                    toast.error(wrongPin ? 'Incorrect PIN. Please try again.' : `Could not unlock: ${e?.message || e}`);
                   }
                 }}
                 className="premium-button w-full py-4 font-bold cursor-pointer"
