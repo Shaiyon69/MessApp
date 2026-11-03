@@ -151,6 +151,8 @@ export default function ChatArea(props) {
   // A thread belongs to one channel; leaving the channel closes it.
   useEffect(() => { setOpenThreadId(null) }, [activeChatKey])
   const isInitialPositionReady = positionedChatKey === activeChatKey
+  // Loading has no scroll position to wait for, so the skeleton shows at once.
+  const showMessageSkeleton = props.messagesLoading && props.visibleMessages.length === 0
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
   const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
   // Occupancy comes from server-wide presence so an unjoined channel still
@@ -1257,7 +1259,7 @@ useEffect(() => {
                 role="log"
                 aria-label={props.view === 'home' ? `Messages with ${props.activeDm?.profiles?.username || 'this conversation'}` : `Messages in #${props.activeChannel?.name || 'this channel'}`}
                 onScroll={props.handleScroll}
-                style={{ ...messageListStyle, visibility: isInitialPositionReady ? 'visible' : 'hidden' }}
+                style={{ ...messageListStyle, visibility: isInitialPositionReady || showMessageSkeleton ? 'visible' : 'hidden' }}
                 data-call-minimized={props.isCallMinimized ? 'true' : undefined}
               >
                 {props.isLoadingMore && (
@@ -1265,8 +1267,8 @@ useEffect(() => {
                     <Loader2 className="animate-spin text-[var(--theme-base)]" size={24} />
                   </div>
                 )}
-                {props.messagesLoading && props.visibleMessages.length === 0 && (
-                  <div className="flex min-h-full flex-col justify-end gap-4 pb-6" aria-label="Loading messages">
+                {showMessageSkeleton && (
+                  <div className="flex h-full min-h-0 flex-col justify-end gap-4 overflow-hidden pb-6" aria-label="Loading messages">
                     {Array.from({ length: 7 }, (_, index) => {
                       const isOwn = index % 3 === 1
                       return (

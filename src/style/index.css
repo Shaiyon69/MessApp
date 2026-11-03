@@ -1322,19 +1322,31 @@ iframe {
      the type scale below to respect it. Density shifts that base rather than
      replacing it. */
   html {
-    font-size: 100%;
+    --ui-density: 1;
+    --ui-screen-scale: 1;
+    font-size: calc(100% * var(--ui-density) * var(--ui-screen-scale));
   }
 
   html[data-ui-density="compact"] {
-    font-size: 93.75%;
-  }
-
-  html[data-ui-density="default"] {
-    font-size: 100%;
+    --ui-density: 0.9375;
   }
 
   html[data-ui-density="spacious"] {
-    font-size: 106.25%;
+    --ui-density: 1.0625;
+  }
+
+  /* Sizes are rem, so on big monitors the whole UI grows with the root instead
+     of sitting at laptop size. Gated on height too, so ultrawides do not grow. */
+  @media (min-width: 1920px) and (min-height: 1000px) {
+    html {
+      --ui-screen-scale: 1.0625;
+    }
+  }
+
+  @media (min-width: 2560px) and (min-height: 1300px) {
+    html {
+      --ui-screen-scale: 1.1875;
+    }
   }
   
   body {
@@ -1361,10 +1373,20 @@ iframe {
     text-wrap: pretty;
   }
 
+  /* A fenced block without a language renders as a bare pre; long lines scroll
+     inside the bubble instead of running past the message list's clip. */
+  .markdown-body pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
   #root {
     width: 100%;
     max-width: 100vw;
     height: 100vh;
+    /* Phone browsers make 100vh the height with the address bar hidden, which
+       pushes the dock and composer under it; dvh tracks the visible area. */
+    height: 100dvh;
     display: flex;
     overflow: hidden;
     background: var(--bg-base);
@@ -2773,6 +2795,21 @@ iframe {
     transform 160ms var(--m3-standard) calc((var(--n) - var(--k)) * 20ms),
     opacity 120ms linear calc((var(--n) - var(--k)) * 20ms),
     background-color 150ms ease;
+}
+
+/* Narrow screens: a centred row of four runs under the trigger (overlap
+   starts near 344px), so the row docks just left of the trigger instead.
+   Icon --k then sits k * 3.5rem left of the trigger's centre.
+   22.5rem = 2 * (4.5rem trigger lane + half of a 4-icon row - 0.25rem). */
+@container (max-width: 22.5rem) {
+  .quick-actions-row {
+    margin-left: auto;
+    margin-right: 4.5rem;
+  }
+
+  .quick-action {
+    transform: translateX(calc(var(--k) * 3.5rem)) scale(0.4);
+  }
 }
 
 .quick-action[data-open] {

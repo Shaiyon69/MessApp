@@ -27,7 +27,7 @@ export default function QuickActionsFab({ onSearch, onAddFriend, onCreateServer,
           unfurls out of. */}
       {/* lifted: Friends' input island fills --dock-space, so sit above it. */}
       <div className={`quick-actions pointer-events-none absolute inset-x-0 ${lifted ? 'bottom-[calc(var(--dock-space)+var(--dock-island))]' : 'bottom-[var(--dock-space)]'} z-50 flex h-12 items-center justify-center md:bottom-4`}>
-        <div className="flex gap-2">
+        <div className="quick-actions-row flex gap-2">
         {/* Always mounted so closing can play in reverse; inert keeps the
             folded icons out of the tab order and away from screen readers.
             --k counts out from the trigger: it sets each icon's travel and
