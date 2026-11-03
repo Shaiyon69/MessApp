@@ -1559,7 +1559,7 @@ export const MemoizedMessage = React.memo(({
                   requestAnimationFrame(() => actionMenuRef.current?.querySelector('button')?.focus())
                 }
               }}
-              className={`message-touch-target relative flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[min(72vw,36rem)] sm:max-w-[min(68vw,38rem)] shrink-0 min-w-0 cursor-pointer md:cursor-default ${isActionMenuOpen ? 'message-action-selected' : ''}`}
+              className={`message-touch-target relative flex flex-col ${alignRight ? 'items-end' : 'items-start'} max-w-[min(72vw,36rem)] sm:max-w-[min(68vw,38rem)] min-w-0 cursor-pointer md:cursor-default ${isActionMenuOpen ? 'message-action-selected' : ''}`}
               style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined }}
               onPointerDown={handlePointerDown}
               onPointerUp={handlePointerEndOrCancel}

@@ -6,7 +6,7 @@
  * canManageServer checks below are convenience, never the security boundary.
  */
 import React, { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
-import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronDown, ChevronLeft, Lock, Settings, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, MoreVertical, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
+import { AtSign, Bell, BellOff, Camera, CheckCheck, ChevronDown, ChevronLeft, Lock, Settings, FolderPlus, Gamepad2, GraduationCap, Hash, ImagePlus, LogOut, MailOpen, MicOff, MonitorUp, Pencil, Pin, PinOff, Plus, Sparkles, Trash2, UserPlus, Volume2, VolumeX, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
 import toast from 'react-hot-toast'
@@ -23,6 +23,9 @@ import { debug } from '../../lib/debug'
 import { parseInviteCode } from '../../lib/invites'
 import ServerSettings from '../modals/ServerSettings'
 import ChannelEditor from '../modals/ChannelEditor'
+import Switch from '../ui/Switch'
+import AccessPicker, { accessToIds, emptyAccess } from '../ui/AccessPicker'
+import { categoryOverwrites, isPrivate } from '../../lib/channelPermissions'
 
 // Same flag and table as RightSidebar's mute button; separate instance, same rows.
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
@@ -31,6 +34,11 @@ const serverNotificationPreferences = createServerNotificationPreferencesReposit
 
 // Only mounts while cropping a server icon — kept out of the boot bundle.
 const MediaEditorModal = lazy(() => import('../media/MediaEditorModal'))
+
+const CHANNEL_TYPES = [
+  { id: 'text', label: 'Text', description: 'Send messages, images, files and polls', Icon: Hash },
+  { id: 'voice', label: 'Voice', description: 'Talk, share video and screens', Icon: Volume2 }
+]
 
 const SERVER_PRESET_OPTIONS = [
   { ...SERVER_PRESETS.gaming, Icon: Gamepad2, accent: 'text-indigo-300', active: 'border-indigo-400/70 bg-indigo-500/15' },
@@ -54,6 +62,9 @@ export default function ServersPage(props) {
   const [channelName, setChannelName] = useState('')
   const [channelType, setChannelType] = useState('text')
   const [isCreatingChannel, setIsCreatingChannel] = useState(false)
+  // Private toggle and who gets in, shared by the create-channel and create-category dialogs.
+  const [createPrivate, setCreatePrivate] = useState(false)
+  const [createAccess, setCreateAccess] = useState(emptyAccess)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [isCreatingCategory, setIsCreatingCategory] = useState(false)
@@ -70,9 +81,6 @@ export default function ServersPage(props) {
      confirmLabel, run }`, cleared when the prompt closes. */
   const [dangerPrompt, setDangerPrompt] = useState(null)
   const [isRunningDangerAction, setIsRunningDangerAction] = useState(false)
-  const [editingServerItem, setEditingServerItem] = useState(null)
-  const [editingServerItemName, setEditingServerItemName] = useState('')
-  const [isSavingServerItem, setIsSavingServerItem] = useState(false)
   /* Icon edits stage locally: the picked file goes through the editor, the
      upload returns a URL, and only the sheet's Save writes it to the server.
      `''` means "cleared" so it stays distinguishable from "untouched" (null). */
@@ -164,26 +172,15 @@ export default function ServersPage(props) {
     setChannelName('')
     setChannelType('text')
     setIsCreatingChannel(false)
+    setCreatePrivate(false)
+    setCreateAccess(emptyAccess())
   }
   const closeCategoryModal = () => {
     setIsCategoryModalOpen(false)
     setCategoryName('')
     setIsCreatingCategory(false)
-  }
-  const closeEditServerItemModal = () => {
-    setEditingServerItem(null)
-    setEditingServerItemName('')
-    setIsSavingServerItem(false)
-    clearStagedServerIcon()
-  }
-  const openEditServerItemModal = (type, item) => {
-    if (!canManageServer) return toast.error(type === 'server' ? 'Only server admins can edit this server.' : 'Only server admins can manage channels.')
-    if (!item) return
-    setServerItemSheet(null)
-    setSheetServer(null)
-    clearStagedServerIcon()
-    setEditingServerItem({ type, item })
-    setEditingServerItemName(item.name || '')
+    setCreatePrivate(false)
+    setCreateAccess(emptyAccess())
   }
   const openChannelModal = (categoryId) => {
     if (!canManageServer) return toast.error('Only server admins can add channels.')
@@ -191,7 +188,37 @@ export default function ServersPage(props) {
     setChannelModalCategoryId(categoryId)
     setChannelName('')
     setChannelType('text')
+    setCreatePrivate(false)
+    setCreateAccess(emptyAccess())
   }
+
+  const channelModalCategory = (props.serverCategories || []).find(category => category.id === channelModalCategoryId)
+
+  /* The private switch and picker. Off for a channel means synced: it takes
+     its category's permissions, whatever they are now or later. */
+  const createPrivacySection = (kind, categoryName) => (
+    <section className="mt-4">
+      <div className="flex items-start gap-3">
+        <Lock size={18} className="mt-0.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="type-body font-semibold text-[var(--text-main)]">{kind === 'channel' ? 'Private channel' : 'Private category'}</p>
+          <p className="type-label text-[var(--text-muted)]">
+            {createPrivate
+              ? 'Only the roles and members you pick, plus owners and admins, can see it.'
+              : kind === 'channel'
+                ? `Synced with ${categoryName || 'the category'}: it follows the category's permissions.`
+                : 'Everyone in the server can see it. Synced channels inside follow these permissions.'}
+          </p>
+        </div>
+        <Switch checked={createPrivate} onChange={setCreatePrivate} label={kind === 'channel' ? 'Private channel' : 'Private category'} />
+      </div>
+      {createPrivate && (
+        <div className="mt-3">
+          <AccessPicker roles={props.serverPermissions?.roles || []} members={props.serverMembers || []} value={createAccess} onChange={setCreateAccess} />
+        </div>
+      )}
+    </section>
+  )
 
   const openServer = (server) => {
     setPanelView('detail')
@@ -311,7 +338,13 @@ export default function ServersPage(props) {
     if (!channelName.trim()) return toast.error('Enter a channel name')
     setIsCreatingChannel(true)
     try {
-      const channel = await props.handleCreateChannel?.({ name: channelName, type: channelType, category_id: channelModalCategoryId, server_id: props.activeServer?.id })
+      const channel = await props.handleCreateChannel?.({
+        name: channelName,
+        type: channelType,
+        category_id: channelModalCategoryId,
+        server_id: props.activeServer?.id,
+        access: createPrivate ? accessToIds(createAccess) : null
+      })
       if (!channel) throw new Error('Channel was not created')
       closeChannelModal()
       toast.success('Channel created')
@@ -328,7 +361,7 @@ export default function ServersPage(props) {
     if (!categoryName.trim()) return toast.error('Enter a category name')
     setIsCreatingCategory(true)
     try {
-      const category = await props.handleCreateCategory?.(categoryName)
+      const category = await props.handleCreateCategory?.(categoryName, createPrivate ? accessToIds(createAccess) : null)
       if (!category) throw new Error('Category was not created')
       closeCategoryModal()
       toast.success('Category created')
@@ -336,47 +369,6 @@ export default function ServersPage(props) {
       debug.error('SERVER_ADMIN', { operation: 'create-category', error })
       setIsCreatingCategory(false)
       toast.error('Could not create category')
-    }
-  }
-
-  const handleEditServerItemSubmit = async (e) => {
-    e.preventDefault()
-    const isServerEdit = editingServerItem?.type === 'server'
-    if (!canManageServer) return toast.error(isServerEdit ? 'Only server admins can edit this server.' : 'Only server admins can manage channels.')
-    const name = editingServerItemName.trim()
-    if (!editingServerItem || !name) return toast.error('Enter a name')
-    setIsSavingServerItem(true)
-    try {
-      if (isServerEdit) {
-        /* `''` is a deliberate clear; `null` means the icon was left alone. */
-        const iconUrl = stagedServerIcon === null ? editingServerItem.item.icon_url : stagedServerIcon
-        const previousIconUrl = editingServerItem.item.icon_url
-        const updated = await saveServerDetails(editingServerItem.item.id, name, iconUrl)
-        /* Only after the save lands: a failed RPC must leave the live picture
-           where it is. */
-        if (previousIconUrl && previousIconUrl !== updated?.icon_url) await deleteAvatarImage(supabase, previousIconUrl)
-        /* The RPC returns a bare servers row — merge so the server_members join
-           Dashboard loaded survives, or an admin loses manage rights until the
-           next fetch. */
-        props.setActiveServer?.({ ...editingServerItem.item, ...updated })
-        await props.fetchServers?.()
-        closeEditServerItemModal()
-        toast.success('Server updated')
-        return
-      }
-      if (editingServerItem.type === 'category') {
-        await props.handleUpdateCategory?.(editingServerItem.item.id, name)
-        toast.success('Category updated')
-      } else {
-        await props.handleUpdateChannel?.(editingServerItem.item.id, name)
-        toast.success('Channel updated')
-      }
-      closeEditServerItemModal()
-    } catch (error) {
-      debug.error('SERVER_ADMIN', { operation: 'update-server-item', error })
-      setIsSavingServerItem(false)
-      if (isServerEdit) toast.error('Could not update server')
-      else toast.error(editingServerItem.type === 'category' ? 'Could not update category' : 'Could not update channel')
     }
   }
 
@@ -446,8 +438,8 @@ export default function ServersPage(props) {
           <div className="seg-group seg-plain">
             {props.serversLoading && props.servers.length === 0 && Array.from({ length: 4 }, (_, index) => (
               <div key={`server-skeleton-${index}`} className="flex min-h-16 items-center gap-3.5 rounded-2xl px-3" aria-hidden="true">
-                <span className="skeleton h-11 w-11 rounded-xl" />
-                <span className="skeleton h-3 w-32 rounded-full" />
+                <span className="skeleton h-11 w-11 shrink-0 rounded-xl" />
+                <span className="skeleton h-3 w-32 max-w-[60%] rounded-full" />
               </div>
             ))}
             {servers.map((server, i) => (
@@ -480,18 +472,16 @@ export default function ServersPage(props) {
               heading for everything under it, so it stays pinned to the top while
               channels scroll beneath. */}
           <div className="sticky top-0 z-20 -mx-4 mb-1 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 md:-mx-2 md:px-3">
-            <div className="relative flex min-h-14 items-center gap-2 py-2 md:min-h-12 md:py-1">
-              {/* The desktop rail already lists every server, so only phones need the way back. */}
-              <button type="button" onClick={() => setPanelView('list')} className="flex md:hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+            {/* One header button (not invite + menu) so the name has room; right-click or long-press opens the same menu. */}
+            <div className="long-press-target relative flex min-h-14 items-center gap-2 py-2 md:min-h-12 md:gap-1.5 md:py-1" {...(props.activeServer ? bindServerLongPress(props.activeServer) : null)}>
+              <button type="button" data-no-long-press onClick={() => setPanelView('list')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:h-8 md:w-8" aria-label="Back to servers" title="All servers">
                 <ChevronLeft size={19} aria-hidden="true" />
               </button>
-              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl md:hidden" />
-              <h3 className="min-w-0 flex-1 truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
-              <button type="button" onClick={() => props.onInvite?.(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:h-9 md:w-9" aria-label="Invite people" title="Invite people">
-                <UserPlus size={17} aria-hidden="true" />
-              </button>
-              <button type="button" onClick={() => setSheetServer(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Server menu" title="Server menu">
-                <MoreVertical size={17} aria-hidden="true" />
+              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl md:h-8 md:w-8" />
+              {/* Wraps to a second line before it ellipsizes: the sidebar is too narrow for most names on one. */}
+              <h3 className="min-w-0 flex-1 line-clamp-2 break-words leading-tight font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
+              <button type="button" data-no-long-press onClick={() => setSheetServer(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:h-8 md:w-8" aria-label="Server menu" title="Server menu">
+                <Settings size={17} aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -506,7 +496,7 @@ export default function ServersPage(props) {
             {(props.serverCategories || []).map(category => (
               <section key={category.id} className="server-channel-group">
                 <div
-                  className="server-channel-group-header long-press-target relative flex items-center pt-3"
+                  className="server-channel-group-header long-press-target group/category relative flex items-center pt-3"
                   {...(canManageServer ? bindLongPress({ type: 'category', item: category }) : null)}
                 >
                   <button
@@ -517,7 +507,14 @@ export default function ServersPage(props) {
                   >
                     <ChevronDown size={12} className={`shrink-0 transition-transform duration-150 ${collapsedCategories.has(category.id) ? '-rotate-90' : ''}`} aria-hidden="true" />
                     <span className="min-w-0 truncate">{category.name}</span>
+                    {isPrivate(categoryOverwrites(category, props.serverPermissions?.overwrites)) && <Lock size={10} className="shrink-0" aria-label="Private category" />}
                   </button>
+                  {canManageServer && (
+                    /* Always shown on touch; on a mouse it appears with the header's hover or focus. */
+                    <button type="button" data-no-long-press onClick={() => openChannelModal(category.id)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-opacity hover:text-[var(--text-main)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] [@media(pointer:fine)]:opacity-0 [@media(pointer:fine)]:group-hover/category:opacity-100" aria-label={`Create a channel in ${category.name}`} title="Create channel">
+                      <Plus size={15} aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
                 <div className="seg-group seg-plain">
                   {(category.channels || []).filter(channel => (
@@ -531,7 +528,7 @@ export default function ServersPage(props) {
                       <div
                         key={channel.id}
                         data-selected={isActive || undefined}
-                        className="seg-item long-press-target relative min-h-0 flex-col items-stretch gap-0 p-0"
+                        className="seg-item long-press-target group/channel relative min-h-0 flex-col items-stretch gap-0 p-0"
                         {...bindLongPress({ type: 'channel', item: channel })}
                       >
                         <button
@@ -544,17 +541,17 @@ export default function ServersPage(props) {
                             tabIndex: channel.id === channelTabStop ? 0 : -1,
                           } : null)}
                           aria-current={isActive ? 'page' : undefined}
-                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2 overflow-hidden rounded-[inherit] px-2 py-1.5 pr-7 text-left type-body font-medium md:min-h-9 transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-gray-400 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
+                          className={`m3-press group relative flex min-h-11 w-full items-center gap-2 overflow-hidden rounded-[inherit] px-2 py-1.5 pr-7 text-left type-body font-medium md:min-h-9 transition-colors active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] ${isActive ? 'text-[var(--text-main)]' : isUnread ? 'text-[var(--text-main)] hover:bg-[var(--state-hover)]' : 'text-[var(--text-main)]/60 hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]'}`}>
                           <span className={`shrink-0 ${isActive ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>
                             {channel.type === 'voice' ? <Volume2 size={18} aria-hidden="true" /> : <Hash size={18} aria-hidden="true" />}
                           </span>
                           <span className={`min-w-0 flex-1 truncate ${isUnread ? 'font-extrabold' : ''}`}>{channel.name}</span>
                           {channel.is_private && <Lock size={12} className="shrink-0 text-[var(--text-muted)]" aria-label="Private channel" />}
-                          {/* Weight AND a dot — colour is never the only signal (design.md §6). */}
+                          {/* Unread reads by weight as well as brightness — colour is never the only signal (design.md §6). */}
                           {/* Gated on unread: the notification row stays unread until the Notifications tab opens. */}
                           {isUnread && mentionedChannels.has(channel.id)
                             ? <AtSign size={14} strokeWidth={3} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--theme-base)]" aria-label="You were mentioned" />
-                            : isUnread && <span className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--theme-base)]" aria-label="Unread" />}
+                            : null}
                         </button>
                         {voiceParticipants.length > 0 && (
                           <div data-no-long-press className="voice-participant-list space-y-0.5 pb-1.5 pl-9 pr-1.5">
@@ -588,16 +585,6 @@ export default function ServersPage(props) {
                       </div>
                     )
                   })}
-                  {(category.channels || []).length === 0 && !collapsedCategories.has(category.id) && (
-                    <div className="rounded-xl border border-dashed border-[var(--border-subtle)] px-3 py-3 text-center">
-                      <p className="type-label text-gray-500">No channels in this category</p>
-                      {canManageServer && (
-                        <button type="button" onClick={() => openChannelModal(category.id)} className="mt-1 type-label font-bold text-[var(--theme-base)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]">
-                          Create a channel
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
               </section>
             ))}
@@ -606,7 +593,7 @@ export default function ServersPage(props) {
                 <p className="type-body font-semibold text-gray-400">No categories yet</p>
                 <p className="mt-1 type-label text-gray-600">Create one to start organizing channels.</p>
                 {canManageServer && (
-                  <button type="button" onClick={() => setIsCategoryModalOpen(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--theme-base)] px-3 py-2 type-label font-bold text-[var(--accent-contrast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-surface)]">
+                  <button type="button" onClick={() => setIsCategoryModalOpen(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--app-accent)] px-3 py-2 type-label font-bold text-[var(--accent-contrast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-surface)]">
                     <Plus size={14} aria-hidden="true" />
                     Create Category
                   </button>
@@ -625,7 +612,7 @@ export default function ServersPage(props) {
             <div className="flex items-end gap-3">
               <button type="button" onClick={() => serverIconInputRef.current?.click()} disabled={isUploadingServerIcon} className="relative shrink-0 rounded-[.875rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] disabled:opacity-60" aria-label="Choose a server picture" title="Choose a server picture">
                 <ServerIcon url={stagedServerIcon} name={serverName || '?'} />
-                <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--theme-base)] text-[var(--accent-contrast)]">
+                <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--app-accent)] text-[var(--accent-contrast)]">
                   <ImagePlus size={11} aria-hidden="true" />
                 </span>
               </button>
@@ -656,7 +643,7 @@ export default function ServersPage(props) {
 
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={closeCreateModal} disabled={isCreatingServer} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5 disabled:opacity-50">Cancel</button>
-              <button type="submit" disabled={isCreatingServer || !serverName.trim()} className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="submit" disabled={isCreatingServer || !serverName.trim()} className="rounded-xl bg-[var(--app-accent)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50">
                 {isCreatingServer ? 'Creating…' : `Create ${SERVER_PRESETS[serverPreset]?.name || ''} server`}
               </button>
             </div>
@@ -672,7 +659,7 @@ export default function ServersPage(props) {
             <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="https://…/invite/AB12CD34EF56" aria-label="Invite link or code" autoFocus />
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={closeJoinModal} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
-              <button type="submit" className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)]">Join</button>
+              <button type="submit" className="rounded-xl bg-[var(--app-accent)] px-5 h-10 font-bold text-[var(--accent-contrast)]">Join</button>
             </div>
           </form>
         </div>
@@ -680,20 +667,40 @@ export default function ServersPage(props) {
 
       {channelModalCategoryId && (
         <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleCreateChannelSubmit} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
-            <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">Create Channel</h2>
-            <input value={channelName} onChange={(e) => setChannelName(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="Channel name" autoFocus />
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {['text', 'voice'].map(type => (
-                <label key={type} className={`ios-choice-card flex cursor-pointer items-center justify-center gap-2 rounded-xl px-3 h-10 type-body font-bold capitalize ${channelType === type ? 'is-active' : ''}`}>
-                  <input type="radio" name="channel-type" value={type} checked={channelType === type} onChange={(e) => setChannelType(e.target.value)} className="sr-only" />
-                  {type}
-                </label>
-              ))}
-            </div>
+          <form onSubmit={handleCreateChannelSubmit} className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
+            <h2 className="type-title font-bold text-[var(--text-main)]">Create Channel</h2>
+            <p className="mb-4 mt-0.5 type-label text-[var(--text-muted)]">in {channelModalCategory?.name || 'this category'}</p>
+
+            <fieldset>
+              <legend className="mb-2 type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Channel type</legend>
+              <div className="grid gap-2">
+                {CHANNEL_TYPES.map(({ id, label, description, Icon }) => (
+                  <label key={id} className={`ios-choice-card flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 ${channelType === id ? 'is-active' : ''}`}>
+                    <input type="radio" name="channel-type" value={id} checked={channelType === id} onChange={(e) => setChannelType(e.target.value)} className="sr-only" />
+                    <Icon size={20} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block type-body font-bold text-[var(--text-main)]">{label}</span>
+                      <span className="block type-label text-[var(--text-muted)]">{description}</span>
+                    </span>
+                    <span className={`h-4 w-4 shrink-0 rounded-full border-2 ${channelType === id ? 'border-[var(--app-accent)] bg-[var(--app-accent)] shadow-[inset_0_0_0_2px_var(--surface-container-high)]' : 'border-[var(--border-hover)]'}`} aria-hidden="true" />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="mt-4 block">
+              <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Channel name</span>
+              <span className="ios-sheet-input flex h-11 items-center gap-2 rounded-xl px-3">
+                {channelType === 'voice' ? <Volume2 size={16} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" /> : <Hash size={16} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />}
+                <input value={channelName} onChange={(e) => setChannelName(e.target.value)} className="min-w-0 flex-1 bg-transparent text-[var(--text-main)] outline-none" placeholder="new-channel" maxLength={100} autoFocus />
+              </span>
+            </label>
+
+            {createPrivacySection('channel', channelModalCategory?.name)}
+
             <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={closeChannelModal} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
-              <button type="submit" disabled={isCreatingChannel} className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:opacity-60">Create</button>
+              <button type="button" onClick={closeChannelModal} className="rounded-xl px-4 h-10 font-bold text-[var(--text-muted)] hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]">Cancel</button>
+              <button type="submit" disabled={isCreatingChannel || !channelName.trim()} className="rounded-xl bg-[var(--app-accent)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50">{isCreatingChannel ? 'Creating…' : 'Create Channel'}</button>
             </div>
           </form>
         </div>
@@ -701,45 +708,19 @@ export default function ServersPage(props) {
 
       {isCategoryModalOpen && (
         <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleCreateCategorySubmit} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
-            <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">Create Category</h2>
-            <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="Category name" autoFocus />
-            <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={closeCategoryModal} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
-              <button type="submit" disabled={isCreatingCategory} className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:opacity-60">Create</button>
-            </div>
-          </form>
-        </div>
-      )}
+          <form onSubmit={handleCreateCategorySubmit} className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
+            <h2 className="type-title font-bold text-[var(--text-main)]">Create Category</h2>
+            <p className="mb-4 mt-0.5 type-label text-[var(--text-muted)]">Group channels together. Channels inside can share its permissions.</p>
+            <label className="block">
+              <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Category name</span>
+              <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="New category" maxLength={100} autoFocus />
+            </label>
 
-      {editingServerItem && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleEditServerItemSubmit} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
-            <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">{editingServerItem.type === 'server' ? 'Edit Server' : editingServerItem.type === 'category' ? 'Edit Category' : 'Edit Channel'}</h2>
-            {editingServerItem.type === 'server' && (
-              <div className="mb-4 flex items-center gap-3">
-                <ServerIcon
-                  url={stagedServerIcon === null ? editingServerItem.item.icon_url : stagedServerIcon}
-                  name={editingServerItemName || editingServerItem.item.name}
-                />
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <button type="button" onClick={() => serverIconInputRef.current?.click()} disabled={isUploadingServerIcon} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-subtle)] px-3 h-9 type-label font-bold text-[var(--text-main)] hover:bg-white/5 disabled:opacity-60">
-                    <ImagePlus size={14} aria-hidden="true" />
-                    {isUploadingServerIcon ? 'Uploading...' : 'Change picture'}
-                  </button>
-                  {(stagedServerIcon === null ? editingServerItem.item.icon_url : stagedServerIcon) && (
-                    <button type="button" onClick={() => setStagedServerIcon('')} className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 h-8 type-label font-bold text-gray-400 hover:bg-white/5">
-                      <X size={14} aria-hidden="true" />
-                      Remove picture
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            <input value={editingServerItemName} onChange={(e) => setEditingServerItemName(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="Name" maxLength={100} autoFocus />
+            {createPrivacySection('category')}
+
             <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={closeEditServerItemModal} className="rounded-xl px-4 h-10 font-bold text-gray-300 hover:bg-white/5">Cancel</button>
-              <button type="submit" disabled={isSavingServerItem || isUploadingServerIcon} className="rounded-xl bg-[var(--theme-base)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:opacity-60">Save</button>
+              <button type="button" onClick={closeCategoryModal} className="rounded-xl px-4 h-10 font-bold text-[var(--text-muted)] hover:bg-[var(--state-hover)] hover:text-[var(--text-main)]">Cancel</button>
+              <button type="submit" disabled={isCreatingCategory || !categoryName.trim()} className="rounded-xl bg-[var(--app-accent)] px-5 h-10 font-bold text-[var(--accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50">{isCreatingCategory ? 'Creating…' : 'Create Category'}</button>
             </div>
           </form>
         </div>
@@ -748,22 +729,37 @@ export default function ServersPage(props) {
       {settingsServer && (
         <ServerSettings
           server={settingsServer}
-          categories={props.serverCategories || []}
           members={props.serverMembers || []}
+          roles={props.serverPermissions?.roles || []}
+          memberRoles={props.serverPermissions?.memberRoles || []}
           canManage={canManageServer}
-          onEditServer={() => { setSettingsServer(null); openEditServerItemModal('server', settingsServer) }}
+          isOwner={settingsServer.owner_id === props.session?.user?.id}
+          userId={props.session?.user?.id}
+          onServerSaved={async (updated) => {
+            /* update_server returns a bare servers row: merge so the
+               server_members join Dashboard loaded survives. */
+            const merged = { ...settingsServer, ...updated }
+            setSettingsServer(merged)
+            props.setActiveServer?.(merged)
+            await props.fetchServers?.()
+          }}
           onInvite={() => props.onInvite?.(settingsServer)}
-          onEditChannel={channel => setEditingChannel(channel)}
+          onRolesChanged={() => props.onChannelsChanged?.()}
+          onDeleteServer={() => askServerAction('delete', settingsServer)}
+          onLeaveServer={() => askServerAction('leave', settingsServer)}
           onClose={() => setSettingsServer(null)}
         />
       )}
       {editingChannel && (
         <ChannelEditor
-          channel={editingChannel}
+          kind={editingChannel.kind}
+          item={editingChannel.item}
+          categories={props.serverCategories || []}
+          permissions={props.serverPermissions}
           members={props.serverMembers || []}
-          currentUserId={props.session?.user?.id}
           appThemeMode={props.appThemeMode}
           onSaved={() => props.onChannelsChanged?.()}
+          onDelete={() => askDeleteServerItem(editingChannel.kind, editingChannel.item)}
           onClose={() => setEditingChannel(null)}
         />
       )}
@@ -803,7 +799,6 @@ export default function ServersPage(props) {
             isSheetActive && canManageServer && { label: 'Create category', Icon: FolderPlus, onSelect: () => setIsCategoryModalOpen(true) },
             isSheetActive && canManageServer && { label: 'Create channel', Icon: Hash, onSelect: () => openChannelModal(firstCategoryId) },
             isSheetActive && { label: 'Server settings', Icon: Settings, onSelect: () => setSettingsServer(sheetServer) },
-            isSheetActive && canManageServer && { label: 'Edit server', Icon: Pencil, onSelect: () => openEditServerItemModal('server', sheetServer) },
             /* Deleting is the owner's alone — the delete_server RPC raises for
                anyone else, so an admin gets Leave instead of a button that fails. */
             sheetServer.owner_id === props.session?.user?.id
@@ -825,7 +820,7 @@ export default function ServersPage(props) {
           </>}
           items={serverItemSheet.type === 'category' ? [
             { label: 'Create channel', Icon: Hash, onSelect: () => openChannelModal(serverItemSheet.item.id) },
-            { label: 'Edit category', Icon: Pencil, onSelect: () => openEditServerItemModal('category', serverItemSheet.item) },
+            { label: 'Category settings', Icon: Pencil, onSelect: () => setEditingChannel({ kind: 'category', item: serverItemSheet.item }) },
             { label: 'Delete category', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('category', serverItemSheet.item) }
           ] : [
             serverItemSheet.item.type === 'voice'
@@ -835,7 +830,7 @@ export default function ServersPage(props) {
             serverItemSheet.item.type !== 'voice' && (unreadChannels.has(serverItemSheet.item.id)
               ? { label: 'Mark as read', Icon: CheckCheck, onSelect: () => props.setChannelRead(serverItemSheet.item, true) }
               : { label: 'Mark as unread', Icon: MailOpen, onSelect: () => props.setChannelRead(serverItemSheet.item, false) }),
-            canManageServer && { label: 'Channel settings', Icon: Pencil, onSelect: () => setEditingChannel(serverItemSheet.item) },
+            canManageServer && { label: 'Channel settings', Icon: Pencil, onSelect: () => setEditingChannel({ kind: 'channel', item: serverItemSheet.item }) },
             canManageServer && { label: 'Delete channel', Icon: Trash2, danger: true, onSelect: () => askDeleteServerItem('channel', serverItemSheet.item) }
           ]}
         />
