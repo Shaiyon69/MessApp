@@ -383,8 +383,13 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const webRTCProps = useWebRTC(session, activeDm)
   // Occupancy for every voice channel in the server, so members can see who is
   // already in a channel before deciding to join it.
+  const privateVoiceChannelIds = useMemo(() => serverCategories
+    .flatMap(category => category.channels)
+    .filter(channel => channel.type === 'voice' && channel.is_private)
+    .map(channel => channel.id), [serverCategories])
   const { getVoiceParticipantsForChannel } = useServerVoicePresence({
     serverId: activeServer?.id,
+    privateChannelIds: privateVoiceChannelIds,
     profileId: session.user.id,
     displayName: myUsername,
     avatarUrl: myAvatar,

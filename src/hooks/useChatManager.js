@@ -1186,7 +1186,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     fetchCurrentMessages() 
     fetchPeerReadAt(targetId)
 
-    const roomChannel = supabase.channel(`room:${targetId}`, { config: { broadcast: { self: false } } })
+    // Private: only members of this DM room or channel may join (realtime.messages RLS).
+    const roomChannel = supabase.channel(`room:${targetId}`, { config: { private: true, broadcast: { self: false } } })
     const handledMessageIds = new Set()
 
     // Fetches/decrypts/merges one message by id. Callable from both the
