@@ -80,6 +80,9 @@ export function useWebRTC(session, activeDm) {
   const pendingScreenTrackIdRef = useRef(null);
   const pendingIceCandidatesRef = useRef([]);
   const callChannelRef = useRef(null);
+  // Peers' call inboxes, written over HTTP; the queue keeps signals in send order.
+  const outboxesRef = useRef(new Map());
+  const sendQueueRef = useRef(Promise.resolve());
   const activeCallTargetRef = useRef(null);
   const outgoingCallRef = useRef(null);
   const incomingVideoRef = useRef(false);
@@ -448,7 +451,9 @@ export function useWebRTC(session, activeDm) {
 
   useEffect(() => {
     if (!session?.user?.id) return;
-    const sigChannel = supabase.channel('global-signaling');
+    // This user's call inbox: only they can read it, and only DM contacts who
+    // have not blocked each other can write to it (realtime.messages RLS).
+    const sigChannel = supabase.channel(`call:${session.user.id}`, { config: { private: true } });
     
     const handleSignalPayload = async (payload) => {
       if (payload.type === 'offer') {
@@ -589,9 +594,9 @@ export function useWebRTC(session, activeDm) {
 
     sigChannel.on('broadcast', { event: 'webrtc-signal' }, async ({ payload }) => {
       if (!payload || payload.targetId !== session.user.id) return;
-      // `global-signaling` is shared by every signed-in user, so a message only
-      // counts if it came from the peer this call is with. Without this, anyone
-      // could end someone else's call or inject SDP into it.
+      // Every DM contact can write to this inbox, so a message only counts if it
+      // came from the peer this call is with. Without this, a contact could end
+      // someone else's call or inject SDP into it.
       if (payload.type !== 'offer' && payload.callerId !== activeCallTargetRef.current) return;
       // A fresh offer is allowed through the brief post-hangup window; calling
       // someone straight back used to be silently dropped.
@@ -656,28 +661,39 @@ export function useWebRTC(session, activeDm) {
       closedByTeardown = true;
       callChannelRef.current = null;
       supabase.removeChannel(sigChannel);
+      // Let the goodbye signal above go out before dropping the outboxes.
+      const outboxes = outboxesRef.current;
+      outboxesRef.current = new Map();
+      void sendQueueRef.current.finally(() => outboxes.forEach(channel => supabase.removeChannel(channel)));
     };
 
   }, [session?.user?.id]);
 
-  /** Returns whether the signal actually reached the channel. */
-  const sendSignal = async (targetId, type, data) => {
-    const channel = callChannelRef.current;
-    if (!channel || !targetId) {
+  /** Returns whether the signal was accepted for delivery. */
+  const sendSignal = (targetId, type, data) => {
+    if (!callChannelRef.current || !targetId) {
       debug.warn('WEBRTC_ERROR', { operation: 'send-signal-unavailable', type });
-      return false;
+      return Promise.resolve(false);
     }
-    try {
-      const result = await channel.send({
-        type: 'broadcast',
-        event: 'webrtc-signal',
-        payload: { targetId, type, callerId: session.user.id, ...data }
-      });
-      return result === 'ok' || result === undefined;
-    } catch (err) {
-      debug.warn('WEBRTC_ERROR', { operation: 'send-signal', type, error: serializeCallError(err) });
-      return false;
+    let outbox = outboxesRef.current.get(targetId);
+    if (!outbox) {
+      outbox = supabase.channel(`call:${targetId}`, { config: { private: true } });
+      outboxesRef.current.set(targetId, outbox);
     }
+    const payload = { targetId, type, callerId: session.user.id, ...data };
+    // Separate HTTP requests can overtake each other, and ICE candidates that
+    // land before their offer are dropped, so each send waits for the last one.
+    const sent = sendQueueRef.current.then(async () => {
+      try {
+        await outbox.httpSend('webrtc-signal', payload);
+        return true;
+      } catch (err) {
+        debug.warn('WEBRTC_ERROR', { operation: 'send-signal', type, error: serializeCallError(err) });
+        return false;
+      }
+    });
+    sendQueueRef.current = sent;
+    return sent;
   };
 
   const checkMediaAccess = () => {

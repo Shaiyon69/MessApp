@@ -12,9 +12,8 @@
  * #dock-accessory above the tabs. See design.md §5.
  * Menu shows the user's avatar instead of an icon: it is the account entry point.
  */
-import { Bell, LayoutGrid, MessageSquare, Plus, UserPlus } from 'lucide-react'
+import { Bell, LayoutGrid, MessageSquare, UserPlus } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
-import ServerIcon from '../ui/ServerIcon'
 
 export const TABS = [
   { id: 'menu', Icon: null, label: 'Menu' },
@@ -26,7 +25,7 @@ export const TABS = [
 
 export const DOCK_ACCESSORY_ID = 'dock-accessory'
 
-export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, expanded = false, avatarUrl, username, servers = [], activeServerId, onOpenServer, onAddServer }) {
+export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, expanded = false, avatarUrl, username }) {
   return (
     <div
       data-hidden={hidden || undefined}
@@ -62,34 +61,6 @@ export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, 
               </button>
             )
           })}
-          {/* Desktop only: every server as an icon under the tabs, Discord's
-              server rail. Phones reach servers through the Servers tab. */}
-          {onOpenServer && (
-            <div className="server-rail custom-scrollbar hidden min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto border-t border-[var(--border-subtle)] pt-3 md:flex" aria-label="Servers">
-              {servers.map(server => {
-                const isActive = homeTab === 'servers' && server.id === activeServerId
-                return (
-                  <button
-                    key={server.id}
-                    type="button"
-                    onClick={() => onOpenServer(server)}
-                    data-active={isActive || undefined}
-                    aria-current={isActive ? 'page' : undefined}
-                    className="server-rail-item"
-                    aria-label={server.name}
-                    title={server.name}
-                  >
-                    <ServerIcon url={server.icon_url} name={server.name} className="server-rail-icon" />
-                  </button>
-                )
-              })}
-              {onAddServer && (
-                <button type="button" onClick={onAddServer} className="server-rail-item" aria-label="Add a server" title="Add a server">
-                  <span className="server-rail-icon server-rail-add"><Plus size={20} aria-hidden="true" /></span>
-                </button>
-              )}
-            </div>
-          )}
         </nav>
       </div>
     </div>

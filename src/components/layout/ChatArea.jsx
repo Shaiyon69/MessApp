@@ -151,6 +151,8 @@ export default function ChatArea(props) {
   // A thread belongs to one channel; leaving the channel closes it.
   useEffect(() => { setOpenThreadId(null) }, [activeChatKey])
   const isInitialPositionReady = positionedChatKey === activeChatKey
+  // Loading has no scroll position to wait for, so the skeleton shows at once.
+  const showMessageSkeleton = props.messagesLoading && props.visibleMessages.length === 0
   const isVoiceChannel = props.view === 'server' && props.activeChannel?.type === 'voice'
   const isActiveVoiceSession = isVoiceChannel && props.activeVoiceSession?.channelId === props.activeChannel?.id
   // Occupancy comes from server-wide presence so an unjoined channel still
@@ -905,13 +907,6 @@ useEffect(() => {
     event.preventDefault()
     rows[to]?.focus()
   }
-  const openServerFromRail = (server) => {
-    selectHomeTab('servers')
-    setServersPanelView('detail')
-    props.setView('home')
-    props.setActiveServer(server)
-    props.setActiveChannel(null)
-  }
   // Picking a rail tab while the list is collapsed means "show me that list".
   const selectHomeTab = (tab) => {
     if (props.listCollapsed) props.setListCollapsed(false)
@@ -993,10 +988,6 @@ useEffect(() => {
         <BottomBar
           homeTab={props.homeTab}
           setHomeTab={selectHomeTab}
-          servers={props.servers}
-          activeServerId={props.activeServer?.id}
-          onOpenServer={openServerFromRail}
-          onAddServer={() => { selectHomeTab('servers'); setServersPanelView('list'); setPendingServerAction('create') }}
           notificationCount={props.notificationCount}
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
@@ -1051,6 +1042,9 @@ useEffect(() => {
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-chan-${props.activeChannel.id}`}>
               {isVoiceChannel ? <Volume2 size={20} className="text-gray-500 shrink-0" aria-hidden="true" /> : <Hash size={20} className="text-gray-500 shrink-0" aria-hidden="true" />}
               <h2 className="font-display font-bold text-[var(--chat-text,var(--text-main))] type-title tracking-tight truncate">{props.activeChannel.name}</h2>
+              {props.activeChannel.topic && (
+                <p className="hidden min-w-0 truncate border-l border-[var(--border-subtle)] pl-3 type-label text-[var(--text-muted)] md:block" title={props.activeChannel.topic}>{props.activeChannel.topic}</p>
+              )}
             </div>
           ) : null}
         </div>
@@ -1265,7 +1259,7 @@ useEffect(() => {
                 role="log"
                 aria-label={props.view === 'home' ? `Messages with ${props.activeDm?.profiles?.username || 'this conversation'}` : `Messages in #${props.activeChannel?.name || 'this channel'}`}
                 onScroll={props.handleScroll}
-                style={{ ...messageListStyle, visibility: isInitialPositionReady ? 'visible' : 'hidden' }}
+                style={{ ...messageListStyle, visibility: isInitialPositionReady || showMessageSkeleton ? 'visible' : 'hidden' }}
                 data-call-minimized={props.isCallMinimized ? 'true' : undefined}
               >
                 {props.isLoadingMore && (
@@ -1273,8 +1267,8 @@ useEffect(() => {
                     <Loader2 className="animate-spin text-[var(--theme-base)]" size={24} />
                   </div>
                 )}
-                {props.messagesLoading && props.visibleMessages.length === 0 && (
-                  <div className="flex min-h-full flex-col justify-end gap-4 pb-6" aria-label="Loading messages">
+                {showMessageSkeleton && (
+                  <div className="flex h-full min-h-0 flex-col justify-end gap-4 overflow-hidden pb-6" aria-label="Loading messages">
                     {Array.from({ length: 7 }, (_, index) => {
                       const isOwn = index % 3 === 1
                       return (

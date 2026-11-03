@@ -18,6 +18,7 @@ import { resizeComposer } from '../lib/composerFocus'
 import { debug } from '../lib/debug'
 import { SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT, SEARCH_ROOM_CONCURRENCY, SEARCH_ROOM_MESSAGE_LIMIT, describeChannelResult, describeDmResult, escapeIlikePattern, mapWithConcurrency, matchesSearchQuery, rankSearchResults } from '../lib/messageSearch'
 import { getRealtimeRetryDelay, shouldScheduleRealtimeRetry, shouldVisibilityCatchUp } from '../lib/realtimeLifecycle'
+import { emitRealtime, onRealtime } from '../lib/realtimeBus'
 import { withMessageEffect } from '../lib/messageEffects'
 import { matchesOrigin, readOriginFilter, writeOriginFilter } from '../lib/messageOrigin'
 import { attachmentKind } from '../lib/attachmentKind'
@@ -346,6 +347,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const realtimeRetryTimerRef = useRef(null)
 
   const sharedKeysCacheRef = useRef({})
+  // DM messages carry the sender/target public keys, so every message used to
+  // pay a key import plus an ECDH derive per private key. Same pair, same key:
+  // derive each pair once. Holds promises so a parallel page shares one derive.
+  const historicalKeyCacheRef = useRef(new Map())
   /* The attachment/reaction subscriptions below cannot be filtered server-side —
      neither table carries a conversation id. This lets their handlers reject
      events for messages we do not have loaded without paying for a fetch. */
@@ -602,6 +607,17 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }, [activeDm, dms, session.user.id, view]);
 
+  const deriveHistoricalKey = useCallback((privateJwk, peerPublicJwk) => {
+    const cacheKey = `${privateJwk.x}.${privateJwk.y}|${peerPublicJwk.x}.${peerPublicJwk.y}`
+    let derived = historicalKeyCacheRef.current.get(cacheKey)
+    if (!derived) {
+      derived = importPrivateKey({ ...privateJwk, ext: true })
+        .then(importedPrivate => deriveSharedAesKey(importedPrivate, { ...peerPublicJwk, ext: true }))
+      historicalKeyCacheRef.current.set(cacheKey, derived)
+    }
+    return derived
+  }, [])
+
   const decryptMessageList = useCallback(async (msgList, sharedKeys, { hydrateAttachments = true } = {}) => {
     return await Promise.all(msgList.map(async (msg) => {
       const attachments = msg.message_attachments || []
@@ -618,8 +634,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const historicalKeys = []
         for (const privateJwk of privateKeys) {
           try {
-            const importedPrivate = await importPrivateKey({ ...privateJwk, ext: true })
-            historicalKeys.push(await deriveSharedAesKey(importedPrivate, theirHistoricalPub))
+            historicalKeys.push(await deriveHistoricalKey(privateJwk, theirHistoricalPub))
           } catch (_err) {}
         }
         return historicalKeys
@@ -723,8 +738,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
               for (const privJwk of keysToTry) {
                  try {
-                    const impPriv = await importPrivateKey({ ...privJwk, ext: true });
-                    const historicalShared = await deriveSharedAesKey(impPriv, theirHistoricalPub);
+                    const historicalShared = await deriveHistoricalKey(privJwk, theirHistoricalPub);
                     const attempt = await decryptWithAesGcm(historicalShared, encObj);
                     
                     if (isReadableDecryptedContent(attempt)) {
@@ -782,7 +796,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
       return { ...msg, ...attachmentPatch, content: contentStr };
     }));
-  }, [session.user.id]);
+  }, [deriveHistoricalKey, session.user.id]);
 
   const queuePendingAttachments = useCallback((candidates) => {
     const valid = []
@@ -1186,16 +1200,14 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     fetchCurrentMessages() 
     fetchPeerReadAt(targetId)
 
-    const roomChannel = supabase.channel(`room:${targetId}`, { config: { broadcast: { self: false } } })
+    // Private: only members of this DM room or channel may join (realtime.messages RLS).
+    const roomChannel = supabase.channel(`room:${targetId}`, { config: { private: true, broadcast: { self: false } } })
     const handledMessageIds = new Set()
 
-    // Fetches/decrypts/merges one message by id. Callable from both the
-    // postgres_changes INSERT handler (authoritative, can lag) and the
-    // broadcast fast-path below (near-instant, mirrors how typing already
-    // delivers reliably) — postgres_changes realtime delivery on this table
-    // has been observed to lag or silently drop, so broadcast carries the
-    // primary "message just arrived" signal and postgres_changes is a
-    // backstop. handledMessageIds prevents double sound/fetch when both fire.
+    // Fetches/decrypts/merges one message by id. Called from the sender's
+    // 'new-message' broadcast (fast path) and from the database trigger's
+    // 'messages' INSERT event (authoritative, also reaches the sender).
+    // handledMessageIds prevents double sound/fetch when both fire.
     const hydrateAndAppendMessage = async (messageId, { senderId } = {}) => {
       if (!isCurrentScope() || !messageId || handledMessageIds.has(messageId)) return
       handledMessageIds.add(messageId)
@@ -1275,17 +1287,26 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       hydrateAndAppendMessage(payload?.messageId, { senderId: payload?.senderId })
     })
 
-    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${targetId}` }, (payload) => {
-      if (payload.eventType === 'INSERT') {
-        hydrateAndAppendMessage(payload.new?.id, { senderId: payload.new?.profile_id })
+    /* Database changes arrive as Broadcast from triggers
+       (20261103155000_broadcast_realtime.sql): ids only, never content. Each
+       event also goes on the bus for Poll and ThreadPanel, which live inside
+       this conversation and so need no channel of their own. */
+    for (const event of ['messages', 'message_attachments', 'message_reactions', 'poll_votes', 'dm_reads']) {
+      roomChannel.on('broadcast', { event }, ({ payload }) => emitRealtime(event, payload))
+    }
+    const offRoomListeners = []
+
+    offRoomListeners.push(onRealtime('messages', (change) => {
+      if (change.type === 'INSERT') {
+        hydrateAndAppendMessage(change.id, { senderId: change.profile_id })
       }
 
-      if (payload.eventType === 'UPDATE') {
+      if (change.type === 'UPDATE') {
         (async () => {
-          const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', payload.new.id).single()
-          const messageToDecrypt = fullMsg || payload.new
-          const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [messageToDecrypt]);
-          const [decryptedMsg] = await decryptMessageList([messageToDecrypt], sharedKeys);
+          const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', change.id).single()
+          if (!fullMsg) return
+          const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg]);
+          const [decryptedMsg] = await decryptMessageList([fullMsg], sharedKeys);
           if (!isCurrentScope()) return
 
           setMessages(current => {
@@ -1305,31 +1326,25 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         })();
       }
       
-      if (payload.eventType === 'DELETE') {
+      if (change.type === 'DELETE') {
         if (!isCurrentScope()) return
         setMessages(current => {
-          const updated = current.filter(msg => msg.id !== payload.old.id)
+          const updated = current.filter(msg => msg.id !== change.id)
           safeCacheSave(session.user.id, targetId, updated)
           return updated
         })
       }
-    })
+    }))
 
-    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'message_attachments' }, (payload) => {
+    offRoomListeners.push(onRealtime('message_attachments', ({ message_id: messageId }) => {
       (async () => {
-        const messageId = payload.new?.message_id || payload.old?.message_id
         if (!messageId) return
-        // Unfiltered subscription: reject other conversations before fetching.
         // A message we have not loaded has nothing on screen to update, and the
         // messages INSERT handler hydrates its own attachments.
         if (!loadedMessageIdsRef.current.has(messageId)) return
         const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', messageId).single()
         if (!fullMsg || fullMsg[field] !== targetId) return
-        const attachments = fullMsg.message_attachments?.length
-          ? fullMsg.message_attachments
-          : payload.eventType === 'INSERT' && payload.new
-            ? [payload.new]
-            : []
+        const attachments = fullMsg.message_attachments || []
         const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', [fullMsg])
         const [decryptedMsg] = await decryptMessageList([{ ...fullMsg, message_attachments: attachments }], sharedKeys)
         if (!isCurrentScope()) return
@@ -1344,14 +1359,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           return updated
         })
       })()
-    })
+    }))
 
-    roomChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (payload) => {
+    offRoomListeners.push(onRealtime('message_reactions', ({ message_id: messageId }) => {
       (async () => {
-        const messageId = payload.new?.message_id || payload.old?.message_id
         if (!messageId) return
-        // Unfiltered subscription: the setMessages below already no-ops for a
-        // message we do not hold, so reject it before paying for the fetch.
+        // The setMessages below already no-ops for a message we do not hold,
+        // so reject it before paying for the fetch.
         if (!loadedMessageIdsRef.current.has(messageId)) return
         const { data: fullMsg } = await supabase.from('messages').select(MESSAGE_SELECT).eq('id', messageId).single()
         if (!fullMsg || fullMsg[field] !== targetId) return
@@ -1371,30 +1385,25 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           return updated
         })
       })()
-    })
+    }))
 
-    roomChannel.on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'dm_reads', filter: `dm_room_id=eq.${targetId}` },
-      (payload) => {
-        if (!isCurrentScope()) return
-        const row = payload.new?.dm_room_id ? payload.new : payload.old
-        const peerId = activeDm?.profiles?.id
+    offRoomListeners.push(onRealtime('dm_reads', (row) => {
+      if (!isCurrentScope()) return
+      const peerId = activeDm?.profiles?.id
 
-        if (view !== 'home' || !peerId || row?.profile_id !== peerId) return
+      if (view !== 'home' || !peerId || row?.profile_id !== peerId) return
 
-        setPeerReadAt(payload.eventType === 'DELETE' ? null : row.last_read_at || null)
+      setPeerReadAt(row.type === 'DELETE' ? null : row.last_read_at || null)
 
-        if (isDebugEnabled('messappDebugReceipts')) {
-          console.debug('[RECEIPT_DEBUG]', {
-            handler: 'dm_reads_realtime',
-            eventType: payload.eventType,
-            peerId,
-            lastReadAt: row?.last_read_at
-          })
-        }
+      if (isDebugEnabled('messappDebugReceipts')) {
+        console.debug('[RECEIPT_DEBUG]', {
+          handler: 'dm_reads_realtime',
+          eventType: row.type,
+          peerId,
+          lastReadAt: row.last_read_at
+        })
       }
-    )
+    }))
 
     let cleanedUp = false
     let retryAttempt = 0
@@ -1436,6 +1445,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       cleanedUp = true
       clearRealtimeRetryTimer()
       supabase.removeChannel(roomChannel)
+      offRoomListeners.forEach(off => off())
       setRealtimeDown(false)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
@@ -1608,8 +1618,8 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
   // Fast-path delivery signal: broadcast is plain pub/sub over the same
   // realtime socket typing indicators already use reliably, so peers append
-  // this message immediately instead of waiting on postgres_changes, whose
-  // delivery on this table has been observed to lag or silently drop.
+  // this message immediately instead of waiting on the database trigger's
+  // 'messages' event, which goes through a table write first.
   const broadcastNewMessage = useCallback((messageId) => {
     if (!messageId) return
     typingChannelRef.current?.send({

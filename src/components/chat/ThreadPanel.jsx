@@ -14,6 +14,7 @@ import StatusAvatar from '../ui/StatusAvatar'
 import { formatMessageTime } from '../../lib/messageTime'
 import { stripEffects } from '../../lib/messageEffects'
 import { mergeThreadReplies } from '../../lib/threads'
+import { onRealtime } from '../../lib/realtimeBus'
 import { enterSends } from '../../lib/composerFocus'
 
 const REPLY_SELECT = 'id, profile_id, content, created_at, is_deleted, profiles!fk_messages_profile(username, avatar_url)'
@@ -56,18 +57,16 @@ export default function ThreadPanel({ root, channelId, currentUserId, onClose })
         setReplies(current => mergeThreadReplies(current, data || []))
         setLoading(false)
       })
-    // Realtime rows arrive without the profile join; refetch that one row.
-    const channel = supabase.channel(`thread:${rootId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `thread_root_id=eq.${rootId}` }, (payload) => {
-        const id = payload.new?.id || payload.old?.id
-        if (!id) return
-        supabase.from('messages').select(REPLY_SELECT).eq('id', id).maybeSingle()
-          .then(({ data }) => { if (active && data) setReplies(current => mergeThreadReplies(current, [data])) })
-      })
-      .subscribe()
+    // Replies are channel messages, so the open channel's room channel relays
+    // them (realtimeBus) as ids; refetch that one row with its profile join.
+    const off = onRealtime('messages', (change) => {
+      if (change.thread_root_id !== rootId || !change.id) return
+      supabase.from('messages').select(REPLY_SELECT).eq('id', change.id).maybeSingle()
+        .then(({ data }) => { if (active && data) setReplies(current => mergeThreadReplies(current, [data])) })
+    })
     return () => {
       active = false
-      supabase.removeChannel(channel)
+      off()
     }
   }, [rootId])
 

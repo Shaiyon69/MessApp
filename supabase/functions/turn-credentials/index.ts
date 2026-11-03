@@ -1,7 +1,8 @@
 // Mints short-lived TURN credentials for authenticated clients so 1:1 calls
 // and group voice channels can traverse NATs/firewalls that plain STUN can't.
-// Requires a valid Supabase JWT (default platform verify_jwt behavior) so
-// only signed-in users can obtain relay credentials.
+// Only signed-in users get relay credentials. Platform verify_jwt is not
+// enough: the anon key is a valid JWT and ships in the public web app, so the
+// token is checked against Auth for a real user (signedInUserId below).
 //
 // Credentials are computed locally using coturn's time-limited REST API
 // scheme (see helpers.js), so no third-party credential API is called.
@@ -41,9 +42,25 @@ const envOrDefault = (name: string, fallback: string) => Deno.env.get(name)?.tri
 // bound the blast radius if a credential leaks.
 const TTL_SECONDS = 3600
 
+// The anon key resolves to no user, so only a real session passes.
+const signedInUserId = async (authorization: string | null) => {
+  if (!authorization?.startsWith('Bearer ')) return null
+  const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/user`, {
+    headers: { authorization, apikey: Deno.env.get('SUPABASE_ANON_KEY') ?? '' }
+  })
+  if (!response.ok) return null
+  const user = await response.json().catch(() => null)
+  return typeof user?.id === 'string' ? user.id : null
+}
+
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
+
+  if (!(await signedInUserId(request.headers.get('authorization')).catch(() => null))) {
+    logEvent('TURN_CREDENTIALS', { status: 'unauthenticated' })
+    return jsonResponse({ error: 'Sign in to get relay credentials' }, 401)
+  }
 
   const turnHost = Deno.env.get('TURN_HOST')?.trim()
   const notConfigured = () => {

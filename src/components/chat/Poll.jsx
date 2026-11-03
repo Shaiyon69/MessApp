@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import { BarChart3, Check, Plus, X } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { debug } from '../../lib/debug'
+import { onRealtime } from '../../lib/realtimeBus'
 import { POLL_MAX_OPTIONS, POLL_OPTION_MAX, POLL_QUESTION_MAX, cleanPollDraft, nextPollChoice, tallyPoll } from '../../lib/polls'
 
 /* ponytail: one realtime channel per visible poll card. Fine for a handful of
@@ -29,12 +30,11 @@ export function PollCard({ messageId, currentUserId, alignRight, children }) {
         setPoll(data || null)
         if (data) loadVotes()
       })
-    const channel = supabase.channel(`poll:${messageId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes', filter: `message_id=eq.${messageId}` }, loadVotes)
-      .subscribe()
+    // The open conversation's room channel relays poll_votes (realtimeBus).
+    const off = onRealtime('poll_votes', change => { if (change.message_id === messageId) loadVotes() })
     return () => {
       active = false
-      supabase.removeChannel(channel)
+      off()
     }
   }, [messageId])
 
