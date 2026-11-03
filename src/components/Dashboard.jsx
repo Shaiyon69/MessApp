@@ -80,6 +80,7 @@ import { findDesktopUpdate, installDesktopUpdate } from '../lib/desktopUpdater'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
+import { emitRealtime, onRealtime } from '../lib/realtimeBus'
 import { fuzzyFilter } from '../lib/fuzzy'
 import InviteModal from './modals/InviteModal'
 import InvitePreviewModal from './modals/InvitePreviewModal'
@@ -1029,86 +1030,66 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       if (status === 'SUBSCRIBED') await presenceChannel.track({ user_id: session.user.id, status: userStatus, status_text: statusText, online_at: new Date().toISOString() })
     })
     
-    const requestsSub = supabase.channel('public:friendships').on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
-         fetchFriendRequests();
-         fetchAcceptedFriends();
-         fetchDms();
-    }).subscribe();
+    /* Every database change meant for this user arrives on one private topic,
+       sent by triggers (20261103155000_broadcast_realtime.sql). postgres_changes
+       made Realtime poll the WAL nonstop, which drained the Disk IO budget. */
+    const userChannel = supabase.channel(`user:${session.user.id}`, { config: { private: true } })
+      .on('broadcast', { event: '*' }, ({ event, payload }) => emitRealtime(event, payload))
+      .subscribe()
 
-    const dmMembersSub = supabase.channel('public:dm_members').on('postgres_changes', { event: '*', schema: 'public', table: 'dm_members' }, () => {
-         fetchDms();
-    }).subscribe();
-
-    /* A postgres_changes filter takes one condition, so blocker and blocked are
-       two listeners on one channel rather than an unfiltered firehose. */
-    const relationshipsSub = supabase.channel('public:user_relationships')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships', filter: `blocker_id=eq.${session.user.id}` }, fetchRelationships)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_relationships', filter: `blocked_id=eq.${session.user.id}` }, fetchRelationships)
-      .subscribe();
+    const offListeners = [
+      onRealtime('friendships', () => {
+        fetchFriendRequests();
+        fetchAcceptedFriends();
+        fetchDms();
+      }),
+      onRealtime('dm_members', () => fetchDms()),
+      onRealtime('user_relationships', fetchRelationships)
+    ]
 
     return () => {
       presenceChannelRef.current = null;
       supabase.removeChannel(presenceChannel);
-      supabase.removeChannel(requestsSub);
-      supabase.removeChannel(dmMembersSub);
-      supabase.removeChannel(relationshipsSub);
+      supabase.removeChannel(userChannel);
+      offListeners.forEach(off => off());
     }
   }, [session])
 
-  /* Sidebar ordering and unread dots for DMs that are not open. This used to be
-     one unfiltered subscription on `messages`, which delivered every message
-     inserted anywhere in the product to every connected client. The handler only
-     ever updates rooms already in `dms`, so one filtered listener per known room
-     carries exactly the same information.
-     ponytail: one listener per room. Fine for a normal DM list; if someone
-     accumulates hundreds of rooms, move this to a server-side fan-out. */
-  const dmRoomIdsKey = useMemo(
-    () => dms.map(dm => dm.dm_room_id).filter(Boolean).sort().join(','),
-    [dms]
-  )
-
-  useEffect(() => {
-    if (!dmRoomIdsKey) return
-    const channel = supabase.channel('dm-message-activity')
-    for (const roomId of dmRoomIdsKey.split(',')) {
-      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `dm_room_id=eq.${roomId}` }, (payload) => {
-        const messageAt = payload.new.created_at || new Date().toISOString();
-        const isOwnMessage = payload.new.profile_id === session.user.id;
-        const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
-        if (!isOwnMessage && !isOpenRoom) {
-          audioSys.playMessageReceived()
-          triggerInteractionFeedback('message-received')
-        }
-        const sender = dmsRef.current.find(dm => dm.dm_room_id === roomId)?.profiles
-        notifyDesktop({
-          title: sender?.display_name || sender?.username || 'New message',
-          body: 'Sent you a message',
-          isOwnMessage,
-          isOpenRoom
-        }).catch(error => debug.warn('DESKTOP_NOTIFY', { error: error?.message }))
-        setDms(current => {
-          const next = current.map(dm => dm.dm_room_id === roomId ? {
-            ...dm,
-            last_message_at: messageAt,
-            last_message_profile_id: payload.new.profile_id,
-            last_read_at: dm.last_read_at,
-            is_unread: !isOwnMessage && !isOpenRoom
-          } : dm)
-          return sortDmsByLastMessage(next)
-        })
-      })
+  /* Sidebar ordering and unread dots for DMs that are not open. The trigger
+     sends dm_activity to every member of the room, so only rooms already in
+     `dms` are handled; a new room arrives through dm_members first. */
+  useEffect(() => onRealtime('dm_activity', (message) => {
+    const roomId = message.dm_room_id
+    if (!dmsRef.current.some(dm => dm.dm_room_id === roomId)) return
+    const messageAt = message.created_at || new Date().toISOString();
+    const isOwnMessage = message.profile_id === session.user.id;
+    const isOpenRoom = activeDmRef.current?.dm_room_id === roomId;
+    if (!isOwnMessage && !isOpenRoom) {
+      audioSys.playMessageReceived()
+      triggerInteractionFeedback('message-received')
     }
-    channel.subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [dmRoomIdsKey, session.user.id])
+    const sender = dmsRef.current.find(dm => dm.dm_room_id === roomId)?.profiles
+    notifyDesktop({
+      title: sender?.display_name || sender?.username || 'New message',
+      body: 'Sent you a message',
+      isOwnMessage,
+      isOpenRoom
+    }).catch(error => debug.warn('DESKTOP_NOTIFY', { error: error?.message }))
+    setDms(current => {
+      const next = current.map(dm => dm.dm_room_id === roomId ? {
+        ...dm,
+        last_message_at: messageAt,
+        last_message_profile_id: message.profile_id,
+        last_read_at: dm.last_read_at,
+        is_unread: !isOwnMessage && !isOpenRoom
+      } : dm)
+      return sortDmsByLastMessage(next)
+    })
+  }), [session.user.id])
 
   /* Unread dots for channels of the open server that are not the open channel.
-     Same shape as the DM listener above, and for the same reason: an unfiltered
-     `messages` subscription would deliver every message in the product.
-     `channels` itself is not in the Realtime publication, so the INSERT on
-     `messages` is the signal, not the trigger's last_message_at update.
-     ponytail: one listener per channel. Fine for a normal server; if a server
-     grows hundreds of channels, move this to a server-side fan-out. */
+     The trigger sends channel_activity only to members who can see the channel
+     and never to the sender; channels of other servers are ignored here. */
   const serverChannelIdsKey = useMemo(
     () => serverCategories
       .flatMap(category => category.channels || [])
@@ -1121,16 +1102,13 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 
   useEffect(() => {
     if (!serverChannelIdsKey) return
-    const channel = supabase.channel('channel-message-activity')
-    for (const channelId of serverChannelIdsKey.split(',')) {
-      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` }, (payload) => {
-        if (payload.new.profile_id === session.user.id) return
-        if (activeChannelRef.current?.id === channelId) return
-        setUnreadChannelIds(current => current.includes(channelId) ? current : [...current, channelId])
-      })
-    }
-    channel.subscribe()
-    return () => { supabase.removeChannel(channel) }
+    const channelIds = new Set(serverChannelIdsKey.split(','))
+    return onRealtime('channel_activity', (message) => {
+      const channelId = message.channel_id
+      if (!channelIds.has(channelId) || message.profile_id === session.user.id) return
+      if (activeChannelRef.current?.id === channelId) return
+      setUnreadChannelIds(current => current.includes(channelId) ? current : [...current, channelId])
+    })
   }, [serverChannelIdsKey, session.user.id])
 
   useEffect(() => {
@@ -1138,39 +1116,30 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     void presenceChannelRef.current.track({ user_id: session.user.id, status: userStatus, status_text: statusText, online_at: new Date().toISOString() })
   }, [session.user.id, userStatus, statusText])
 
-  useEffect(() => {
-    const roomSub = supabase.channel('dm-rooms-updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_rooms' }, (payload) => {
-         const roomUpdate = {
-           theme_color: payload.new.theme_color,
-           theme_id: payload.new.theme_id,
-           wallpaper: payload.new.wallpaper
-         }
-         setDms(current => current.map(dm => dm.dm_room_id === payload.new.id
-           ? { ...dm, dm_rooms: { ...(dm.dm_rooms || {}), ...roomUpdate } }
-           : dm
-         ))
-         setActiveDm(current => current?.dm_room_id === payload.new.id
-           ? { ...current, dm_rooms: { ...(current.dm_rooms || {}), ...roomUpdate } }
-           : current
-         )
-      }).subscribe()
-    return () => supabase.removeChannel(roomSub)
-  }, [])
+  useEffect(() => onRealtime('dm_rooms', (room) => {
+    const roomUpdate = {
+      theme_color: room.theme_color,
+      theme_id: room.theme_id,
+      wallpaper: room.wallpaper
+    }
+    setDms(current => current.map(dm => dm.dm_room_id === room.id
+      ? { ...dm, dm_rooms: { ...(dm.dm_rooms || {}), ...roomUpdate } }
+      : dm
+    ))
+    setActiveDm(current => current?.dm_room_id === room.id
+      ? { ...current, dm_rooms: { ...(current.dm_rooms || {}), ...roomUpdate } }
+      : current
+    )
+  }), [])
 
-  useEffect(() => {
-    const serverSub = supabase
-      .channel('server-theme-updates')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'servers' }, payload => {
-        setServers(current => current.map(server => (
-          server.id === payload.new.id ? { ...server, ...payload.new } : server
-        )))
-        setActiveServer(current => (
-          current?.id === payload.new.id ? { ...current, ...payload.new } : current
-        ))
-      })
-      .subscribe()
-    return () => supabase.removeChannel(serverSub)
-  }, [])
+  useEffect(() => onRealtime('servers', (row) => {
+    setServers(current => current.map(server => (
+      server.id === row.id ? { ...server, ...row } : server
+    )))
+    setActiveServer(current => (
+      current?.id === row.id ? { ...current, ...row } : current
+    ))
+  }), [])
 
   const fetchFriendRequests = async () => {
     const { data } = await supabase.from('friendships').select('id, sender_id, created_at, profiles!fk_sender(username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)').eq('receiver_id', session.user.id).eq('status', 'pending')
@@ -1293,11 +1262,10 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   }, [session.user.id])
   useEffect(() => {
     void fetchNotificationFeed()
-    const feedSub = supabase.channel('notification-feed')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, fetchNotificationFeed)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${session.user.id}` }, payload => announceInviteRef.current?.(payload.new))
-      .subscribe()
-    return () => { supabase.removeChannel(feedSub) }
+    return onRealtime('notifications', (change) => {
+      void fetchNotificationFeed()
+      if (change.type === 'INSERT') announceInviteRef.current?.(change.new)
+    })
   }, [fetchNotificationFeed, session.user.id])
   /* Read state is per row: a click reads that row, "Mark all read" reads the
      rest. Optimistic; the realtime refetch corrects a failed write. */
