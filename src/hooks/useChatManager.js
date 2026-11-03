@@ -346,6 +346,10 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
   const realtimeRetryTimerRef = useRef(null)
 
   const sharedKeysCacheRef = useRef({})
+  // DM messages carry the sender/target public keys, so every message used to
+  // pay a key import plus an ECDH derive per private key. Same pair, same key:
+  // derive each pair once. Holds promises so a parallel page shares one derive.
+  const historicalKeyCacheRef = useRef(new Map())
   /* The attachment/reaction subscriptions below cannot be filtered server-side —
      neither table carries a conversation id. This lets their handlers reject
      events for messages we do not have loaded without paying for a fetch. */
@@ -602,6 +606,17 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     }
   }, [activeDm, dms, session.user.id, view]);
 
+  const deriveHistoricalKey = useCallback((privateJwk, peerPublicJwk) => {
+    const cacheKey = `${privateJwk.x}.${privateJwk.y}|${peerPublicJwk.x}.${peerPublicJwk.y}`
+    let derived = historicalKeyCacheRef.current.get(cacheKey)
+    if (!derived) {
+      derived = importPrivateKey({ ...privateJwk, ext: true })
+        .then(importedPrivate => deriveSharedAesKey(importedPrivate, { ...peerPublicJwk, ext: true }))
+      historicalKeyCacheRef.current.set(cacheKey, derived)
+    }
+    return derived
+  }, [])
+
   const decryptMessageList = useCallback(async (msgList, sharedKeys, { hydrateAttachments = true } = {}) => {
     return await Promise.all(msgList.map(async (msg) => {
       const attachments = msg.message_attachments || []
@@ -618,8 +633,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         const historicalKeys = []
         for (const privateJwk of privateKeys) {
           try {
-            const importedPrivate = await importPrivateKey({ ...privateJwk, ext: true })
-            historicalKeys.push(await deriveSharedAesKey(importedPrivate, theirHistoricalPub))
+            historicalKeys.push(await deriveHistoricalKey(privateJwk, theirHistoricalPub))
           } catch (_err) {}
         }
         return historicalKeys
@@ -723,8 +737,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
 
               for (const privJwk of keysToTry) {
                  try {
-                    const impPriv = await importPrivateKey({ ...privJwk, ext: true });
-                    const historicalShared = await deriveSharedAesKey(impPriv, theirHistoricalPub);
+                    const historicalShared = await deriveHistoricalKey(privJwk, theirHistoricalPub);
                     const attempt = await decryptWithAesGcm(historicalShared, encObj);
                     
                     if (isReadableDecryptedContent(attempt)) {
@@ -782,7 +795,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       }
       return { ...msg, ...attachmentPatch, content: contentStr };
     }));
-  }, [session.user.id]);
+  }, [deriveHistoricalKey, session.user.id]);
 
   const queuePendingAttachments = useCallback((candidates) => {
     const valid = []
