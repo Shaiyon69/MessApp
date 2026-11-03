@@ -481,11 +481,10 @@ export default function ServersPage(props) {
               channels scroll beneath. */}
           <div className="sticky top-0 z-20 -mx-4 mb-1 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 md:-mx-2 md:px-3">
             <div className="relative flex min-h-14 items-center gap-2 py-2 md:min-h-12 md:py-1">
-              {/* The desktop rail already lists every server, so only phones need the way back. */}
-              <button type="button" onClick={() => setPanelView('list')} className="flex md:hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
+              <button type="button" onClick={() => setPanelView('list')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-[var(--bg-base)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)]" aria-label="Back to servers" title="All servers">
                 <ChevronLeft size={19} aria-hidden="true" />
               </button>
-              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl md:hidden" />
+              <ServerIcon url={props.activeServer?.icon_url} name={props.activeServer?.name} className="server-list-icon h-9 w-9 shrink-0 rounded-xl" />
               <h3 className="min-w-0 flex-1 truncate font-display type-body font-bold text-[var(--text-main)]">{props.activeServer?.name || 'Server'}</h3>
               <button type="button" onClick={() => props.onInvite?.(props.activeServer)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[var(--state-hover)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] md:h-9 md:w-9" aria-label="Invite people" title="Invite people">
                 <UserPlus size={17} aria-hidden="true" />

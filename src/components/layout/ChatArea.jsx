@@ -905,13 +905,6 @@ useEffect(() => {
     event.preventDefault()
     rows[to]?.focus()
   }
-  const openServerFromRail = (server) => {
-    selectHomeTab('servers')
-    setServersPanelView('detail')
-    props.setView('home')
-    props.setActiveServer(server)
-    props.setActiveChannel(null)
-  }
   // Picking a rail tab while the list is collapsed means "show me that list".
   const selectHomeTab = (tab) => {
     if (props.listCollapsed) props.setListCollapsed(false)
@@ -993,10 +986,6 @@ useEffect(() => {
         <BottomBar
           homeTab={props.homeTab}
           setHomeTab={selectHomeTab}
-          servers={props.servers}
-          activeServerId={props.activeServer?.id}
-          onOpenServer={openServerFromRail}
-          onAddServer={() => { selectHomeTab('servers'); setServersPanelView('list'); setPendingServerAction('create') }}
           notificationCount={props.notificationCount}
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
