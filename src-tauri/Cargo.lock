@@ -3996,8 +3996,8 @@ dependencies = [
 
 [[package]]
 name = "shaiyon-crypto"
-version = "0.2.0"
-source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.2.0#c0f9202e78a52d025e9432dda32812b8cd9b7702"
+version = "0.3.0"
+source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.3.0#92b86ee57c01ab00d431f7752e68caac289f8a47"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -4011,8 +4011,8 @@ dependencies = [
 
 [[package]]
 name = "shaiyon-keys"
-version = "0.2.0"
-source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.2.0#c0f9202e78a52d025e9432dda32812b8cd9b7702"
+version = "0.3.0"
+source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.3.0#92b86ee57c01ab00d431f7752e68caac289f8a47"
 dependencies = [
  "keyring",
  "serde",
@@ -4545,8 +4545,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-shaiyon"
-version = "0.2.0"
-source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.2.0#c0f9202e78a52d025e9432dda32812b8cd9b7702"
+version = "0.3.0"
+source = "git+https://github.com/Shaiyon69/shaiyon-core?tag=v0.3.0#92b86ee57c01ab00d431f7752e68caac289f8a47"
 dependencies = [
  "serde",
  "serde_json",
