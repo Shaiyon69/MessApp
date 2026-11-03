@@ -1040,6 +1040,9 @@ useEffect(() => {
             <div className="flex items-center gap-2 md:gap-3 min-w-0 animate-fade-in" key={`header-chan-${props.activeChannel.id}`}>
               {isVoiceChannel ? <Volume2 size={20} className="text-gray-500 shrink-0" aria-hidden="true" /> : <Hash size={20} className="text-gray-500 shrink-0" aria-hidden="true" />}
               <h2 className="font-display font-bold text-[var(--chat-text,var(--text-main))] type-title tracking-tight truncate">{props.activeChannel.name}</h2>
+              {props.activeChannel.topic && (
+                <p className="hidden min-w-0 truncate border-l border-[var(--border-subtle)] pl-3 type-label text-[var(--text-muted)] md:block" title={props.activeChannel.topic}>{props.activeChannel.topic}</p>
+              )}
             </div>
           ) : null}
         </div>

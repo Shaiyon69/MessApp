@@ -80,6 +80,7 @@ import { findDesktopUpdate, installDesktopUpdate } from '../lib/desktopUpdater'
 import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY_LENGTH } from '../lib/messageSearch'
 import { activeStatusNote, cleanStatusNote, readStatusNote, statusNoteFromProfile, statusNoteToProfile } from '../lib/statusNote'
 import { isTimedOut } from '../lib/serverModeration'
+import { isChannelPrivate, privateOverwriteRows } from '../lib/channelPermissions'
 import { emitRealtime, onRealtime } from '../lib/realtimeBus'
 import { fuzzyFilter } from '../lib/fuzzy'
 import InviteModal from './modals/InviteModal'
@@ -209,6 +210,10 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const [voiceMuted, setVoiceMuted] = useState(false)
   const [voiceDeafened, setVoiceDeafened] = useState(false)
   const [serverCategories, setServerCategories] = useState([])
+  /* Roles and permission overwrites of the open server: { roles, memberRoles,
+     overwrites }. Empty until 20261103160000_server_roles is deployed. */
+  const [serverPermissions, setServerPermissions] = useState({ roles: [], memberRoles: [], overwrites: [] })
+  const serverPermissionsAvailable = useRef(false)
   const [serverChannelsLoading, setServerChannelsLoading] = useState(false)
   const [unreadChannelIds, setUnreadChannelIds] = useState([])
   const [serverMembers, setServerMembers] = useState([])
@@ -1689,8 +1694,20 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 
       if (channelsError) throw channelsError
 
+      /* Missing tables (migration not deployed yet) fall back to the old
+         is_private column instead of failing the whole list. */
+      const [rolesResult, memberRolesResult, overwritesResult] = await Promise.all([
+        supabase.from('server_roles').select('*').eq('server_id', serverId).order('position', { ascending: true }),
+        supabase.from('server_member_roles').select('role_id, profile_id').eq('server_id', serverId),
+        supabase.from('permission_overwrites').select('*').eq('server_id', serverId)
+      ])
+      const overwrites = overwritesResult.error ? null : overwritesResult.data || []
+      serverPermissionsAvailable.current = Boolean(overwrites)
+
       const channelsByCategory = new Map()
-      for (const channel of channels || []) {
+      for (const rawChannel of channels || []) {
+        // is_private is recomputed from the overwrites so every reader of it stays as is.
+        const channel = overwrites ? { ...rawChannel, is_private: isChannelPrivate(rawChannel, overwrites) } : rawChannel
         const items = channelsByCategory.get(channel.category_id) || []
         items.push(channel)
         channelsByCategory.set(channel.category_id, items)
@@ -1721,6 +1738,11 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       if (serverChannelsRequestRef.current !== requestId) return []
       setUnreadChannelIds(nextUnread)
       setServerCategories(nextCategories)
+      setServerPermissions({
+        roles: rolesResult.data || [],
+        memberRoles: memberRolesResult.data || [],
+        overwrites: overwrites || []
+      })
       /* Swap in the freshly read row rather than keeping the held object, so a
          rename lands and a channel opened by id alone fills itself in. */
       setActiveChannel(current => (current && nextChannels.find(channel => channel.id === current.id)) || null)
@@ -1736,7 +1758,9 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     }
   }, [activeServer?.id])
 
-  const handleCreateChannel = async ({ name, type, category_id, server_id }) => {
+  /* `access` makes it private: { roleIds, profileIds } allowed in, everyone
+     else kept out. Without it the channel syncs with its category. */
+  const handleCreateChannel = async ({ name, type, category_id, server_id, access = null }) => {
     const cleanName = name.trim()
     const serverId = server_id || activeServer?.id
     if (!cleanName || !serverId || serverId !== activeServer?.id || !category_id) return null
@@ -1753,25 +1777,38 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 
     if (positionError) throw positionError
 
-    const { data: channel, error: insertError } = await supabase
+    /* No insert ... returning: reading the new row back in the insert's own
+       snapshot is what failed under the private-channel read policy. */
+    const id = crypto.randomUUID()
+    const { error: insertError } = await supabase
       .from('channels')
       .insert({
+        id,
         category_id,
         name: cleanName,
         type: channelType,
-        position: Number.isFinite(lastChannel?.position) ? lastChannel.position + 1 : 0
+        position: Number.isFinite(lastChannel?.position) ? lastChannel.position + 1 : 0,
+        // Synced unless private; the column only exists once server_roles is deployed.
+        ...(access || serverPermissionsAvailable.current ? { sync_permissions: !access } : null)
       })
-      .select()
-      .single()
 
     if (insertError) throw insertError
+    if (access) await insertOverwrites(privateOverwriteRows({ channel_id: id }, access))
 
-    await fetchServerChannels(serverId)
+    const categories = await fetchServerChannels(serverId)
+    const channel = categories.flatMap(category => category.channels).find(item => item.id === id) || { id, category_id, name: cleanName, type: channelType }
     selectChannel(channel)
     return channel
   }
 
-  const handleCreateCategory = async (name) => {
+  // server_id is overwritten by a trigger from the category or channel.
+  const insertOverwrites = async (rows) => {
+    if (!rows.length) return
+    const { error } = await supabase.from('permission_overwrites').insert(rows.map(row => ({ ...row, server_id: activeServer.id })))
+    if (error) throw error
+  }
+
+  const handleCreateCategory = async (name, access = null) => {
     const cleanName = name.trim()
     const serverId = activeServer?.id
     if (!cleanName || !serverId) return null
@@ -1787,20 +1824,21 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 
     if (positionError) throw positionError
 
-    const { data: category, error: insertError } = await supabase
+    const id = crypto.randomUUID()
+    const { error: insertError } = await supabase
       .from('categories')
       .insert({
+        id,
         server_id: serverId,
         name: cleanName,
         position: Number.isFinite(lastCategory?.position) ? lastCategory.position + 1 : 0
       })
-      .select()
-      .single()
 
     if (insertError) throw insertError
+    if (access) await insertOverwrites(privateOverwriteRows({ category_id: id }, access))
 
     await fetchServerChannels(serverId)
-    return category
+    return { id, server_id: serverId, name: cleanName }
   }
 
   const handleUpdateCategory = async (categoryId, name) => {
@@ -2094,6 +2132,28 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       fetchServerChannels(activeServer.id)
     } else {
       setServerCategories([])
+    }
+  }, [activeServer?.id, fetchServerChannels])
+
+  /* Someone else adds, renames, moves or hides a category or channel, or
+     changes a role: refetch the tree. The trigger sends it to server members
+     only; one debounced refetch absorbs a burst (a preset makes many rows). */
+  useEffect(() => {
+    const serverId = activeServer?.id
+    if (!serverId) return undefined
+    let timer = null
+    const refetch = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => fetchServerChannels(serverId), 250)
+    }
+    /* Categories, channels, roles and overwrites all send server_layout. The
+       trigger already skips the last_message_at bump every message makes. */
+    const off = onRealtime('server_layout', change => {
+      if (change.server_id === serverId) refetch()
+    })
+    return () => {
+      clearTimeout(timer)
+      off()
     }
   }, [activeServer?.id, fetchServerChannels])
 
@@ -2416,6 +2476,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         setActiveServer={setActiveServer}
         setActiveChannel={selectChannel}
         serverCategories={serverCategories}
+        serverPermissions={serverPermissions}
         serverChannelsLoading={serverChannelsLoading}
         unreadChannelIds={unreadChannelIds}
         setChannelRead={setChannelRead}

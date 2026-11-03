@@ -18,14 +18,18 @@
  * compositor. The sheet is sized to its content (capped near full height);
  * "collapsed" is that box translated down until at most ~60% of the screen shows.
  *
+ * On a PC-sized screen with a mouse (and always in the desktop app) the same
+ * props render a small context menu at the pointer instead (ContextMenu below).
+ *
  * `items` are `{ label, Icon, onSelect, danger }`; falsy entries are skipped so
  * callers can inline their conditions. Extra props (e.g. data attributes that a
  * caller's click-away listener keys on) land on the root, backdrop included, so
  * that listener leaves the backdrop tap to this component's animated close.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { GroupItem } from './SettingsGroup'
+import { isDesktopApp } from '../../lib/desktopNotify'
 
 const EXPANDED_VH = 92
 const COLLAPSED_MAX_VH = 60
@@ -34,7 +38,97 @@ const SETTLE_MS = 380
 const FLICK_PX_PER_MS = 0.5
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-export default function ActionSheet({ header, items, onClose, ...rest }) {
+const usesContextMenu = () => {
+  try {
+    return isDesktopApp() || Boolean(window.matchMedia?.('(pointer: fine) and (min-width: 768px)').matches)
+  } catch {
+    return false
+  }
+}
+
+/* Where the last press or right-click landed, so the menu opens there. A
+   keyboard-opened menu uses the focused element instead. */
+let lastPointer = null
+if (typeof window !== 'undefined') {
+  const remember = (event) => { lastPointer = { x: event.clientX, y: event.clientY } }
+  window.addEventListener('pointerdown', remember, true)
+  window.addEventListener('contextmenu', remember, true)
+  window.addEventListener('keydown', () => { lastPointer = null }, true)
+}
+
+export default function ActionSheet(props) {
+  const [asMenu] = useState(usesContextMenu)
+  return asMenu ? <ContextMenu {...props} /> : <BottomSheet {...props} />
+}
+
+const MENU_WIDTH = 240
+const EDGE = 8
+
+// No header: like Discord's, the menu sits on the row it belongs to.
+function ContextMenu({ header: _header, items, onClose, ...rest }) {
+  const menuRef = useRef(null)
+  const opener = useRef(typeof document !== 'undefined' ? document.activeElement : null)
+  const [position, setPosition] = useState(null)
+
+  // Place at the pointer, flipped and clamped so it never leaves the window.
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    const rect = opener.current?.getBoundingClientRect?.()
+    const point = lastPointer || (rect ? { x: rect.left, y: rect.bottom } : { x: window.innerWidth / 2, y: window.innerHeight / 3 })
+    const { offsetWidth: width, offsetHeight: height } = menu
+    let x = point.x
+    let y = point.y
+    if (x + width > window.innerWidth - EDGE) x = Math.max(EDGE, x - width)
+    if (y + height > window.innerHeight - EDGE) y = Math.max(EDGE, y - height)
+    setPosition({ x, y })
+    menu.querySelector('button')?.focus({ preventScroll: true })
+  }, [])
+
+  const close = () => {
+    onClose()
+    opener.current?.focus?.({ preventScroll: true })
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') return close()
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      event.preventDefault()
+      const buttons = [...menuRef.current.querySelectorAll('button')]
+      const index = buttons.indexOf(document.activeElement)
+      const next = event.key === 'ArrowDown' ? index + 1 : index - 1
+      buttons[(next + buttons.length) % buttons.length]?.focus()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  return createPortal(
+    <div {...rest} className="fixed inset-0 z-[200]">
+      {/* Transparent catcher: any click or right-click outside closes the menu. */}
+      <div className="absolute inset-0" onClick={close} onContextMenu={(event) => { event.preventDefault(); close() }} aria-hidden="true" />
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label={rest['aria-label']}
+        className="ios-sheet menu-glass absolute flex max-h-[min(70vh,32rem)] flex-col overflow-hidden rounded-xl py-1 shadow-2xl"
+        style={{ width: MENU_WIDTH, left: position?.x ?? -9999, top: position?.y ?? -9999 }}
+      >
+        <div className="custom-scrollbar seg-group seg-plain min-h-0 overflow-y-auto px-1 pt-1">
+          {items.filter(Boolean).map(({ label, Icon, onSelect, danger }) => (
+            <GroupItem key={label} role="menuitem" onClick={() => { onClose(); onSelect() }} className={`min-h-9 gap-3 py-1.5 type-label font-semibold ${danger ? 'text-red-400' : ''}`}>
+              {Icon && <Icon size={16} aria-hidden="true" className={danger ? '' : 'text-[var(--text-muted)]'} />}
+              {label}
+            </GroupItem>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function BottomSheet({ header, items, onClose, ...rest }) {
   const sheetRef = useRef(null)
   const backdropRef = useRef(null)
   const snaps = useRef({ expanded: 0, collapsed: 0, closed: 0 })
