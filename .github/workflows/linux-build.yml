@@ -1,0 +1,46 @@
+name: Linux build
+
+# Builds the Linux app and keeps it as an artifact. It deploys and publishes nothing.
+on:
+  push:
+    branches: [build/linux]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SKIBI_CORE_SSH_KEY }}
+      - name: Fetch private shaiyon-core over SSH
+        run: git config --global url."git@github.com:Shaiyon69/shaiyon-core".insteadOf "https://github.com/Shaiyon69/shaiyon-core"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build native package
+        run: bash ./build_all.sh linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: messapp-linux
+          path: APPLICATIONS/MessApp-Linux-*
+          if-no-files-found: error
