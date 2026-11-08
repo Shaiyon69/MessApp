@@ -86,6 +86,7 @@ import { fuzzyFilter } from '../lib/fuzzy'
 import InviteModal from './modals/InviteModal'
 import InvitePreviewModal from './modals/InvitePreviewModal'
 import { OPEN_INVITE_EVENT } from '../lib/invites'
+import { listenForInviteLinks } from '../lib/desktopDeepLink'
 
 const sortDmsByLastMessage = (items) => {
   return [...items].sort((a, b) => new Date(b.last_message_at || b.created_at || 0) - new Date(a.last_message_at || a.created_at || 0))
@@ -1345,6 +1346,9 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     window.addEventListener(OPEN_INVITE_EVENT, onOpenInvite)
     return () => window.removeEventListener(OPEN_INVITE_EVENT, onOpenInvite)
   }, [])
+
+  // messapp://invite/ links clicked outside the desktop app.
+  useEffect(() => listenForInviteLinks(code => setInvitePreview({ code })), [])
 
   /* A new invite arriving live gets a toast with Join, and a native
      notification on desktop when the window is in the background. */
