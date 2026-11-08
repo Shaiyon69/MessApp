@@ -14,7 +14,8 @@ import {
 
 describe('invite links', () => {
   test('parses links, paths and bare codes', () => {
-    assert.equal(parseInviteCode('https://messapp-tau.vercel.app/invite/ab12cd34ef56'), 'AB12CD34EF56')
+    assert.equal(parseInviteCode('messapp://invite/ab12cd34ef56'), 'AB12CD34EF56')
+    assert.equal(parseInviteCode('https://old.example/invite/ab12cd34ef56'), 'AB12CD34EF56')
     assert.equal(parseInviteCode('  AB12CD34EF56 '), 'AB12CD34EF56')
     assert.equal(parseInviteCode('join me /invite/AB12CD34EF56 now'), 'AB12CD34EF56')
     assert.equal(parseInviteCode('not a code!'), null)
@@ -22,7 +23,9 @@ describe('invite links', () => {
   })
 
   test('round-trips a generated link', () => {
+    assert.equal(inviteUrl('AB12CD34EF56'), 'messapp://invite/AB12CD34EF56')
     assert.equal(parseInviteCode(inviteUrl('AB12CD34EF56')), 'AB12CD34EF56')
+    assert.deepEqual(findInviteCodes(`join ${inviteUrl('AB12CD34EF56')} now`), ['AB12CD34EF56'])
   })
 
   test('finds each distinct code in a message', () => {
