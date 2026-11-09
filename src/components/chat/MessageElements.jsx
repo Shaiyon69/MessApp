@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer, Forward, MessagesSquare, Gamepad2, ChevronLeft } from 'lucide-react'
+import { CornerDownLeft, Ban, FileText, SmilePlus, Pen, Trash2, X, Check, Pin, Download, Clock3, CheckCheck, AlertCircle, RotateCcw, Plus, Eye, EyeOff, Flag, Maximize2, Play, Copy, Timer, Forward, MessagesSquare, Gamepad2, Cat, ChevronLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { safeHttpUrl, safeMediaUrl } from '../../lib/security'
 import { QUICK_REACTION_EMOJIS, REACTION_MENU_STATE, normalizeQuickReactions, normalizeReactionEmoji, replaceQuickReaction, shouldCancelLongPress, shouldSuppressOriginClick, transitionReactionMenu } from '../../lib/reactions'
@@ -1503,6 +1503,12 @@ export const MemoizedMessage = React.memo(({
               <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-element)] px-2 py-0.5 type-meta font-semibold text-gray-400">
                 <Gamepad2 size={12} aria-hidden="true" />
                 Chimaera
+              </span>
+            )}
+            {m.origin === 'purrch' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-element)] px-2 py-0.5 type-meta font-semibold text-gray-400">
+                <Cat size={12} aria-hidden="true" />
+                Purrch
               </span>
             )}
           </div>

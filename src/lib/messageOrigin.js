@@ -2,7 +2,8 @@
 export const ORIGIN_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'messapp', label: 'messapp' },
-  { id: 'chimaera', label: 'Chimaera' }
+  { id: 'chimaera', label: 'Chimaera' },
+  { id: 'purrch', label: 'Purrch' }
 ]
 
 const STORAGE_KEY = 'messapp:originFilter'
