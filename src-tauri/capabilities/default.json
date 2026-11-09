@@ -9,6 +9,7 @@
     "core:default",
     "shaiyon:default",
     "notification:default",
-    "updater:default"
+    "updater:default",
+    "deep-link:default"
   ]
 }

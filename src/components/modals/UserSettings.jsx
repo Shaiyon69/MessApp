@@ -6,7 +6,7 @@
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { supabase } from '../../supabaseClient'
 import { Capacitor } from '@capacitor/core'
-import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare, ShieldAlert, Keyboard } from 'lucide-react'
+import { X, Upload, Loader2, User, AlertTriangle, Copy, Check, LogOut, Palette, Bell, Lock, Edit2, Mail, Key, Shield, ChevronRight, ChevronLeft, FileText, History, Mic, Video, MessageSquare, ShieldAlert, Keyboard, Cat } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { keyStore, sameJwk } from '../../lib/keyStore'
 import { PALETTES, THEME_MODES, UI_STYLES, applyGlassRefraction, applySurfaceTint, applyThemeMode, applyUiStyle, normalizeGlassRefraction, normalizeSurfaceTint, normalizeThemeMode, normalizeUiStyle, readGlassWallpaper, saveGlassWallpaper } from '../../lib/theme'
@@ -14,6 +14,8 @@ import { isChromium, isLowPowerDevice } from '../../lib/liquidGlass'
 import { KEYBOARD_SHORTCUTS } from '../../lib/keyboardShortcuts'
 import { audioSys } from '../../lib/SoundEngine'
 import { debug } from '../../lib/debug'
+import { invoke } from '@tauri-apps/api/core'
+import { linkPurrch } from '../../lib/purrchLink'
 import { isDesktopApp, requestDesktopPermission } from '../../lib/desktopNotify'
 import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
 import { signOutAndReset } from '../../lib/signOut'
@@ -427,6 +429,13 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
     setRestrictedUsers(updated)
     localStorage.setItem(`restricted_${session.user.id}`, JSON.stringify(updated))
     toast.success("User unrestricted")
+  }
+
+  const handleLinkPurrch = async () => {
+    try {
+      await linkPurrch({ supabase, invoke, uid: session.user.id, url: import.meta.env.VITE_SUPABASE_URL, anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY })
+      toast.success('Purrch linked. It picks this up within 10 seconds.')
+    } catch (error) { toast.error(error.message) }
   }
 
   const handleDeactivate = () => toast.error('Deactivation requires email confirmation in this beta version.')
@@ -1040,6 +1049,11 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                         and the in-app message sound already covers that case. */}
                     {Capacitor.isNativePlatform() && (
                       <div className="seg-group"><ToggleSwitch label="Enable Device Notifications" description="Receive push notifications for DMs and activity in servers you have not muted." checked={desktopNotifs} onChange={requestDesktopNotifs} /></div>
+                    )}
+                    {isDesktopApp() && (
+                      <SettingsGroup title="Purrch" className="mt-8">
+                        <GroupItem icon={Cat} title="Link Purrch" description="Let the Purrch notch app show and send your DMs on this computer." onClick={handleLinkPurrch} />
+                      </SettingsGroup>
                     )}
                     <SettingsGroup title="Communication sounds" className="mt-8">
                     <ToggleSwitch label="Message sounds" description="Play subtle sent and received sounds while the app is open." checked={messageSoundsEnabled} onChange={setMessageSoundsEnabled} />

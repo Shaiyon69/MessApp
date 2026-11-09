@@ -1,18 +1,15 @@
 /**
- * Server invite links. A link is the public web app's /invite/CODE path, so it
- * opens in any browser and pastes into the desktop and mobile apps' join box.
- * Codes are the invites table's 12-character hex codes.
+ * Server invite links. There is no public web app, so a link is messapp://invite/CODE:
+ * chat shows it as an invite card and the apps' join box accepts it.
+ * Older https://<host>/invite/CODE links still parse. Codes are the invites
+ * table's 12-character hex codes.
  */
-
-// The installed apps run on tauri:// and capacitor:// origins, which are not
-// shareable, so links always point at the public web app.
-export const INVITE_BASE_URL = (import.meta.env?.VITE_PUBLIC_WEB_URL || 'https://messapp-tau.vercel.app').replace(/\/+$/, '')
 
 const CODE = '[A-Za-z0-9]{6,32}'
 // A fresh RegExp per call: a shared /g pattern carries lastIndex between calls.
-const linkPattern = () => new RegExp(`(?:https?://[^\\s/]+)?/invite/(${CODE})(?![A-Za-z0-9])`, 'g')
+const linkPattern = () => new RegExp(`(?:https?://[^\\s/]+|messapp:/)?/invite/(${CODE})(?![A-Za-z0-9])`, 'g')
 
-export const inviteUrl = code => `${INVITE_BASE_URL}/invite/${code}`
+export const inviteUrl = code => `messapp://invite/${code}`
 
 /** A pasted link or a bare code, as the uppercase code; null for anything else. */
 export function parseInviteCode(input) {
