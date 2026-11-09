@@ -91,11 +91,12 @@ const trimUrlToken = (value) => value.replace(/[),.!?;:'"\]]+$/g, '')
 
 const extractPreviewLinks = (content) => {
   if (!content || typeof content !== 'string') return []
-  const matches = content.match(/https?:\/\/[^\s<>"`]+/g) || []
+  // messapp://invite/ links have no web page, but still show as an invite card.
+  const matches = content.match(/(?:https?:\/\/|messapp:\/\/invite\/)[^\s<>"`]+/g) || []
   return matches
     .map(raw => {
       const trimmed = trimUrlToken(raw)
-      const url = safeHttpUrl(trimmed)
+      const url = trimmed.startsWith('messapp://invite/') ? trimmed : safeHttpUrl(trimmed)
       if (!url) return null
       return { raw, url }
     })

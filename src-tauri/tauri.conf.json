@@ -57,6 +57,13 @@
       "endpoints": [
         "https://shaiyon69.github.io/Skibidevs/updates/messapp/latest.json"
       ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "messapp"
+        ]
+      }
     }
   }
 }
