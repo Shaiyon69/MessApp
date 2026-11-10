@@ -2248,12 +2248,16 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) || gamePresence[profileId]?.online ? 'online' : 'offline')
   }, [gamePresence, onlineUsersSet, userPresence])
   // The game a friend plays in Chimaera, then a custom status note, stand in for the plain "Online".
-  const getPresenceLabel = useCallback((profileId) => {
+  // "Playing X · 12m" while a friend plays in Chimaera, else null.
+  const getPlayingLabel = useCallback((profileId) => {
     const playing = gamePresence[profileId]?.playing
-    if (playing) {
-      const time = playtimeLabel(playing.startedAt, presenceNow)
-      return time ? `Playing ${playing.title} · ${time}` : `Playing ${playing.title}`
-    }
+    if (!playing) return null
+    const time = playtimeLabel(playing.startedAt, presenceNow)
+    return time ? `Playing ${playing.title} · ${time}` : `Playing ${playing.title}`
+  }, [gamePresence, presenceNow])
+  const getPresenceLabel = useCallback((profileId) => {
+    const playing = getPlayingLabel(profileId)
+    if (playing) return playing
     const status = getPresenceStatus(profileId)
     const note = status !== 'offline' && userPresence[profileId]?.status_text
     if (note) return note
@@ -2261,7 +2265,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     if (status === 'idle') return 'Idle'
     if (status === 'online') return 'Online'
     return 'Offline'
-  }, [gamePresence, getPresenceStatus, presenceNow, userPresence])
+  }, [getPlayingLabel, getPresenceStatus, userPresence])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => {
@@ -2554,6 +2558,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         userPresence={userPresence}
         getPresenceStatus={getPresenceStatus}
         getPresenceLabel={getPresenceLabel}
+        getPlayingLabel={getPlayingLabel}
         serverMembers={serverMembers}
         myUsername={myUsername}
         myAvatar={myAvatar}
