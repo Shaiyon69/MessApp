@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { useGameAccent } from '../../hooks/useGameAccent'
 
 export default function PlayingBadge({ playing, className = '' }) {
-  const color = useGameAccent(playing.coverUrl)
+  // Chimaera's own reading of the cover wins; older Chimaera builds send none.
+  const fromCover = useGameAccent(playing.accent ? null : playing.coverUrl)
+  const color = playing.accent || fromCover
   const [iconFailed, setIconFailed] = useState(null)
   return (
     <span className={`flex min-w-0 flex-col items-end text-right type-meta font-semibold ${className}`} style={{ color }}>
