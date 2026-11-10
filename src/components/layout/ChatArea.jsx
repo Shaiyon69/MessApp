@@ -6,11 +6,10 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
 import { ORIGIN_FILTERS, messageOrigin, stepOriginFilter } from '../../lib/messageOrigin'
-import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
+import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronsDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
-import AddFriendView from '../modals/AddFriendView'
 import BottomBar, { TABS } from './BottomBar'
 import ChatsPage from './ChatsPage'
 import MenuPage from './MenuPage'
@@ -18,7 +17,6 @@ import NotificationsPage from './NotificationsPage'
 import QuickActionsFab from './QuickActionsFab'
 import ServersPage from './ServersPage'
 import { debug } from '../../lib/debug'
-import { openDmEntry } from '../../lib/chatActions'
 import useLongPress from '../../hooks/useLongPress'
 import { DISAPPEARING_OPTIONS, describeExpiry } from '../../lib/messageExpiry'
 import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
@@ -421,15 +419,6 @@ export default function ChatArea(props) {
     props.setMessageActionMenuId(null)
   }, [props.messageActionMenuId, props.setMessageActionMenuId])
 
-  // Dashboard owns the maintained create_or_get_dm flow; ChatArea only routes
-  // validated contacts to that canonical handler.
-  const openDmContact = useCallback((entry) => openDmEntry(entry, {
-    selectDm: props.selectDm,
-    createOrOpenDm: props.createOrOpenDm,
-    onMissing: metadata => {
-      if (import.meta.env.DEV) debug.warn('DM_LIST', { operation: 'missing-open-handler', ...metadata })
-    }
-  }), [props.createOrOpenDm, props.selectDm])
 
   const toggleEmojiPicker = () => {
     blurComposer();
@@ -791,7 +780,7 @@ useEffect(() => {
 
   const quickActions = {
     onSearch: () => props.setShowQuickSwitcher(true),
-    onAddFriend: () => props.setHomeTab('add'),
+    onAddFriend: () => props.setShowAddFriend(true),
     onCreateServer: () => { props.setHomeTab('servers'); setPendingServerAction('create') },
     onJoinServer: () => { props.setHomeTab('servers'); setPendingServerAction('join') }
   };
@@ -975,14 +964,11 @@ useEffect(() => {
                 />
               ) : props.homeTab === 'notifs' ? (
                 <NotificationsPage {...props} />
-              ) : props.homeTab === 'add' ? (
-                <AddFriendView session={props.session} allFriends={props.allFriends} getPresenceLabel={props.getPresenceLabel} getPresenceStatus={props.getPresenceStatus} openDmContact={openDmContact} startingDmProfileId={props.startingDmProfileId} />
               ) : (
                 <ChatsPage {...props} />
               )}
             </div>
-            {/* Friends has its own input in the FAB's spot above the dock, so the FAB lifts over it. */}
-            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} lifted={props.homeTab === 'add'} />}
+            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} />}
           </div>
         </div>
         <BottomBar
@@ -991,9 +977,7 @@ useEffect(() => {
           notificationCount={props.notificationCount}
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
-          // Friends' input lives in the dock, so it must not slide away mid-typing.
-          hidden={dockHidden && props.homeTab !== 'add'}
-          expanded={props.homeTab === 'add'}
+          hidden={dockHidden}
         />
       </section>
 
@@ -1338,7 +1322,6 @@ useEffect(() => {
                       scrollToMessage={props.scrollToMessage}
                       setSelectedImage={props.setSelectedImage}
                       togglePinnedMessage={props.togglePinnedMessage}
-                      presenceStatus={props.getPresenceStatus?.(m.profile_id)}
 	                      peerReadAt={props.peerReadAt}
 	                      peerOnline={props.view === 'home' && (props.getPresenceStatus?.(props.activeDm?.profiles?.id) ?? 'offline') !== 'offline'}
 	                      retryFailedMessage={props.retryFailedMessage}
@@ -1361,11 +1344,11 @@ useEffect(() => {
                   <button
                     type="button"
                     onClick={props.scrollToLatestMessages}
-                    className="premium-menu pointer-events-auto absolute bottom-3 left-1/2 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full text-[var(--theme-base)] shadow-xl transition-all hover:border-[var(--theme-50)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] cursor-pointer"
+                    className="premium-menu pointer-events-auto absolute bottom-3 right-4 md:right-6 grid h-10 w-10 place-items-center rounded-full text-[var(--theme-base)] shadow-xl transition-all hover:border-[var(--theme-50)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] cursor-pointer"
                     aria-label="Jump to latest messages"
                     title="Latest messages"
                   >
-                    <ChevronDown size={20} aria-hidden="true" />
+                    <ChevronsDown size={20} className="latest-nudge" aria-hidden="true" />
                   </button>
                 </div>
               )}
@@ -1376,6 +1359,8 @@ useEffect(() => {
                 </div>
               ) : (
                 <div ref={emojiPickerRef} className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
+                  {/* Banners stack above the dots pill, which stays pinned to the composer. */}
+                  <div className={originSwipeEnabled ? 'flex flex-col pb-8 empty:pb-0' : 'contents'}>
                   {props.connectionLost && (
                     <div role="status" className="mx-2 mb-2 flex items-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2 type-meta text-[var(--text-muted)]">
                       <WifiOff size={14} aria-hidden="true" />
@@ -1576,7 +1561,7 @@ useEffect(() => {
                       <span className="sr-only">{voiceRecorderState.status === 'stopping' ? 'Preparing voice message' : 'Recording voice message'}</span>
                     </div>
                   )}
-                  {originDots}
+                  </div>
                   <form
                     onSubmit={(e) => {
                         if (props.editingMessageId) {
@@ -1589,6 +1574,7 @@ useEffect(() => {
                       }
                     }
                     className="premium-composer chat-glass rounded-3xl flex items-center gap-2 p-1.5 transition-all duration-300 ease-out transform relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
+                    {originDots}
                     <div ref={gifPickerRef} onTouchStartCapture={() => { blurComposer(); }}>
                       {props.showGifPicker && (
                         <Suspense fallback={null}>

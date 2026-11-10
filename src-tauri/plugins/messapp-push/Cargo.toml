@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-messapp-push"
+description = "Native FCM push for Messapp's Tauri Android app (registration, channel, notification taps)"
+version = "0.1.0"
+edition = "2021"
+publish = false
+links = "tauri-plugin-messapp-push"
+
+[dependencies]
+tauri = "2.12"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

@@ -109,6 +109,13 @@ jobs:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      # The one Messapp release key (android/messapp-release.jks), so each APK installs over the last.
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # SHA-256 of that key's certificate. An APK signed with anything else fails the release.
+      ANDROID_CERT_SHA256: 0c31820980fd0aa21c3d57e2caf94b9481de7159e37cbac6336d1b3c02106874
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -130,11 +137,35 @@ jobs:
           test -n "$VITE_SUPABASE_URL"
           test -n "$VITE_SUPABASE_ANON_KEY"
           test -n "$GOOGLE_SERVICES_JSON"
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            test -n "${!name}" || { echo "::error::Set the $name secret (see android/keystore.properties)"; exit 1; }
+          done
       - name: Restore Firebase application configuration
         shell: bash
         run: printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+      - name: Restore the release signing key
+        shell: bash
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/messapp-release.jks
+          {
+            echo "storeFile=messapp-release.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > android/keystore.properties
       - name: Build Android package
         run: bash ./build_all.sh android
+      - name: Check the APK is signed with the release key
+        shell: bash
+        run: |
+          apk="APPLICATIONS/MessApp-Android-v${{ needs.validate.outputs.version }}.apk"
+          signer="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          digest="$("$signer" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test "$digest" = "$ANDROID_CERT_SHA256" || { echo "::error::APK signed with $digest, expected $ANDROID_CERT_SHA256"; exit 1; }
+      - name: Remove the signing key from the runner
+        if: always()
+        shell: bash
+        run: rm -f android/messapp-release.jks android/keystore.properties
       - uses: actions/upload-artifact@v7
         with:
           name: messapp-android-v${{ needs.validate.outputs.version }}

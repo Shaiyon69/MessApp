@@ -655,7 +655,7 @@ export const MemoizedMessage = React.memo(({
   isEditing, editContent, setEditContent, handleUpdateMessage, setEditingMessageId,
   handleToggleMessageSpoiler, handleToggleAttachmentSpoiler,
   inlineDeleteMessageId, inlineDeleteStep, setInlineDeleteMessageId, setInlineDeleteStep, executeInlineDelete,
-  toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage, presenceStatus,
+  toggleReaction, togglePinnedMessage, setReplyingTo, repliedMsg, scrollToMessage, setSelectedImage,
   peerReadAt, peerOnline = false, retryFailedMessage, showDeliveryStatus, messageActionMenuId, setMessageActionMenuId,
   setMessageActionMenuPosition, closeMessageInteraction, onReportMessage, onForwardMessage, onOpenThread, canModerateMessage = false, myMention = ''
 }) => {
@@ -1488,7 +1488,7 @@ export const MemoizedMessage = React.memo(({
     <div id={`message-${m.id}`} className={`flex gap-2 transition-all duration-300 ease-out transform ${showHeader ? 'mt-2.5 md:mt-3' : 'mt-0.5'} ${isHighlighted ? 'bg-[var(--theme-20)] p-2 -mx-2 rounded-xl ring-2 ring-[var(--theme-base)] z-20' : ''} ${alignRight ? 'flex-row-reverse ml-6 sm:ml-12 md:ml-20' : 'mr-6 sm:mr-12 md:mr-20'}`}>
       
       {showHeader ? (
-        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} status={presenceStatus} showStatus={Boolean(presenceStatus && presenceStatus !== 'offline')} className="h-8 w-8 mt-1 shadow-md ghost-border rounded-full shrink-0" />
+        <StatusAvatar url={m.profiles?.avatar_url} username={m.profiles?.username} showStatus={false} className="h-8 w-8 mt-1 shadow-md ghost-border rounded-full shrink-0" />
       ) : (
         <div className={`w-8 shrink-0 flex ${alignRight ? 'justify-start' : 'justify-center'} items-center opacity-0 type-meta text-gray-500 font-medium select-none`}></div>
       )}

@@ -1,39 +1,33 @@
 /**
  * The app's only navigation surface: Orion Store's floating pill dock on
- * phones, the same five slots stacked into a left icon rail from md up. Order
+ * phones, the same four slots stacked into a left icon rail from md up. Order
  * is fixed — Menu sits at the dock's left edge but at the rail's bottom, Chats
  * at the dock's right, matching Messenger's thumb positions. Menu is a
  * destination like the rest, not an overlay trigger.
  * On the dock only the active tab shows its label; the rail is icons only.
  * The shell must stay positioned (md:relative, not static): glass.css hangs
  * its backdrop-filter on ::before, which would otherwise cover the whole app.
- * The dock slides away while the list scrolls down. When a tab has an input
- * (Friends), the dock grows into an island: the tab portals its input into
- * #dock-accessory above the tabs. See design.md §5.
+ * The dock slides away while the list scrolls down. See design.md §5.
+ * Friends has no tab: Add friend is a dialog from the (+) quick actions.
  * Menu shows the user's avatar instead of an icon: it is the account entry point.
  */
-import { Bell, LayoutGrid, MessageSquare, UserPlus } from 'lucide-react'
+import { Bell, LayoutGrid, MessageSquare } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 
 export const TABS = [
   { id: 'menu', Icon: null, label: 'Menu' },
   { id: 'notifs', Icon: Bell, label: 'Notifications' },
-  { id: 'add', Icon: UserPlus, label: 'Friends' },
   { id: 'servers', Icon: LayoutGrid, label: 'Servers' },
   { id: 'chats', Icon: MessageSquare, label: 'Chats' }
 ]
 
-export const DOCK_ACCESSORY_ID = 'dock-accessory'
-
-export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, expanded = false, avatarUrl, username }) {
+export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, avatarUrl, username }) {
   return (
     <div
       data-hidden={hidden || undefined}
-      data-expanded={expanded || undefined}
       className="home-tab-shell dock-shell pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[var(--dock-lift)] md:pointer-events-auto md:relative md:w-[4.5rem] md:shrink-0 md:border-r md:border-[var(--border-subtle)] md:px-1 md:py-3"
     >
       <div className="dock pointer-events-auto flex flex-col md:h-full">
-        <div id={DOCK_ACCESSORY_ID} className="dock-accessory md:hidden" />
         <nav className="flex items-center justify-between gap-0.5 p-1 md:h-full md:flex-col md:justify-start md:gap-3 md:p-0" aria-label="Primary">
           {TABS.map(({ id, Icon, label }) => {
             const isActive = homeTab === id

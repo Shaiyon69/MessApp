@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core'
 import { supabase } from '../supabaseClient.js'
 import { debug } from './debug.js'
 import { publishPushNavigation } from './pushNavigation.js'
+import { isTauriMobile } from './platform.js'
 
 export const PUSH_INSTALLATION_ID_KEY = 'messapp_push_installation_id'
 const PLATFORM_LABELS = new Set(['android', 'ios', 'web'])
@@ -28,7 +29,8 @@ export const getInstallationId = (storage = globalThis.localStorage, cryptoApi =
   return installationId
 }
 
-export const getPushPlatform = (capacitor = Capacitor) => {
+export const getPushPlatform = (capacitor = Capacitor, tauriMobile = isTauriMobile()) => {
+  if (tauriMobile) return 'android'
   const platform = capacitor?.getPlatform?.()
   return PLATFORM_LABELS.has(platform) ? platform : 'web'
 }
@@ -133,10 +135,71 @@ export const registerWebPushDevice = async ({ profileId, client = supabase, vapi
 export const stopNativePushRegistration = async () => {
   const owner = nativeRegistrationOwner
   nativeRegistrationOwner = null
-  await Promise.all((owner?.handles || []).map(handle => handle?.remove?.()))
+  // Capacitor listener handles have remove(); Tauri PluginListeners have unregister().
+  await Promise.all((owner?.handles || []).map(handle => handle?.remove ? handle.remove() : handle?.unregister?.()))
 }
 
-export const configureNativePushRegistration = async ({ profileId, requestPermission = false, client = supabase }) => {
+const TAURI_PUSH = 'messapp-push'
+const REGISTRATION_TIMEOUT_MS = 15_000
+
+const withTimeout = async (promise, message) => {
+  let timeoutId
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_resolve, reject) => {
+        timeoutId = globalThis.setTimeout(() => reject(new Error(message)), REGISTRATION_TIMEOUT_MS)
+      })
+    ])
+  } finally {
+    if (timeoutId) globalThis.clearTimeout(timeoutId)
+  }
+}
+
+/** Tauri Android: the same flow as Capacitor's, through the messapp-push plugin (FCM). */
+const configureTauriPushRegistration = async ({ profileId, requestPermission, client, core }) => {
+  const { invoke, addPluginListener } = core || await import('@tauri-apps/api/core')
+  // Tauri rejects with a bare string; name the step so the failure is readable.
+  const call = (command, args) => invoke(`plugin:${TAURI_PUSH}|${command}`, args).catch(error => {
+    throw new Error(`${command}: ${error?.message || String(error)}`)
+  })
+  let permission = await call('permission_state')
+  if (requestPermission && permission.receive === 'prompt') permission = await call('request_permission')
+  debug.info('PUSH_PERMISSION', { platform: 'android', state: permission.receive })
+
+  if (permission.receive !== 'granted') {
+    await stopNativePushRegistration()
+    await disableCurrentPushDevice({ profileId, client, reason: 'permission_denied' })
+      .catch(error => reportPushError('permission_denied_disable', error))
+    return { supported: true, permission: permission.receive }
+  }
+
+  if (nativeRegistrationOwner?.profileId !== profileId) {
+    await stopNativePushRegistration()
+    await call('create_channel', { id: 'messages', name: 'Messages', description: 'Direct messages and server activity' })
+    const tokenHandle = await addPluginListener(TAURI_PUSH, 'token', ({ token }) => {
+      upsertPushDevice({ profileId, pushToken: token, platform: 'android', client }).catch(error => reportPushError('native_token_refresh', error))
+    })
+    const actionHandle = await addPluginListener(TAURI_PUSH, 'action', data => publishPushNavigation(data))
+    nativeRegistrationOwner = { profileId, handles: [tokenHandle, actionHandle] }
+    // A tap that cold-started the app happened before these listeners existed.
+    const launch = await call('take_launch_action')
+    if (launch?.data) publishPushNavigation(launch.data)
+  }
+
+  try {
+    const { token } = await withTimeout(call('register'), 'Native push registration timed out')
+    const registration = await upsertPushDevice({ profileId, pushToken: token, platform: 'android', client })
+    return { supported: true, permission: 'granted', registration }
+  } catch (error) {
+    reportPushError('native_registration', error)
+    await stopNativePushRegistration()
+    throw error
+  }
+}
+
+export const configureNativePushRegistration = async ({ profileId, requestPermission = false, client = supabase, tauriCore = null }) => {
+  if (isTauriMobile() || tauriCore) return configureTauriPushRegistration({ profileId, requestPermission, client, core: tauriCore })
   if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('PushNotifications')) {
     return { supported: false, permission: 'unsupported' }
   }

@@ -4,11 +4,11 @@
  * notifies from the Realtime events it already receives while running.
  * Everywhere else these calls do nothing.
  */
-import { isTauri } from '@tauri-apps/api/core'
+import { isTauriDesktop } from './platform.js'
 
 const plugin = () => import('@tauri-apps/plugin-notification')
 
-export const isDesktopApp = () => isTauri()
+export const isDesktopApp = () => isTauriDesktop()
 
 // Returns 'granted' | 'denied' | 'default', like Notification.permission.
 export async function requestDesktopPermission() {
@@ -23,7 +23,7 @@ export function shouldNotify({ enabled, focused, isOwnMessage, isOpenRoom }) {
 }
 
 export async function notifyDesktop({ title, body, isOwnMessage, isOpenRoom }) {
-  if (!isTauri()) return
+  if (!isTauriDesktop()) return
   const enabled = localStorage.getItem('notificationsEnabled') === 'true'
   if (!shouldNotify({ enabled, focused: document.hasFocus(), isOwnMessage, isOpenRoom })) return
   const { isPermissionGranted, sendNotification } = await plugin()

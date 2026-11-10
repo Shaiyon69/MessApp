@@ -4,12 +4,12 @@
  * Installers are signed in CI; the plugin refuses anything the pubkey in
  * tauri.conf.json did not sign.
  */
-import { isTauri } from '@tauri-apps/api/core'
+import { isTauriDesktop } from './platform.js'
 import { debug } from './debug.js'
 
 // Resolves to the pending update, or null when there is none or not on desktop.
 export async function findDesktopUpdate() {
-  if (!isTauri()) return null
+  if (!isTauriDesktop()) return null
   try {
     const { check } = await import('@tauri-apps/plugin-updater')
     return await check()
