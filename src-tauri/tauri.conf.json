@@ -54,6 +54,12 @@
     "android": {
       "minSdkVersion": 24,
       "versionCode": 1050000
+    },
+    "windows": {
+      "nsis": {
+        "sidebarImage": "installer/messapp-sidebar.bmp",
+        "headerImage": "installer/messapp-header.bmp"
+      }
     }
   },
   "plugins": {
