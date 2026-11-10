@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "messapp",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "identifier": "com.shaiyon.messapp",
   "build": {
     "frontendDist": "../dist",
@@ -16,7 +16,8 @@
         "width": 800,
         "height": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "create": false
       }
     ],
     "security": {
@@ -52,7 +53,13 @@
     "createUpdaterArtifacts": true,
     "android": {
       "minSdkVersion": 24,
-      "versionCode": 1050000
+      "versionCode": 1060001
+    },
+    "windows": {
+      "nsis": {
+        "sidebarImage": "installer/messapp-sidebar.bmp",
+        "headerImage": "installer/messapp-header.bmp"
+      }
     }
   },
   "plugins": {
