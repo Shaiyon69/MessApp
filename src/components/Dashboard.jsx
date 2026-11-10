@@ -16,6 +16,7 @@ import { triggerInteractionFeedback } from '../lib/interactionFeedback'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
+import { useChimaeraPresence } from '../hooks/useChimaeraPresence'
 import useStoredState from '../hooks/useStoredState'
 import { isEditableTarget, stepRowIndex } from '../lib/conversationNav'
 import { KEYBOARD_SHORTCUTS } from '../lib/keyboardShortcuts'
@@ -2233,12 +2234,16 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   }, [activeChannel?.id, activeDm?.dm_room_id, chatManagerProps.initialMessagesLoaded, chatManagerProps.scrollToMessage, pendingSearchJump])
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
+  const gamePresence = useChimaeraPresence(acceptedFriends.map(profile => profile.id))
   const getPresenceStatus = useCallback((profileId) => {
     if (!profileId) return 'offline'
-    return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) ? 'online' : 'offline')
-  }, [onlineUsersSet, userPresence])
-  // A custom status note stands in for the plain "Online" wherever presence is labelled.
+    // A friend with only Chimaera open is online too.
+    return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) || gamePresence[profileId]?.online ? 'online' : 'offline')
+  }, [gamePresence, onlineUsersSet, userPresence])
+  // The game a friend plays in Chimaera, then a custom status note, stand in for the plain "Online".
   const getPresenceLabel = useCallback((profileId) => {
+    const playing = gamePresence[profileId]?.playing
+    if (playing) return `Playing ${playing.title}`
     const status = getPresenceStatus(profileId)
     const note = status !== 'offline' && userPresence[profileId]?.status_text
     if (note) return note
@@ -2246,7 +2251,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     if (status === 'idle') return 'Idle'
     if (status === 'online') return 'Online'
     return 'Offline'
-  }, [getPresenceStatus, userPresence])
+  }, [gamePresence, getPresenceStatus, userPresence])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => {
@@ -2257,7 +2262,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     return [...dms, ...selectableFriends].filter(dm => !restrictedUsersSet.has(dm.profiles.id))
   }, [acceptedFriends, dms, restrictedUsersSet]);
   allFriendsRef.current = acceptedFriends
-  const onlineFriends = useMemo(() => allFriends.filter(dm => onlineUsersSet.has(dm.profiles.id)), [allFriends, onlineUsersSet]);
+  const onlineFriends = useMemo(() => allFriends.filter(dm => getPresenceStatus(dm.profiles.id) !== 'offline'), [allFriends, getPresenceStatus]);
   const activeServerRole = useMemo(() => getMyServerRole(activeServer, session.user.id), [activeServer, session.user.id])
   const canManageActiveServer = useMemo(() => canManageServer(activeServer, session.user.id), [activeServer, session.user.id])
   /* delete_server is owner-only; admins can manage everything else but must
