@@ -9,6 +9,7 @@ import { Sun, Moon } from 'lucide-react'
 import { supabase, supabaseConfigError } from './supabaseClient'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
+import { exitApp, hasBackButton, onBackButton } from './lib/backButton'
 import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
 import Register from './components/Register'
 import Login from './components/Login'
@@ -156,15 +157,12 @@ export default function App() {
 
   // Android back on a signed-out screen steps toward Login instead of closing the app.
   useEffect(() => {
-    if (!Capacitor.isNativePlatform() || session) return undefined
-    let handle
-    let removed = false
-    CapacitorApp.addListener('backButton', () => {
+    if (!hasBackButton() || session) return undefined
+    return onBackButton(() => {
       if (showRegister) setShowRegister(false)
       else if (path !== '/') navigateTo('/')
-      else CapacitorApp.exitApp()
-    }).then(h => { if (removed) h.remove(); else handle = h })
-    return () => { removed = true; handle?.remove() }
+      else exitApp()
+    })
   }, [session, showRegister, path])
 
   if (supabaseConfigError) {

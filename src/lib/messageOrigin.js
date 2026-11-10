@@ -2,8 +2,7 @@
 export const ORIGIN_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'messapp', label: 'messapp' },
-  { id: 'chimaera', label: 'Chimaera' },
-  { id: 'purrch', label: 'Purrch' }
+  { id: 'chimaera', label: 'Chimaera' }
 ]
 
 const STORAGE_KEY = 'messapp:originFilter'
@@ -11,8 +10,11 @@ const FILTER_IDS = new Set(ORIGIN_FILTERS.map(filter => filter.id))
 
 export const messageOrigin = (message) => message?.origin || 'messapp'
 
+// Purrch replies are sent from Messapp desktop's notch, so they file under messapp.
+const filterOf = (origin) => (origin === 'purrch' ? 'messapp' : origin)
+
 export const matchesOrigin = (message, filter) =>
-  filter === 'all' || messageOrigin(message) === filter
+  filter === 'all' || filterOf(messageOrigin(message)) === filter
 
 export const readOriginFilter = () => {
   try {

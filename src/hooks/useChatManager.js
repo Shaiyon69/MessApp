@@ -330,6 +330,13 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
      messages" divider. Captured before the first pointer write below. */
   const [unreadAnchor, setUnreadAnchor] = useState(null)
   const unreadAnchorFetchRef = useRef({ targetId: null, promise: null })
+  /* Each visit snapshots the read pointer anew; keeping the first snapshot
+     left "New messages" on chats already read after leaving and reopening. */
+  const openConversationId = view === 'server' ? activeChannel?.id : activeDm?.dm_room_id
+  useEffect(() => {
+    unreadAnchorFetchRef.current = { targetId: null, promise: null }
+    setUnreadAnchor(null)
+  }, [openConversationId])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [initialMessagesLoaded, setInitialMessagesLoaded] = useState(false)
 

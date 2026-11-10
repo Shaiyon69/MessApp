@@ -119,17 +119,23 @@ build_windows() {
 
 build_android() {
   require_command java
+  # A release APK signed with the one Messapp key, so updates install over each
+  # other. Debug builds got a new key on every CI runner and are debuggable.
+  if [ ! -f android/keystore.properties ]; then
+    echo "android/keystore.properties is missing: the release APK cannot be signed (see android/app/build.gradle)." >&2
+    exit 1
+  fi
   echo "Building MessApp Android v${VERSION}"
   build_web
   run_host npx cap sync android
   (
     cd android
-    run_host ./gradlew --no-daemon assembleDebug
+    run_host ./gradlew --no-daemon assembleRelease
   )
-  test -f android/app/build/outputs/apk/debug/app-debug.apk
+  test -f android/app/build/outputs/apk/release/app-release.apk
   mkdir -p "$OUTPUT_DIR"
   cp \
-    android/app/build/outputs/apk/debug/app-debug.apk \
+    android/app/build/outputs/apk/release/app-release.apk \
     "$OUTPUT_DIR/MessApp-Android-v${VERSION}.apk"
 }
 

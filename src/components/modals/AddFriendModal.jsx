@@ -1,35 +1,19 @@
 /**
- * The Friends tab: friend lookup plus the full friends list. On phones the
- * lookup is portaled into the dock, which grows into an island around it; from
- * md up it pins to the top of the page — see design.md §5.
+ * Add friend: a name#0000 lookup in a dialog shaped like the quick switcher.
+ * The friends themselves live in the Chats list and the quick switcher.
  * Supabase policies authorize the writes; this only presents them.
  */
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import { ArrowRight, AtSign, Loader2, MessageSquare, Search, UserCheck, UserPlus } from 'lucide-react'
+import { ArrowRight, AtSign, Loader2, UserCheck, UserPlus } from 'lucide-react'
 import toast from 'react-hot-toast'
-import StatusAvatar from '../ui/StatusAvatar'
-import { DOCK_ACCESSORY_ID } from '../layout/BottomBar'
 
-const PHONE_QUERY = '(max-width: 767px)'
-const subscribePhone = (onChange) => {
-  const query = window.matchMedia(PHONE_QUERY)
-  query.addEventListener('change', onChange)
-  return () => query.removeEventListener('change', onChange)
-}
-const isPhoneNow = () => window.matchMedia(PHONE_QUERY).matches
-
-export default function AddFriendView({ session, allFriends = [], getPresenceLabel, getPresenceStatus, openDmContact, startingDmProfileId }) {
+export default function AddFriendModal({ session, onClose }) {
   const [tag, setTag] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [foundUser, setFoundUser] = useState(null)
   const [success, setSuccess] = useState(false)
-  const isPhone = useSyncExternalStore(subscribePhone, isPhoneNow, () => false)
-  // The dock mounts after this view on first render, so its slot is looked up once committed.
-  const [dockSlot, setDockSlot] = useState(null)
-  useEffect(() => { setDockSlot(document.getElementById(DOCK_ACCESSORY_ID)) }, [])
 
   const handleSearch = async (event) => {
     event.preventDefault()
@@ -77,23 +61,23 @@ export default function AddFriendView({ session, allFriends = [], getPresenceLab
     toast.success('Friend request sent')
   }
 
-  /* Phones: results stack above the input, inside the dock island. md+: a
-     sticky bar at the top of the page. */
-  const lookup = (
-    <div className={isPhone ? 'flex flex-col-reverse gap-2 px-1 pt-1' : 'sticky top-0 z-20 -mx-6 mb-3 flex flex-col gap-3 bg-[var(--bg-base)] px-6 pb-2'}>
-      <form onSubmit={handleSearch} className="add-friend-search flex items-center gap-2 rounded-[1.375rem] p-1.5 md:rounded-2xl">
-        <Search size={20} className="ml-2 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+  return (
+    <div data-ui-overlay-owner="Dashboard:add-friend" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Add friend" className="premium-modal menu-glass w-full max-w-md sm:max-w-xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
+      <form onSubmit={handleSearch} className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
+        <UserPlus size={22} className="text-indigo-400 shrink-0" aria-hidden="true" />
         <label htmlFor="friend-lookup" className="sr-only">name#0000</label>
         <input
           id="friend-lookup"
           type="text"
+          autoFocus
           value={tag}
           onChange={(event) => setTag(event.target.value)}
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
-          placeholder="name#0000"
-          className="h-11 min-w-0 flex-1 bg-transparent px-1 type-body font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
+          placeholder="Add a friend by name#0000"
+          className="w-full min-w-0 flex-1 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500"
         />
         <button
           type="submit"
@@ -105,7 +89,7 @@ export default function AddFriendView({ session, allFriends = [], getPresenceLab
         </button>
       </form>
 
-      <div aria-live="polite" className="contents">
+      <div aria-live="polite" className="relative z-10 flex flex-col gap-2 p-2 sm:p-3 empty:hidden">
         {error && (
           <div className="add-friend-error rounded-[1.375rem] md:rounded-2xl px-4 py-2.5 type-body font-semibold text-red-300">
             {error}
@@ -161,48 +145,7 @@ export default function AddFriendView({ session, allFriends = [], getPresenceLab
           </article>
         )}
       </div>
-    </div>
-  )
-
-  return (
-    <section className="flex min-h-full flex-col bg-[var(--bg-base)] px-4 pb-[calc(var(--dock-clear)+var(--dock-island))] pt-4 md:px-6 md:pb-6 md:pt-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-        {/* Title lives in the app bar now; keep it for screen readers only. */}
-        <h1 className="sr-only">Friends</h1>
-
-        {!isPhone && lookup}
-
-        <h2 className="mb-2 type-meta font-black uppercase tracking-[0.18em] text-[var(--text-muted)]">
-          Friends {allFriends.length > 0 ? allFriends.length : ''}
-        </h2>
-
-        {allFriends.length === 0 ? (
-          <p className="px-1 py-4 type-label text-[var(--text-muted)]">
-            No friends yet. Search for someone by name#0000.
-          </p>
-        ) : (
-          <div className="space-y-1">
-            {allFriends.map((friend, index) => (
-              <button
-                key={friend.dm_room_id || friend.profiles?.id || `friend-${index}`}
-                type="button"
-                onClick={() => openDmContact?.(friend)}
-                disabled={startingDmProfileId === friend.profiles?.id}
-                className="dashboard-list-row flex min-h-16 w-full items-center gap-3.5 rounded-2xl px-3 py-2.5 text-left transition-all disabled:opacity-50"
-              >
-                <StatusAvatar url={friend.profiles?.avatar_url} username={friend.profiles?.username} status={getPresenceStatus?.(friend.profiles?.id)} className="h-11 w-11" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate type-title font-semibold text-[var(--text-main)]">{friend.profiles?.username}</div>
-                  <div className="truncate type-label text-[var(--text-muted)]">{getPresenceLabel?.(friend.profiles?.id) || 'Offline'}</div>
-                </div>
-                <MessageSquare size={16} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        )}
-
       </div>
-      {isPhone && dockSlot && createPortal(lookup, dockSlot)}
-    </section>
+    </div>
   )
 }
