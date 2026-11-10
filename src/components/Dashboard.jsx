@@ -17,6 +17,7 @@ import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
 import { useChimaeraPresence } from '../hooks/useChimaeraPresence'
+import { playtimeLabel } from '../lib/chimaeraPresence'
 import useStoredState from '../hooks/useStoredState'
 import { isEditableTarget, stepRowIndex } from '../lib/conversationNav'
 import { KEYBOARD_SHORTCUTS } from '../lib/keyboardShortcuts'
@@ -2235,6 +2236,12 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
   const gamePresence = useChimaeraPresence(acceptedFriends.map(profile => profile.id))
+  // Ticks the "Playing X · 12m" labels once a minute.
+  const [presenceNow, setPresenceNow] = useState(Date.now)
+  useEffect(() => {
+    const id = setInterval(() => setPresenceNow(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
   const getPresenceStatus = useCallback((profileId) => {
     if (!profileId) return 'offline'
     // A friend with only Chimaera open is online too.
@@ -2243,7 +2250,10 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   // The game a friend plays in Chimaera, then a custom status note, stand in for the plain "Online".
   const getPresenceLabel = useCallback((profileId) => {
     const playing = gamePresence[profileId]?.playing
-    if (playing) return `Playing ${playing.title}`
+    if (playing) {
+      const time = playtimeLabel(playing.startedAt, presenceNow)
+      return time ? `Playing ${playing.title} · ${time}` : `Playing ${playing.title}`
+    }
     const status = getPresenceStatus(profileId)
     const note = status !== 'offline' && userPresence[profileId]?.status_text
     if (note) return note
@@ -2251,7 +2261,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     if (status === 'idle') return 'Idle'
     if (status === 'online') return 'Online'
     return 'Offline'
-  }, [gamePresence, getPresenceStatus, userPresence])
+  }, [gamePresence, getPresenceStatus, presenceNow, userPresence])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => {
