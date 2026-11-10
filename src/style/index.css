@@ -224,6 +224,8 @@
    reaches every consumer of either name. */
 :root, [data-theme="dark"] {
   color-scheme: dark;
+  /* Lightness of the cover-tinted "Playing X" label (gameAccent.js). */
+  --game-accent-l: 64%;
   --bg-deep: #000000;
   --bg-base: #000000;
   --bg-surface: #08090c;
@@ -272,6 +274,7 @@
 
 [data-theme="light"] {
   color-scheme: light;
+  --game-accent-l: 36%;
   /* Light mode is the same palette inverted: cool paper in value steps with the
      one blue accent darkened to clear AA on white. OLED does not apply here. */
   --bg-deep: #dfe4ec;
@@ -4872,8 +4875,6 @@ iframe {
   --dock-lift: calc(max(env(safe-area-inset-bottom, 0px), 1rem) + 0.75rem);
   --dock-space: calc(var(--dock-lift) + 3.25rem + 0.5rem);
   --dock-clear: calc(var(--dock-lift) + 3.25rem + 1rem);
-  /* The Friends island's input row: 56px field plus its 4px top inset. */
-  --dock-island: 3.75rem;
 }
 
 @media (min-width: 768px) {
@@ -4895,33 +4896,12 @@ iframe {
 
   /* Full OLED: the dock is black like every other surface and separates
      from the page by its hairline ring. The radius is half the 52px tab row,
-     so it reads as a pill until it grows into an island, and the corners
-     never change while it does. */
+     so it reads as a pill. */
   .dock {
     max-width: 100%;
     border-radius: 1.625rem;
     background: #000;
     box-shadow: 0 0 0 1px var(--border-subtle, rgba(255, 255, 255, 0.16));
-  }
-
-  /* Island: a tab with an input (Friends) portals it into .dock-accessory
-     above the tabs, as one connected surface. The dock keeps its own width;
-     width 0 + min-width 100% stops the accessory's content from widening it,
-     so the input sizes to the tab row instead. */
-  .dock-accessory {
-    width: 0;
-    min-width: 100%;
-  }
-
-  .dock-accessory > * {
-    animation: dockIslandIn var(--spring-slow-duration) var(--spring-slow) both;
-  }
-
-  /* Light: the island's fill is the input's usual fill, so the input drops to
-     the page ground to read as a well. Dark already uses black wells. */
-  [data-theme="light"] .dock-accessory .add-friend-search,
-  [data-theme="light"] .dock-accessory .add-friend-result {
-    background: var(--bg-base);
   }
 
   [data-theme="light"] .dock {
@@ -5005,19 +4985,10 @@ iframe {
   from { opacity: 0; }
 }
 
-@keyframes dockIslandIn {
-  from { opacity: 0; transform: translateY(0.75rem) scale(0.96); }
-  to { opacity: 1; transform: none; }
-}
-
 @media (max-width: 767px) and (prefers-reduced-motion: reduce) {
   .home-tab-shell.dock-shell,
   .dock .m3-nav-label {
     transition: none;
-  }
-
-  .dock-accessory > * {
-    animation: none;
   }
 }
 

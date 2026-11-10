@@ -17,6 +17,7 @@ import { useWebRTC } from '../hooks/useWebRTC'
 import { useChatManager } from '../hooks/useChatManager'
 import { useServerVoicePresence } from '../hooks/useServerVoicePresence'
 import { useChimaeraPresence } from '../hooks/useChimaeraPresence'
+import { playtimeLabel } from '../lib/chimaeraPresence'
 import useStoredState from '../hooks/useStoredState'
 import { isEditableTarget, stepRowIndex } from '../lib/conversationNav'
 import { KEYBOARD_SHORTCUTS } from '../lib/keyboardShortcuts'
@@ -85,6 +86,7 @@ import { isChannelPrivate, privateOverwriteRows } from '../lib/channelPermission
 import { emitRealtime, onRealtime } from '../lib/realtimeBus'
 import { fuzzyFilter } from '../lib/fuzzy'
 import InviteModal from './modals/InviteModal'
+import AddFriendModal from './modals/AddFriendModal'
 import InvitePreviewModal from './modals/InvitePreviewModal'
 import { OPEN_INVITE_EVENT } from '../lib/invites'
 import { listenForInviteLinks } from '../lib/desktopDeepLink'
@@ -264,6 +266,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [showAddFriend, setShowAddFriend] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   /* Desktop shortcuts. Read through a ref so the listener is registered once;
      the ref is refreshed every render below the handlers it calls. */
@@ -282,6 +285,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       } else if (event.key === 'Escape' && (handlers.overlayOpen?.())) {
         event.preventDefault()
         setShowQuickSwitcher(false)
+        setShowAddFriend(false)
         setShowShortcuts(false)
       } else if (isEditableTarget(event.target)) {
         return
@@ -561,6 +565,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       settingsModalConfig, 
       selectedImage: chatManagerProps.selectedImage,
       showQuickSwitcher,
+      showAddFriend,
 	      confirmAction,
 	      showChannelModal,
 	      showChannelSettings,
@@ -569,7 +574,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 	      activeDm,
 	      view
 	    };
-	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
+	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, showAddFriend, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
     return onBackButton(() => {
@@ -590,6 +595,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 	        else if (state.selectedImage) chatManagerProps.setSelectedImage(null);
         else if (state.confirmAction) setConfirmAction(null);
         else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
+        else if (state.showAddFriend) setShowAddFriend(false);
         else if (state.showChannelModal) setShowChannelModal(false);
         else if (state.showChannelSettings) setShowChannelSettings(false);
         else if (state.settingsModalConfig.isOpen) closeUserSettings();
@@ -1203,7 +1209,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   }
 
   shortcutHandlersRef.current = {
-    overlayOpen: () => showQuickSwitcher || showShortcuts,
+    overlayOpen: () => showQuickSwitcher || showAddFriend || showShortcuts,
     // Ctrl+F opens conversation search, focusing it if the panel is already up.
     openSearch: () => {
       if (!isChatActive) return false
@@ -2231,15 +2237,26 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const restrictedUsersSet = useMemo(() => new Set(restrictedUsers), [restrictedUsers]);
   const onlineUsersSet = useMemo(() => new Set(onlineUsers), [onlineUsers]);
   const gamePresence = useChimaeraPresence(acceptedFriends.map(profile => profile.id))
+  // Ticks the "Playing X · 12m" labels once a minute.
+  const [presenceNow, setPresenceNow] = useState(Date.now)
+  useEffect(() => {
+    const id = setInterval(() => setPresenceNow(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
   const getPresenceStatus = useCallback((profileId) => {
     if (!profileId) return 'offline'
     // A friend with only Chimaera open is online too.
     return userPresence[profileId]?.status || (onlineUsersSet.has(profileId) || gamePresence[profileId]?.online ? 'online' : 'offline')
   }, [gamePresence, onlineUsersSet, userPresence])
+  // The game a friend plays in Chimaera with its live playtime, else null.
+  const getPlaying = useCallback((profileId) => {
+    const playing = gamePresence[profileId]?.playing
+    return playing ? { ...playing, time: playtimeLabel(playing.startedAt, presenceNow) } : null
+  }, [gamePresence, presenceNow])
   // The game a friend plays in Chimaera, then a custom status note, stand in for the plain "Online".
   const getPresenceLabel = useCallback((profileId) => {
-    const playing = gamePresence[profileId]?.playing
-    if (playing) return `Playing ${playing.title}`
+    const playing = getPlaying(profileId)
+    if (playing) return playing.time ? `Playing ${playing.title} · ${playing.time}` : `Playing ${playing.title}`
     const status = getPresenceStatus(profileId)
     const note = status !== 'offline' && userPresence[profileId]?.status_text
     if (note) return note
@@ -2247,7 +2264,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     if (status === 'idle') return 'Idle'
     if (status === 'online') return 'Online'
     return 'Offline'
-  }, [gamePresence, getPresenceStatus, userPresence])
+  }, [getPlaying, getPresenceStatus, userPresence])
   const blockedUsersSet = useMemo(() => new Set(blockedUsers), [blockedUsers]);
   const blockedByUsersSet = useMemo(() => new Set(blockedByUsers), [blockedByUsers]);
   const allFriends = useMemo(() => {
@@ -2472,6 +2489,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         dmsLoading={dmsLoading}
         appThemeMode={appThemeMode}
         setShowQuickSwitcher={setShowQuickSwitcher}
+        setShowAddFriend={setShowAddFriend}
         onForwardMessage={setForwardText}
         pendingForward={pendingForward}
         clearPendingForward={() => setPendingForward(null)}
@@ -2540,6 +2558,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         userPresence={userPresence}
         getPresenceStatus={getPresenceStatus}
         getPresenceLabel={getPresenceLabel}
+        getPlaying={getPlaying}
         serverMembers={serverMembers}
         myUsername={myUsername}
         myAvatar={myAvatar}
@@ -2660,6 +2679,8 @@ export default function Dashboard({ session, initialInviteCode = null }) {
           </div>
         </div>
       )}
+
+      {showAddFriend && <AddFriendModal session={session} onClose={() => setShowAddFriend(false)} />}
 
       {showQuickSwitcher && (
         <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowQuickSwitcher(false)}>

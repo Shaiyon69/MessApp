@@ -10,6 +10,7 @@ import useStoredSet from '../../hooks/useStoredSet'
 import useFirstReveal from '../../hooks/useFirstReveal'
 import ActionSheet from '../ui/ActionSheet'
 import StatusAvatar from '../ui/StatusAvatar'
+import PlayingBadge from '../ui/PlayingBadge'
 import { getConversationTheme, resolveConversationThemeId } from '../../lib/conversationThemes'
 
 export default function ChatsPage(props) {
@@ -52,7 +53,7 @@ export default function ChatsPage(props) {
           <div className="flex flex-col items-center justify-center py-16 opacity-60">
             <MessageSquare size={44} className="mb-4 text-[var(--text-muted)]" aria-hidden="true" />
             <p className="type-body font-medium text-[var(--text-muted)]">No conversations yet.</p>
-            <button type="button" onClick={() => props.setHomeTab('add')} className="mt-2 type-body font-bold text-[var(--app-accent)] hover:underline">
+            <button type="button" onClick={() => props.setShowAddFriend(true)} className="mt-2 type-body font-bold text-[var(--app-accent)] hover:underline">
               Add a friend to get started
             </button>
           </div>
@@ -65,6 +66,7 @@ export default function ChatsPage(props) {
           const presenceStatus = props.getPresenceStatus?.(dm.profiles.id) || (props.onlineUsersSet.has(dm.profiles.id) ? 'online' : 'offline')
           const isUnread = (dm.is_unread || manualUnread.has(dm.dm_room_id)) && !isActive
           const messagePreview = dm.last_message_preview || ''
+          const playing = props.getPlaying?.(dm.profiles.id)
 
           const reveal = revealRow(i)
           return (
@@ -83,6 +85,8 @@ export default function ChatsPage(props) {
                   <p className={`truncate type-title transition-colors ${isUnread ? 'font-extrabold' : 'font-semibold'}`} style={{ color: isActive ? dmColor : '' }}>{dm.profiles.username}</p>
                   {messagePreview && <p className={`mt-0.5 truncate type-snippet ${isUnread ? 'font-semibold text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>{messagePreview}</p>}
                 </div>
+                {/* Right side, clear of the absolute pin / unread dot. */}
+                {playing && <PlayingBadge playing={playing} className={`max-w-[45%] shrink-0 ${isUnread || pinnedRooms.has(dm.dm_room_id) ? 'mr-5' : ''}`} />}
                 {/* Unread is a dot AND a weight change — colour is never the only
                     signal (design.md §6). */}
                 {!isUnread && pinnedRooms.has(dm.dm_room_id) && <Pin size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" aria-label="Pinned" />}
