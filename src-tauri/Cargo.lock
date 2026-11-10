@@ -121,6 +121,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-deep-link",
  "tauri-plugin-log",
+ "tauri-plugin-messapp-push",
  "tauri-plugin-notification",
  "tauri-plugin-shaiyon",
  "tauri-plugin-single-instance",
@@ -4605,6 +4606,14 @@ dependencies = [
  "tauri-plugin",
  "thiserror 2.0.18",
  "time",
+]
+
+[[package]]
+name = "tauri-plugin-messapp-push"
+version = "0.1.0"
+dependencies = [
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

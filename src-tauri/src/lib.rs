@@ -15,6 +15,8 @@ pub fn run() {
       let _ = window.set_focus();
     }
   }));
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_messapp_push::init());
   builder
     .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_shaiyon::init())

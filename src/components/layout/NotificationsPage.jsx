@@ -7,6 +7,7 @@
  */
 import { useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { isTauriMobile } from '../../lib/platform'
 import { AtSign, Bell, ChartColumn, Check, CornerDownRight, MessagesSquare, PhoneMissed, Shield, SmilePlus, Trash2, UserCheck, UserPlus, Volume2, X } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import ConfirmDialog from '../ui/ConfirmDialog'
@@ -183,7 +184,7 @@ export default function NotificationsPage(props) {
      elsewhere still sees this prompt until it opts in here, which is the right
      answer for a per-installation permission anyway. Hidden once the OS-level
      permission is denied, since the toggle cannot recover from that either. */
-  const canPromptForPush = Capacitor.isNativePlatform()
+  const canPromptForPush = (Capacitor.isNativePlatform() || isTauriMobile())
     && typeof Notification !== "undefined"
     && Notification.permission !== "denied"
     && localStorage.getItem("notificationsEnabled") !== "true"

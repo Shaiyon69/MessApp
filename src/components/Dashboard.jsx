@@ -5,7 +5,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { supabase } from '../supabaseClient'
-import { App as CapacitorApp } from '@capacitor/app'
+import { exitApp, onBackButton } from '../lib/backButton';
 import { keyStore } from '../lib/keyStore'
 import { configureNativePushRegistration, registerWebPushDevice, reportActiveConversation, reportPushError, stopNativePushRegistration } from '../lib/pushDevices'
 import toast, { Toaster } from 'react-hot-toast'
@@ -572,8 +572,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
-    const setupBackButton = async () => {
-      await CapacitorApp.addListener('backButton', () => {
+    return onBackButton(() => {
         const state = stateRef.current;
         
 	        if (state.messageActionMenuId) {
@@ -602,16 +601,13 @@ export default function Dashboard({ session, initialInviteCode = null }) {
             handleBackRef.current();
         } else {
             if (exitTimerRef.current) {
-                CapacitorApp.exitApp();
+                exitApp();
             } else {
                 toast("Press back again to exit", { duration: 2000, position: 'bottom-center' });
                 exitTimerRef.current = setTimeout(() => { exitTimerRef.current = null; }, 2000);
             }
         }
-      });
-    };
-    setupBackButton();
-    return () => { CapacitorApp.removeAllListeners('backButton'); };
+    });
 	  }, [closeUserSettings]);
 
   useEffect(() => {

@@ -49,7 +49,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "android": {
+      "minSdkVersion": 24,
+      "versionCode": 1050000
+    }
   },
   "plugins": {
     "updater": {

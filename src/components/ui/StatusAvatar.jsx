@@ -1,5 +1,5 @@
 /** Renders a sanitized avatar plus presence state without owning profile data. */
-import React from 'react'
+import React, { useId } from 'react'
 import { safeMediaUrl } from '../../lib/security'
 
 const STATUS_COLORS = {
@@ -8,11 +8,11 @@ const STATUS_COLORS = {
   dnd: '#f23f43'
 }
 
-// Shape as well as hue, so presence reads without color vision (design.md §6).
-const STATUS_OUTLINE = {
-  online: 'solid',
-  idle: 'dashed',
-  dnd: 'dotted'
+// Shape as well as hue, so presence reads without color vision (design.md §6):
+// online is a full dot, idle a crescent, dnd a dot with a bar cut out.
+const STATUS_CUTOUT = {
+  idle: <circle cx="3.6" cy="3.6" r="3" fill="black" />,
+  dnd: <rect x="3" y="5.1" width="6" height="1.8" rx="0.9" fill="black" />
 }
 
 const STATUS_LABELS = {
@@ -24,6 +24,7 @@ const STATUS_LABELS = {
 
 export default function StatusAvatar({ url, username, isOnline, status, showStatus = true, className = "", loading = "lazy" }) {
   const center = 50;
+  const maskId = useId()
   const resolvedStatus = status || (isOnline ? 'online' : 'offline')
   const statusColor = STATUS_COLORS[resolvedStatus]
   const safeUrl = safeMediaUrl(url)
@@ -42,7 +43,15 @@ export default function StatusAvatar({ url, username, isOnline, status, showStat
         </svg>
       )}
       {showStatus && statusColor && (
-        <span className="absolute inset-0 rounded-full pointer-events-none" style={{ outline: `2px ${STATUS_OUTLINE[resolvedStatus]} ${statusColor}`, outlineOffset: '2px' }}></span>
+        /* Corner dot like Discord/Messenger; the ring cuts it out of the avatar. */
+        <svg viewBox="0 0 12 12" className="absolute -bottom-[2%] -right-[2%] h-[34%] w-[34%] min-h-2.5 min-w-2.5 pointer-events-none" aria-hidden="true">
+          <mask id={maskId}>
+            <circle cx="6" cy="6" r="4.5" fill="white" />
+            {STATUS_CUTOUT[resolvedStatus]}
+          </mask>
+          <circle cx="6" cy="6" r="6" fill="var(--status-ring, var(--bg-base))" />
+          <circle cx="6" cy="6" r="4.5" fill={statusColor} mask={`url(#${CSS.escape(maskId)})`} />
+        </svg>
       )}
     </div>
   )

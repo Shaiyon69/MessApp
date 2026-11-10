@@ -12,6 +12,8 @@
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build --apk --target aarch64",
     "mobile:sync": "npm run build && npx cap sync",
     "mobile:open": "npx cap open android",
     "mobile:build": "npm run build && npx cap copy && cd android && ./gradlew assembleRelease",
