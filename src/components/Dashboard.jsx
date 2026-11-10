@@ -86,6 +86,7 @@ import { isChannelPrivate, privateOverwriteRows } from '../lib/channelPermission
 import { emitRealtime, onRealtime } from '../lib/realtimeBus'
 import { fuzzyFilter } from '../lib/fuzzy'
 import InviteModal from './modals/InviteModal'
+import AddFriendModal from './modals/AddFriendModal'
 import InvitePreviewModal from './modals/InvitePreviewModal'
 import { OPEN_INVITE_EVENT } from '../lib/invites'
 import { listenForInviteLinks } from '../lib/desktopDeepLink'
@@ -265,6 +266,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const [showChannelModal, setShowChannelModal] = useState(false)
   const [showChannelSettings, setShowChannelSettings] = useState(false)
   const [showQuickSwitcher, setShowQuickSwitcher] = useState(false)
+  const [showAddFriend, setShowAddFriend] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   /* Desktop shortcuts. Read through a ref so the listener is registered once;
      the ref is refreshed every render below the handlers it calls. */
@@ -283,6 +285,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       } else if (event.key === 'Escape' && (handlers.overlayOpen?.())) {
         event.preventDefault()
         setShowQuickSwitcher(false)
+        setShowAddFriend(false)
         setShowShortcuts(false)
       } else if (isEditableTarget(event.target)) {
         return
@@ -562,6 +565,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       settingsModalConfig, 
       selectedImage: chatManagerProps.selectedImage,
       showQuickSwitcher,
+      showAddFriend,
 	      confirmAction,
 	      showChannelModal,
 	      showChannelSettings,
@@ -570,7 +574,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 	      activeDm,
 	      view
 	    };
-	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
+	  }, [homeTab, showRightSidebar, settingsModalConfig, chatManagerProps.selectedImage, showQuickSwitcher, showAddFriend, confirmAction, showChannelModal, showChannelSettings, dmActionMenuId, messageActionMenuId, activeDm, view]);
 
   useEffect(() => {
     const setupBackButton = async () => {
@@ -592,6 +596,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 	        else if (state.selectedImage) chatManagerProps.setSelectedImage(null);
         else if (state.confirmAction) setConfirmAction(null);
         else if (state.showQuickSwitcher) setShowQuickSwitcher(false);
+        else if (state.showAddFriend) setShowAddFriend(false);
         else if (state.showChannelModal) setShowChannelModal(false);
         else if (state.showChannelSettings) setShowChannelSettings(false);
         else if (state.settingsModalConfig.isOpen) closeUserSettings();
@@ -1208,7 +1213,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   }
 
   shortcutHandlersRef.current = {
-    overlayOpen: () => showQuickSwitcher || showShortcuts,
+    overlayOpen: () => showQuickSwitcher || showAddFriend || showShortcuts,
     // Ctrl+F opens conversation search, focusing it if the panel is already up.
     openSearch: () => {
       if (!isChatActive) return false
@@ -2488,6 +2493,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         dmsLoading={dmsLoading}
         appThemeMode={appThemeMode}
         setShowQuickSwitcher={setShowQuickSwitcher}
+        setShowAddFriend={setShowAddFriend}
         onForwardMessage={setForwardText}
         pendingForward={pendingForward}
         clearPendingForward={() => setPendingForward(null)}
@@ -2677,6 +2683,8 @@ export default function Dashboard({ session, initialInviteCode = null }) {
           </div>
         </div>
       )}
+
+      {showAddFriend && <AddFriendModal session={session} onClose={() => setShowAddFriend(false)} />}
 
       {showQuickSwitcher && (
         <div data-ui-overlay-owner="Dashboard:quick-switcher" className="premium-backdrop fixed inset-0 z-[200] flex items-center justify-center animate-fade-in px-4 py-[max(1rem,env(safe-area-inset-top))]" onClick={() => setShowQuickSwitcher(false)}>

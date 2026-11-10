@@ -10,7 +10,6 @@ import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, P
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
-import AddFriendView from '../modals/AddFriendView'
 import BottomBar, { TABS } from './BottomBar'
 import ChatsPage from './ChatsPage'
 import MenuPage from './MenuPage'
@@ -18,7 +17,6 @@ import NotificationsPage from './NotificationsPage'
 import QuickActionsFab from './QuickActionsFab'
 import ServersPage from './ServersPage'
 import { debug } from '../../lib/debug'
-import { openDmEntry } from '../../lib/chatActions'
 import useLongPress from '../../hooks/useLongPress'
 import { DISAPPEARING_OPTIONS, describeExpiry } from '../../lib/messageExpiry'
 import { SEND_RADIAL_OPTIONS, SEND_RADIAL_PX, SEND_RADIAL_CYCLE_MS, pickSendRadial, pickVoiceHold, radialDuration } from '../../lib/sendRadial'
@@ -421,15 +419,6 @@ export default function ChatArea(props) {
     props.setMessageActionMenuId(null)
   }, [props.messageActionMenuId, props.setMessageActionMenuId])
 
-  // Dashboard owns the maintained create_or_get_dm flow; ChatArea only routes
-  // validated contacts to that canonical handler.
-  const openDmContact = useCallback((entry) => openDmEntry(entry, {
-    selectDm: props.selectDm,
-    createOrOpenDm: props.createOrOpenDm,
-    onMissing: metadata => {
-      if (import.meta.env.DEV) debug.warn('DM_LIST', { operation: 'missing-open-handler', ...metadata })
-    }
-  }), [props.createOrOpenDm, props.selectDm])
 
   const toggleEmojiPicker = () => {
     blurComposer();
@@ -791,7 +780,7 @@ useEffect(() => {
 
   const quickActions = {
     onSearch: () => props.setShowQuickSwitcher(true),
-    onAddFriend: () => props.setHomeTab('add'),
+    onAddFriend: () => props.setShowAddFriend(true),
     onCreateServer: () => { props.setHomeTab('servers'); setPendingServerAction('create') },
     onJoinServer: () => { props.setHomeTab('servers'); setPendingServerAction('join') }
   };
@@ -975,14 +964,11 @@ useEffect(() => {
                 />
               ) : props.homeTab === 'notifs' ? (
                 <NotificationsPage {...props} />
-              ) : props.homeTab === 'add' ? (
-                <AddFriendView session={props.session} allFriends={props.allFriends} getPresenceLabel={props.getPresenceLabel} getPresenceStatus={props.getPresenceStatus} openDmContact={openDmContact} startingDmProfileId={props.startingDmProfileId} />
               ) : (
                 <ChatsPage {...props} />
               )}
             </div>
-            {/* Friends has its own input in the FAB's spot above the dock, so the FAB lifts over it. */}
-            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} lifted={props.homeTab === 'add'} />}
+            {props.homeTab !== 'menu' && <QuickActionsFab {...quickActions} />}
           </div>
         </div>
         <BottomBar
@@ -991,9 +977,7 @@ useEffect(() => {
           notificationCount={props.notificationCount}
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
-          // Friends' input lives in the dock, so it must not slide away mid-typing.
-          hidden={dockHidden && props.homeTab !== 'add'}
-          expanded={props.homeTab === 'add'}
+          hidden={dockHidden}
         />
       </section>
 

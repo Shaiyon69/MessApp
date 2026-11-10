@@ -53,7 +53,7 @@ export default function ChatsPage(props) {
           <div className="flex flex-col items-center justify-center py-16 opacity-60">
             <MessageSquare size={44} className="mb-4 text-[var(--text-muted)]" aria-hidden="true" />
             <p className="type-body font-medium text-[var(--text-muted)]">No conversations yet.</p>
-            <button type="button" onClick={() => props.setHomeTab('add')} className="mt-2 type-body font-bold text-[var(--app-accent)] hover:underline">
+            <button type="button" onClick={() => props.setShowAddFriend(true)} className="mt-2 type-body font-bold text-[var(--app-accent)] hover:underline">
               Add a friend to get started
             </button>
           </div>
