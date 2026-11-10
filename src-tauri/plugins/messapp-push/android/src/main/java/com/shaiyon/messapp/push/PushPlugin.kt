@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import android.webkit.WebView
 import androidx.core.app.NotificationManagerCompat
 import app.tauri.PermissionState
@@ -110,6 +111,8 @@ class PushPlugin(private val activity: Activity) : Plugin(activity) {
       if (task.isSuccessful && task.result != null) {
         invoke.resolve(JSObject().put("token", task.result))
       } else {
+        // The token itself is a credential; only the failure is logged.
+        Log.w("MessappPush", "FCM token request failed", task.exception)
         invoke.reject(task.exception?.message ?: "FCM token unavailable")
       }
     }

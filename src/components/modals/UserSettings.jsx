@@ -301,7 +301,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
 
         } catch (nativeError) {
           reportPushError('native_setup', nativeError)
-          toast.error(`Native push failed: ${nativeError?.message || 'unknown error'}`);
+          toast.error(`Native push failed: ${nativeError?.message || String(nativeError || 'unknown error')}`);
         }
 
       } else {

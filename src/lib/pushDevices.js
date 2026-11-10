@@ -159,7 +159,10 @@ const withTimeout = async (promise, message) => {
 /** Tauri Android: the same flow as Capacitor's, through the messapp-push plugin (FCM). */
 const configureTauriPushRegistration = async ({ profileId, requestPermission, client, core }) => {
   const { invoke, addPluginListener } = core || await import('@tauri-apps/api/core')
-  const call = (command, args) => invoke(`plugin:${TAURI_PUSH}|${command}`, args)
+  // Tauri rejects with a bare string; name the step so the failure is readable.
+  const call = (command, args) => invoke(`plugin:${TAURI_PUSH}|${command}`, args).catch(error => {
+    throw new Error(`${command}: ${error?.message || String(error)}`)
+  })
   let permission = await call('permission_state')
   if (requestPermission && permission.receive === 'prompt') permission = await call('request_permission')
   debug.info('PUSH_PERMISSION', { platform: 'android', state: permission.receive })

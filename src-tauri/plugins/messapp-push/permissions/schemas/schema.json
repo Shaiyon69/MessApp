@@ -331,6 +331,30 @@
           "markdownDescription": "Denies the register command without any pre-configured scope."
         },
         {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Enables the remove_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-listener",
+          "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
+        },
+        {
           "description": "Enables the request_permission command without any pre-configured scope.",
           "type": "string",
           "const": "allow-request-permission",
@@ -355,10 +379,10 @@
           "markdownDescription": "Denies the take_launch_action command without any pre-configured scope."
         },
         {
-          "description": "Register this device for FCM push, create the messages channel and read a tapped notification.\n#### This default permission set includes:\n\n- `allow-register`\n- `allow-create-channel`\n- `allow-take-launch-action`\n- `allow-permission-state`\n- `allow-request-permission`",
+          "description": "Register this device for FCM push, create the messages channel and read a tapped notification.\n#### This default permission set includes:\n\n- `allow-register`\n- `allow-create-channel`\n- `allow-take-launch-action`\n- `allow-permission-state`\n- `allow-request-permission`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Register this device for FCM push, create the messages channel and read a tapped notification.\n#### This default permission set includes:\n\n- `allow-register`\n- `allow-create-channel`\n- `allow-take-launch-action`\n- `allow-permission-state`\n- `allow-request-permission`"
+          "markdownDescription": "Register this device for FCM push, create the messages channel and read a tapped notification.\n#### This default permission set includes:\n\n- `allow-register`\n- `allow-create-channel`\n- `allow-take-launch-action`\n- `allow-permission-state`\n- `allow-request-permission`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }
