@@ -1,6 +1,8 @@
 //! Tauri desktop bootstrap. It owns the native lifecycle and enables
 //! informational logging only in debug builds; React remains the UI layer.
 
+mod data_location;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let builder = tauri::Builder::default();
@@ -22,6 +24,17 @@ pub fn run() {
     .plugin(tauri_plugin_shaiyon::init())
     .plugin(tauri_plugin_notification::init())
     .setup(|app| {
+      // The main window is created here (tauri.conf.json sets create: false) so its
+      // webview storage can follow the data folder picked in Messapp Setup.
+      let config = app.config().app.windows.first().cloned().expect("tauri.conf.json defines the main window");
+      #[allow(unused_mut)]
+      let mut window = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+      #[cfg(desktop)]
+      if let Some(dir) = data_location::override_dir() {
+        std::fs::create_dir_all(&dir)?;
+        window = window.data_directory(dir.join("webview"));
+      }
+      window.build()?;
       #[cfg(desktop)]
       app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
       // The Windows installer registers messapp:// itself; AppImages and dev builds
