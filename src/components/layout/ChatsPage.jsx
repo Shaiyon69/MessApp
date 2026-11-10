@@ -10,6 +10,7 @@ import useStoredSet from '../../hooks/useStoredSet'
 import useFirstReveal from '../../hooks/useFirstReveal'
 import ActionSheet from '../ui/ActionSheet'
 import StatusAvatar from '../ui/StatusAvatar'
+import PlayingBadge from '../ui/PlayingBadge'
 import { getConversationTheme, resolveConversationThemeId } from '../../lib/conversationThemes'
 
 export default function ChatsPage(props) {
@@ -65,7 +66,7 @@ export default function ChatsPage(props) {
           const presenceStatus = props.getPresenceStatus?.(dm.profiles.id) || (props.onlineUsersSet.has(dm.profiles.id) ? 'online' : 'offline')
           const isUnread = (dm.is_unread || manualUnread.has(dm.dm_room_id)) && !isActive
           const messagePreview = dm.last_message_preview || ''
-          const playing = props.getPlayingLabel?.(dm.profiles.id)
+          const playing = props.getPlaying?.(dm.profiles.id)
 
           const reveal = revealRow(i)
           return (
@@ -85,7 +86,7 @@ export default function ChatsPage(props) {
                   {messagePreview && <p className={`mt-0.5 truncate type-snippet ${isUnread ? 'font-semibold text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>{messagePreview}</p>}
                 </div>
                 {/* Right side, clear of the absolute pin / unread dot. */}
-                {playing && <span className={`max-w-[45%] shrink-0 truncate text-right type-meta font-semibold text-[#23a559] ${isUnread || pinnedRooms.has(dm.dm_room_id) ? 'mr-5' : ''}`}>{playing}</span>}
+                {playing && <PlayingBadge playing={playing} className={`max-w-[45%] shrink-0 ${isUnread || pinnedRooms.has(dm.dm_room_id) ? 'mr-5' : ''}`} />}
                 {/* Unread is a dot AND a weight change — colour is never the only
                     signal (design.md §6). */}
                 {!isUnread && pinnedRooms.has(dm.dm_room_id) && <Pin size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" aria-label="Pinned" />}

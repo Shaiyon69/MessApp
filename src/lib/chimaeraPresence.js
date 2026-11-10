@@ -14,6 +14,17 @@ export const chimaeraChannelName = userId => `chimaera-presence-${userId}`
 
 export const NOT_IN_CHIMAERA = { online: false, playing: null }
 
+// Only plain https images from the untrusted payload; never local or data URLs.
+const httpsUrl = value => {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' ? url.href : null
+  } catch {
+    return null
+  }
+}
+
 /** Channel presence entries to { online, playing }. Every entry is untrusted. */
 export const toGamePresence = (entries, now = Date.now()) => {
   if (!Array.isArray(entries) || !entries.length) return NOT_IN_CHIMAERA
@@ -25,7 +36,12 @@ export const toGamePresence = (entries, now = Date.now()) => {
   const start = playing.startedAt
   // A minute of slack for clock skew between the two devices.
   const startedAt = Number.isFinite(start) && start > 0 && start <= now + 60_000 ? start : null
-  return { online: true, playing: { title, startedAt } }
+  const iconUrl = httpsUrl(playing.iconUrl)
+  // Steam's store CDN sends CORS headers, so its cover can be read for a colour; others try the icon.
+  const coverUrl = playing.shop === 'steam' && /^\d{1,10}$/.test(playing.objectId)
+    ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${playing.objectId}/header.jpg`
+    : iconUrl
+  return { online: true, playing: { title, startedAt, iconUrl, coverUrl } }
 }
 
 /** "1h 05m" / "12m"; null under a minute or without a start time. */
