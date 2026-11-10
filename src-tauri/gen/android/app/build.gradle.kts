@@ -91,3 +91,13 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+// FCM config, shared with the Capacitor build and gitignored like the keystore; it is
+// copied in at configuration time. Without it the APK builds, but push cannot register.
+val googleServices = rootProject.file("../../../android/app/google-services.json")
+if (googleServices.exists()) {
+    googleServices.copyTo(file("google-services.json"), overwrite = true)
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn("android/app/google-services.json not found: push notifications will not work")
+}

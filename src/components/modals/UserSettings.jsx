@@ -17,6 +17,7 @@ import { debug } from '../../lib/debug'
 import { invoke } from '@tauri-apps/api/core'
 import { linkPurrch } from '../../lib/purrchLink'
 import { isDesktopApp, requestDesktopPermission } from '../../lib/desktopNotify'
+import { isTauriMobile } from '../../lib/platform'
 import { configureNativePushRegistration, disableCurrentPushDevice, registerWebPushDevice, reportPushError, stopNativePushRegistration, PUSH_INSTALLATION_ID_KEY } from '../../lib/pushDevices'
 import { signOutAndReset } from '../../lib/signOut'
 import { getModeratorRole } from '../../lib/moderation'
@@ -282,8 +283,8 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
         localStorage.setItem('notificationsEnabled', 'true');
         return toast.success("Desktop notifications enabled!");
       }
-      if (Capacitor.isNativePlatform()) {
-        if (!Capacitor.isPluginAvailable('PushNotifications')) {
+      if (Capacitor.isNativePlatform() || isTauriMobile()) {
+        if (!isTauriMobile() && !Capacitor.isPluginAvailable('PushNotifications')) {
             return toast.error("Push plugin not available.");
         }
 
@@ -488,7 +489,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
       { id: 'voice', label: 'Voice & Video', icon: Mic },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       // Touch devices have no keyboard shortcuts to show.
-      ...(Capacitor.isNativePlatform() ? [] : [{ id: 'keybinds', label: 'Keybinds', icon: Keyboard }]),
+      ...(Capacitor.isNativePlatform() || isTauriMobile() ? [] : [{ id: 'keybinds', label: 'Keybinds', icon: Keyboard }]),
       { id: 'legal', label: 'Legal & Policies', icon: FileText },
       ...(moderatorRole ? [{ id: 'moderation', label: 'Moderation', icon: ShieldAlert }] : []),
     ]
@@ -1047,7 +1048,7 @@ export default function UserSettingsModal({ session, settingsConfig, setSettings
                   <div className="space-y-2">
                     {/* Push is native-only: on web the tab has to stay open anyway,
                         and the in-app message sound already covers that case. */}
-                    {Capacitor.isNativePlatform() && (
+                    {(Capacitor.isNativePlatform() || isTauriMobile()) && (
                       <div className="seg-group"><ToggleSwitch label="Enable Device Notifications" description="Receive push notifications for DMs and activity in servers you have not muted." checked={desktopNotifs} onChange={requestDesktopNotifs} /></div>
                     )}
                     {isDesktopApp() && (
