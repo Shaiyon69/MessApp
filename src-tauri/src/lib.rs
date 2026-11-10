@@ -42,7 +42,20 @@ pub fn run() {
       #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
       {
         use tauri_plugin_deep_link::DeepLinkExt;
-        app.deep_link().register_all()?;
+        // Only messapp:// links depend on this, so a failure must not stop the app.
+        if let Err(e) = app.deep_link().register_all() {
+          eprintln!("messapp:// registration failed: {e}");
+          // In an AppImage, update-desktop-database inherits the bundled (older) glib and
+          // fails on newer distros before the plugin sets the default handler. The handler
+          // .desktop file is already written, so set it here without the bundled libraries.
+          #[cfg(target_os = "linux")]
+          if let Some(bin) = tauri::utils::platform::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())) {
+            let _ = std::process::Command::new("xdg-mime")
+              .args(["default", &format!("{bin}-handler.desktop"), "x-scheme-handler/messapp"])
+              .env_remove("LD_LIBRARY_PATH")
+              .status();
+          }
+        }
       }
       if cfg!(debug_assertions) {
         app.handle().plugin(
