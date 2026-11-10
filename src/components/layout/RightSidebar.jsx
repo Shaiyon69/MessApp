@@ -5,10 +5,11 @@
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
-import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, AtSign, ChevronLeft, Palette, Images, ScrollText, ShieldAlert, Link as LinkIcon } from 'lucide-react'
+import { X, Search, ImagePlus, Eye, EyeOff, Ban, Trash2, FileText, Pin, Users, Flag, MoreHorizontal, UserMinus, ShieldCheck, Loader2, Bell, BellOff, AtSign, ChevronLeft, Palette, Images, ScrollText, ShieldAlert, Gamepad2, Link as LinkIcon } from 'lucide-react'
 import TonalIcon from '../ui/TonalIcon'
 import StatusAvatar from '../ui/StatusAvatar'
 import ServerIcon from '../ui/ServerIcon'
+import ChimaeraGames, { useHasChimaeraLibrary } from '../profile/ChimaeraGames'
 import { safeMediaUrl } from '../../lib/security'
 import { downloadFile } from '../../lib/downloadFile'
 import { supabase } from '../../supabaseClient'
@@ -152,6 +153,8 @@ export default function RightSidebar({
     setInfoPage(rightTab === 'members' ? 'chat-members' : null)
   }, [rightTab, activeDm?.dm_room_id, activeServer?.id])
   const pageProps = { page: infoPage, onOpen: setInfoPage, onClose: closeRightSidebar }
+  // The Games entry shows only for someone with a Chimaera library this user may see (friends).
+  const hasGames = useHasChimaeraLibrary(activeDm?.profiles?.id)
   const [serverLevel, setServerLevel] = useState('all')
   const [moderationLog, setModerationLog] = useState(null)
   const canViewModerationLog = canModerateMessages(activeServerRole)
@@ -785,6 +788,11 @@ export default function RightSidebar({
                 </div>
               </InfoPage>
 
+              {hasGames && (
+                <InfoPage id="dm-games" icon={Gamepad2} label="Games" {...pageProps}>
+                  <ChimaeraGames profileId={activeDm.profiles.id} />
+                </InfoPage>
+              )}
               <InfoPage id="dm-privacy" icon={ShieldAlert} label="Privacy & support" {...pageProps}>
                 <button onClick={() => setConfirmAction({ type: restrictedUsersSet.has(activeDm.profiles.id) ? 'unrestrict' : 'restrict', profile: activeDm.profiles })} className="w-full flex items-center gap-3 rounded-xl p-3 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer group text-left">
                   <EyeOff size={16} className="text-[var(--text-muted)] group-hover:text-[var(--text-main)]"/><span className="type-body font-medium text-[var(--text-main)] group-hover:text-[var(--text-main)] flex-1">{restrictedUsersSet.has(activeDm.profiles.id) ? 'Unrestrict' : 'Restrict'}</span>
