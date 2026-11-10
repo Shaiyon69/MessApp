@@ -1,7 +1,7 @@
 /**
  * Chimaera (the game launcher) tracks "now playing" on the Realtime presence
  * channel chimaera-presence-<userId>, payload { playing: { title, objectId,
- * shop, iconUrl, startedAt? } | null, since } (Chimaera's presence-core.ts). Someone has
+ * shop, iconUrl, startedAt?, accent? } | null, since } (Chimaera's presence-core.ts). Someone has
  * entries there while Chimaera runs; playing is null when they share nothing.
  *
  * shortcut: the channel is public, so any signed-in client can join it and
@@ -9,6 +9,7 @@
  * realtime.messages (in both apps) if it ever carries more.
  */
 import { cleanStatusNote } from './statusNote.js'
+import { accentFromHex } from './gameAccent.js'
 
 export const chimaeraChannelName = userId => `chimaera-presence-${userId}`
 
@@ -41,7 +42,7 @@ export const toGamePresence = (entries, now = Date.now()) => {
   const coverUrl = playing.shop === 'steam' && /^\d{1,10}$/.test(playing.objectId)
     ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${playing.objectId}/header.jpg`
     : iconUrl
-  return { online: true, playing: { title, startedAt, iconUrl, coverUrl } }
+  return { online: true, playing: { title, startedAt, iconUrl, coverUrl, accent: accentFromHex(playing.accent) } }
 }
 
 /** "1h 05m" / "12m"; null under a minute or without a start time. */
