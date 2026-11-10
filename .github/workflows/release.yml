@@ -160,7 +160,10 @@ jobs:
         run: |
           apk="APPLICATIONS/MessApp-Android-v${{ needs.validate.outputs.version }}.apk"
           signer="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
-          digest="$("$signer" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          certs="$("$signer" verify --print-certs "$apk")"
+          echo "$certs"
+          # Newer apksigner names signers by SDK range ("Signer (minSdkVersion=...)") instead of "Signer #1".
+          digest="$(printf '%s\n' "$certs" | sed -n 's/^Signer.* certificate SHA-256 digest: //p' | head -1)"
           test "$digest" = "$ANDROID_CERT_SHA256" || { echo "::error::APK signed with $digest, expected $ANDROID_CERT_SHA256"; exit 1; }
       - name: Remove the signing key from the runner
         if: always()
