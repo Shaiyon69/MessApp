@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
 import { ORIGIN_FILTERS, messageOrigin, stepOriginFilter } from '../../lib/messageOrigin'
-import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
+import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronsDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -1338,7 +1338,6 @@ useEffect(() => {
                       scrollToMessage={props.scrollToMessage}
                       setSelectedImage={props.setSelectedImage}
                       togglePinnedMessage={props.togglePinnedMessage}
-                      presenceStatus={props.getPresenceStatus?.(m.profile_id)}
 	                      peerReadAt={props.peerReadAt}
 	                      peerOnline={props.view === 'home' && (props.getPresenceStatus?.(props.activeDm?.profiles?.id) ?? 'offline') !== 'offline'}
 	                      retryFailedMessage={props.retryFailedMessage}
@@ -1361,11 +1360,11 @@ useEffect(() => {
                   <button
                     type="button"
                     onClick={props.scrollToLatestMessages}
-                    className="premium-menu pointer-events-auto absolute bottom-3 left-1/2 grid h-10 w-10 -translate-x-1/2 place-items-center rounded-full text-[var(--theme-base)] shadow-xl transition-all hover:border-[var(--theme-50)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] cursor-pointer"
+                    className="premium-menu pointer-events-auto absolute bottom-3 right-4 md:right-6 grid h-10 w-10 place-items-center rounded-full text-[var(--theme-base)] shadow-xl transition-all hover:border-[var(--theme-50)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] cursor-pointer"
                     aria-label="Jump to latest messages"
                     title="Latest messages"
                   >
-                    <ChevronDown size={20} aria-hidden="true" />
+                    <ChevronsDown size={20} className="latest-nudge" aria-hidden="true" />
                   </button>
                 </div>
               )}
@@ -1376,6 +1375,8 @@ useEffect(() => {
                 </div>
               ) : (
                 <div ref={emojiPickerRef} className="p-2 md:p-4 pt-0 shrink-0 bg-transparent z-10 relative flex flex-col">
+                  {/* Banners stack above the dots pill, which stays pinned to the composer. */}
+                  <div className={originSwipeEnabled ? 'flex flex-col pb-8 empty:pb-0' : 'contents'}>
                   {props.connectionLost && (
                     <div role="status" className="mx-2 mb-2 flex items-center gap-2 rounded-xl bg-[var(--bg-element)] px-3 py-2 type-meta text-[var(--text-muted)]">
                       <WifiOff size={14} aria-hidden="true" />
@@ -1576,7 +1577,7 @@ useEffect(() => {
                       <span className="sr-only">{voiceRecorderState.status === 'stopping' ? 'Preparing voice message' : 'Recording voice message'}</span>
                     </div>
                   )}
-                  {originDots}
+                  </div>
                   <form
                     onSubmit={(e) => {
                         if (props.editingMessageId) {
@@ -1589,6 +1590,7 @@ useEffect(() => {
                       }
                     }
                     className="premium-composer chat-glass rounded-3xl flex items-center gap-2 p-1.5 transition-all duration-300 ease-out transform relative mt-1 mx-2 md:mx-4 mb-2 md:mb-4">
+                    {originDots}
                     <div ref={gifPickerRef} onTouchStartCapture={() => { blurComposer(); }}>
                       {props.showGifPicker && (
                         <Suspense fallback={null}>

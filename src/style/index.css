@@ -2761,6 +2761,16 @@ iframe {
   50% { transform: translateY(-18px) rotate(0.8deg); }
 }
 
+/* Jump-to-latest arrow: a small nudge toward the newest message. */
+@keyframes latestNudge {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(2px); }
+}
+
+.latest-nudge {
+  animation: latestNudge 1.2s ease-in-out infinite;
+}
+
 @keyframes skeletonShimmer {
   100% { transform: translateX(100%); }
 }

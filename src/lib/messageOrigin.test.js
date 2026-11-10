@@ -18,10 +18,11 @@ describe('messageOrigin', () => {
     assert.ok(matchesOrigin(theirs, 'chimaera') && !matchesOrigin(mine, 'chimaera'))
   })
 
-  it('purrch is its own origin', () => {
-    assert.deepEqual(ORIGIN_FILTERS.map(f => f.id), ['all', 'messapp', 'chimaera', 'purrch'])
-    assert.ok(matchesOrigin({ origin: 'purrch' }, 'purrch'))
-    assert.ok(!matchesOrigin({ origin: 'purrch' }, 'messapp'))
+  it('purrch replies file under messapp', () => {
+    assert.deepEqual(ORIGIN_FILTERS.map(f => f.id), ['all', 'messapp', 'chimaera'])
+    assert.equal(messageOrigin({ origin: 'purrch' }), 'purrch')
+    assert.ok(matchesOrigin({ origin: 'purrch' }, 'messapp'))
+    assert.ok(!matchesOrigin({ origin: 'purrch' }, 'chimaera'))
   })
 
   it('falls back to all when storage is unavailable', () => {
@@ -33,8 +34,7 @@ describe('stepOriginFilter', () => {
   it('pages through the filters and clamps at the ends', () => {
     assert.equal(stepOriginFilter('all', 1), 'messapp')
     assert.equal(stepOriginFilter('messapp', 1), 'chimaera')
-    assert.equal(stepOriginFilter('chimaera', 1), 'purrch')
-    assert.equal(stepOriginFilter('purrch', 1), 'purrch')
+    assert.equal(stepOriginFilter('chimaera', 1), 'chimaera')
     assert.equal(stepOriginFilter('all', -1), 'all')
   })
 })
