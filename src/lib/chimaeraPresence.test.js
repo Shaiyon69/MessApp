@@ -16,8 +16,8 @@ test('no entries means not in Chimaera', () => {
 
 test('the newest entry wins', () => {
   const entries = [{ playing: game, since: 2 }, { playing: null, since: 1 }]
-  assert.deepEqual(toGamePresence(entries), { online: true, playing: { title: 'Portal 2', startedAt: null, iconUrl: null, coverUrl: STEAM_COVER } })
-  assert.deepEqual(toGamePresence(entries.reverse()), { online: true, playing: { title: 'Portal 2', startedAt: null, iconUrl: null, coverUrl: STEAM_COVER } })
+  assert.deepEqual(toGamePresence(entries), { online: true, playing: { title: 'Portal 2', startedAt: null, iconUrl: null, coverUrl: STEAM_COVER, accent: null } })
+  assert.deepEqual(toGamePresence(entries.reverse()), { online: true, playing: { title: 'Portal 2', startedAt: null, iconUrl: null, coverUrl: STEAM_COVER, accent: null } })
 })
 
 test('sharing off still counts as online', () => {
@@ -57,4 +57,10 @@ test('icons must be https; other shops take their colour from the icon', () => {
   assert.equal(custom.iconUrl, 'https://cdn.test/i.png')
   assert.equal(custom.coverUrl, 'https://cdn.test/i.png')
   assert.equal(at({ objectId: '../x' }).coverUrl, null)
+})
+
+test('keeps a valid accent from Chimaera', () => {
+  const at = accent => toGamePresence([{ playing: { ...game, accent }, since: 1 }]).playing.accent
+  assert.match(at('#dc1e1e'), /^hsl\(0 /)
+  assert.equal(at('red; background: url(x)'), null)
 })

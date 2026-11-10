@@ -101,3 +101,7 @@ Thumbs.db
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Setup bootstrapper build output
+installer/target
+installer/src-tauri/gen

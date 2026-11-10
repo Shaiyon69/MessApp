@@ -20,7 +20,18 @@ export const accentFromPixels = (data) => {
     r += data[i] * w; g += data[i + 1] * w; b += data[i + 2] * w; weight += w
   }
   if (weight < 0.5) return null
-  r /= weight * 255; g /= weight * 255; b /= weight * 255
+  return toAccent(r / (weight * 255), g / (weight * 255), b / (weight * 255))
+}
+
+/** "#rrggbb" sent by Chimaera (it reads covers friends cannot) to the label colour, or null. */
+export const accentFromHex = (value) => {
+  if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) return null
+  const n = parseInt(value.slice(1), 16)
+  return toAccent((n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255)
+}
+
+// r, g, b in 0..1 to the hue and saturation at the theme's lightness.
+const toAccent = (r, g, b) => {
   const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
   if (d < 0.08) return null
   const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4

@@ -1,0 +1,32 @@
+[package]
+name = "messapp-setup"
+version = "1.0.0"
+description = "Messapp Setup: installs the newest signed Messapp from Skibidevs"
+edition = "2021"
+
+# Standalone: not part of Messapp's src-tauri build.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+minisign-verify = "0.2"
+base64 = "0.22"
+
+[features]
+# Plain `cargo build` serves ../ui from the binary; no Tauri CLI needed in CI.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

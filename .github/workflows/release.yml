@@ -83,7 +83,9 @@ jobs:
         uses: rui314/setup-mold@339e96b4ff1f3bd865856ba4cbbe8818a7acb038 # v1
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            installer/src-tauri -> ../target
       - run: npm ci
       - name: Verify application configuration
         shell: bash
@@ -93,6 +95,20 @@ jobs:
       - name: Build native package
         shell: bash
         run: bash ./build_all.sh ${{ matrix.target }}
+      # Messapp Setup: the website's Windows download. It fetches the newest signed installer
+      # from Skibidevs at run time, checks it against the updater key and installs it.
+      - name: Build Messapp Setup
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo build --release --manifest-path installer/src-tauri/Cargo.toml --target-dir installer/target
+          cp installer/target/release/messapp-setup.exe APPLICATIONS/Messapp-Setup.exe
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Windows'
+        with:
+          name: messapp-setup-v${{ needs.validate.outputs.version }}
+          path: APPLICATIONS/Messapp-Setup.exe
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: messapp-${{ matrix.target }}-v${{ needs.validate.outputs.version }}
