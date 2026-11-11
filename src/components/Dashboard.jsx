@@ -2479,6 +2479,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         myPronouns={myPronouns}
         myBanner={myBanner}
         userStatus={userStatus}
+        statusText={statusText}
         setUserStatus={setUserStatus}
         statusNote={statusNote}
         setStatusNote={saveStatusNote}

@@ -25,7 +25,7 @@ export default function QuickActionsFab({ onSearch, onAddFriend, onCreateServer,
           the trigger is pinned right on its own. It is a size container so
           each icon can work out, in cqw, how far it sits from the trigger it
           unfurls out of. */}
-      <div className={`quick-actions pointer-events-none absolute inset-x-0 bottom-[var(--dock-space)] z-50 flex h-12 items-center justify-center md:bottom-4`}>
+      <div className={`quick-actions pointer-events-none absolute inset-x-0 bottom-[var(--dock-space)] z-50 flex h-12 items-center justify-center md:bottom-20`}>
         <div className="quick-actions-row flex gap-2">
         {/* Always mounted so closing can play in reverse; inert keeps the
             folded icons out of the tab order and away from screen readers.
