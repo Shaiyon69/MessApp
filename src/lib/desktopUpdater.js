@@ -20,8 +20,10 @@ export async function findDesktopUpdate() {
   }
 }
 
-// The NSIS installer closes and relaunches the app on Windows.
-// shortcut: Linux AppImage updates apply on next manual start; add tauri-plugin-process relaunch if that annoys people.
+// Windows: the NSIS installer closes and relaunches the app before this resolves.
+// Linux: the AppImage file is replaced in place, so relaunch into it.
 export async function installDesktopUpdate(update) {
   await update.downloadAndInstall()
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('restart_app')
 }
