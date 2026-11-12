@@ -168,9 +168,10 @@ async function createTauriScreenCaptureStream({
     })).catch(() => {})
   }
 
+  // Listen before start: the plugin posts the port just before start resolves.
   let removePortListener = () => {}
-  const portReady = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new DOMException('Screen capture did not connect.', 'NotSupportedError')), portTimeoutMs)
+  let timer
+  const portReady = new Promise(resolve => {
     const onMessage = event => {
       if (event.data !== TAURI_SCREEN_CAPTURE || !event.ports?.[0]) return
       removePortListener()
@@ -182,7 +183,6 @@ async function createTauriScreenCaptureStream({
     }
     windowRef.addEventListener?.('message', onMessage)
   })
-  portReady.catch(() => {})
 
   const cleanup = async () => {
     if (stopped) return
@@ -210,7 +210,10 @@ async function createTauriScreenCaptureStream({
       void cleanup()
     })
     const capture = await plugin.start({ quality, audio })
-    port = await portReady
+    // Timed from here, not before: start waits on Android's consent dialog, which takes as long as the user reads it.
+    port = await Promise.race([portReady, new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(new DOMException('Screen capture did not connect.', 'NotSupportedError')), portTimeoutMs)
+    })])
     const tracks = [video]
     if (capture?.audio && AudioDataClass) {
       const audioTrack = new TrackGenerator({ kind: 'audio' })

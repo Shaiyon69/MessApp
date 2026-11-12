@@ -351,3 +351,24 @@ test('Tauri capture without WebCodecs asks for a WebView update', async () => {
     error => error.name === 'NotSupportedError'
   )
 })
+
+test('a slow consent dialog does not time the share out', async () => {
+  const fakes = tauriFakes()
+  const start = fakes.plugin.start
+  // The user reads the dialog for longer than the port timeout.
+  fakes.plugin.start = async args => { await new Promise(resolve => setTimeout(resolve, 60)); return start(args) }
+  const stream = await getScreenCaptureStream(undefined, { viewers: 1, portTimeoutMs: 20, ...fakes.options })
+  assert.equal(stream.getVideoTracks().length, 1)
+  assert.ok(!fakes.log.some(entry => entry[0] === 'stop'))
+  await stream._messappStopNativeCapture()
+})
+
+test('no port after consent still fails cleanly', async () => {
+  const fakes = tauriFakes()
+  fakes.plugin.start = async () => ({ high: false, audio: false })
+  await assert.rejects(
+    getScreenCaptureStream(undefined, { viewers: 1, portTimeoutMs: 20, ...fakes.options }),
+    error => error.name === 'NotSupportedError'
+  )
+  assert.deepEqual(fakes.log.at(-1), ['stop'])
+})
