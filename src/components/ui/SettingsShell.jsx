@@ -85,7 +85,7 @@ export default function SettingsShell({ owner, label, title, groups, section, on
             <div ref={barRef} role="status" className="ios-sheet pointer-events-auto flex w-full max-w-[44rem] flex-wrap items-center gap-3 rounded-xl px-4 py-2.5 shadow-2xl">
               <p className="min-w-0 flex-1 type-body font-semibold text-[var(--text-main)]">Careful, you have unsaved changes!</p>
               <button type="button" onClick={unsaved.onReset} disabled={unsaved.saving} className="h-9 rounded-lg px-3 type-label font-semibold text-[var(--text-main)] hover:underline disabled:opacity-50">Reset</button>
-              <button type="button" onClick={unsaved.onSave} disabled={unsaved.saving} className="h-9 rounded-lg bg-green-600 px-4 type-label font-semibold text-white hover:bg-green-700 disabled:opacity-60">{unsaved.saving ? 'Saving…' : 'Save Changes'}</button>
+              <button type="button" onClick={unsaved.onSave} disabled={unsaved.saving} className="h-9 rounded-lg bg-[var(--app-accent)] px-4 type-label font-semibold text-[var(--accent-contrast)] hover:opacity-90 disabled:opacity-60">{unsaved.saving ? 'Saving…' : 'Save Changes'}</button>
             </div>
           </div>
         )}

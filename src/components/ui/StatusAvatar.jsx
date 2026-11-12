@@ -31,7 +31,8 @@ export default function StatusAvatar({ url, username, isOnline, status, showStat
   const statusLabel = STATUS_LABELS[resolvedStatus] || STATUS_LABELS.offline
 
   return (
-    <div className={`relative shrink-0 flex items-center justify-center rounded-full ${className}`} title={`${username || 'User'} · ${statusLabel}`} role="img" aria-label={`${username || 'User'}, ${statusLabel}`}>
+    // Without the dot the caller passes no real status, so the label must not claim one.
+    <div className={`relative shrink-0 flex items-center justify-center rounded-full ${className}`} title={showStatus ? `${username || 'User'} · ${statusLabel}` : username || 'User'} role="img" aria-label={showStatus ? `${username || 'User'}, ${statusLabel}` : username || 'User'}>
       {safeUrl ? (
         <img src={safeUrl} alt="" className="h-full w-full rounded-full object-cover" loading={loading} decoding="async" draggable={false} />
       ) : (
