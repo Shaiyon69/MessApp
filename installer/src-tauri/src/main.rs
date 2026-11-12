@@ -152,16 +152,16 @@ async fn install(app: AppHandle, state: State<'_, Latest>, app_dir: String, data
     launch(&app_dir)?;
     let _ = app.emit("step", "done");
 
-    // Long enough to read the welcome screen while the app opens.
-    tauri::async_runtime::spawn(async move {
-        tokio_sleep(Duration::from_millis(3500)).await;
+    // The app is starting: close Setup. A plain OS thread, not the async runtime,
+    // so nothing pending there can hold it open; if the graceful exit has not
+    // ended the process shortly after, force it.
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
         app.exit(0);
+        std::thread::sleep(Duration::from_secs(2));
+        std::process::exit(0);
     });
     Ok(())
-}
-
-async fn tokio_sleep(duration: Duration) {
-    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(duration)).await;
 }
 
 /// The default data folder needs no file; any other folder is written for the app to read.
