@@ -19,6 +19,10 @@ pub fn run() {
   }));
   #[cfg(target_os = "android")]
   let builder = builder.plugin(tauri_plugin_messapp_push::init());
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_messapp_call_audio::init());
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_messapp_screen_capture::init());
   builder
     .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_shaiyon::init())

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getScreenCaptureErrorMessage, getScreenCaptureStream } from './screenCapture.js'
+import { createTauriScreenCapture, getScreenCaptureErrorMessage, getScreenCaptureStream } from './screenCapture.js'
 
 test('screen capture requests display audio when the platform supports it', async () => {
   const calls = []
@@ -93,4 +93,23 @@ test('native app capture falls back to a canvas MediaStream and stops the projec
   await result._messappStopNativeCapture()
   assert.equal(track.stopCalled, true)
   assert.equal(nativeStops, 1)
+})
+
+test('Tauri screen capture invokes the plugin and turns its error code into a DOMException name', async () => {
+  const calls = []
+  const plugin = createTauriScreenCapture({
+    tauriInvoke: async cmd => {
+      calls.push(cmd)
+      if (cmd.endsWith('|start')) throw { message: 'Screen sharing was cancelled', code: 'NotAllowedError' }
+    },
+    tauriAddPluginListener: async () => ({ unregister: async () => calls.push('unregister') })
+  })
+  await assert.rejects(plugin.start(), error => {
+    assert.equal(getScreenCaptureErrorMessage(error), 'Screen sharing was cancelled or blocked by the device.')
+    return error.name === 'NotAllowedError'
+  })
+  const listener = await plugin.addListener('frame', () => {})
+  await listener.remove()
+  await plugin.stop()
+  assert.deepEqual(calls, ['plugin:messapp-screen-capture|start', 'unregister', 'plugin:messapp-screen-capture|stop'])
 })

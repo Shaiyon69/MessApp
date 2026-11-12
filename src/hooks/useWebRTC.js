@@ -4,13 +4,12 @@
  * must stop when a call ends or the active DM changes.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { supabase } from '../supabaseClient';
 import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
 import { applyVoiceAudioProcessing, getVoiceMediaStream, tuneOpusSdp } from '../lib/voiceAudioProcessing';
-import { acquireAlternateCamera, CallAudio } from '../lib/mediaDevices';
+import { acquireAlternateCamera, CallAudio, isNativeCallAudioAvailable } from '../lib/mediaDevices';
 import { getIceServers, hasTurnRelay } from '../lib/iceServers';
 import { isPolite, shouldIgnoreOffer } from '../lib/negotiation';
 
@@ -21,11 +20,6 @@ const ICE_RECOVERY_DELAY_MS = 5000;
 // Bounds the buffer a peer that never answers can grow.
 const MAX_PENDING_ICE_CANDIDATES = 100;
 const NO_TURN_HINT = 'No TURN relay is configured, so calls only connect when both devices can reach each other directly.';
-
-const isNativeAndroidCallAudioAvailable = () =>
-  Capacitor.isNativePlatform() &&
-  Capacitor.getPlatform() === 'android' &&
-  Capacitor.isPluginAvailable('CallAudio');
 
 const logCallAudioDebug = (message, payload = {}) => {
   if (localStorage.getItem('messappDebugCallAudio') === 'true') {
@@ -121,7 +115,7 @@ export function useWebRTC(session, activeDm) {
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0];
 
   const startNativeCallAudio = async () => {
-    if (!isNativeAndroidCallAudioAvailable()) return false;
+    if (!isNativeCallAudioAvailable()) return false;
     try {
       logCallAudioDebug('startCall requested', { speakerEnabled });
       const result = await CallAudio.startCall();
@@ -136,7 +130,7 @@ export function useWebRTC(session, activeDm) {
   };
 
   const setNativeCallAudio = async (enabled) => {
-    if (!isNativeAndroidCallAudioAvailable()) return false;
+    if (!isNativeCallAudioAvailable()) return false;
     logCallAudioDebug('setSpeakerEnabled requested', { enabled });
     const result = await CallAudio.setSpeakerEnabled({ enabled });
     logCallAudioDebug('setSpeakerEnabled response', result || {});
@@ -146,7 +140,7 @@ export function useWebRTC(session, activeDm) {
   };
 
   const restoreNativeCallAudio = () => {
-    if (!isNativeAndroidCallAudioAvailable() || !nativeAudioActiveRef.current) return;
+    if (!isNativeCallAudioAvailable() || !nativeAudioActiveRef.current) return;
     nativeAudioActiveRef.current = false;
     logCallAudioDebug('endCall requested');
     CallAudio.endCall()
@@ -1230,7 +1224,7 @@ export function useWebRTC(session, activeDm) {
 
   const toggleSpeaker = async () => {
     const nextState = !speakerEnabled;
-    if (isNativeAndroidCallAudioAvailable()) {
+    if (isNativeCallAudioAvailable()) {
       try {
         await setNativeCallAudio(nextState);
         toast(nextState ? 'Speaker output selected' : 'Phone audio selected');

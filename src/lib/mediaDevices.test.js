@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   acquireAlternateCamera,
+  createTauriCallAudio,
   ensureMicrophonePermission,
+  isNativeCallAudioAvailable,
   getNextCameraSelection
 } from './mediaDevices.js'
 
@@ -81,4 +83,40 @@ test('alternate camera acquisition returns an enabled live track', async () => {
   assert.equal(result.track, track)
   assert.equal(track.enabled, true)
   assert.equal(result.facingMode, 'environment')
+})
+
+test('Tauri Android uses the native call audio client, the web does not', () => {
+  assert.equal(isNativeCallAudioAvailable({ isNativePlatform: () => false }, true), true)
+  assert.equal(isNativeCallAudioAvailable({ isNativePlatform: () => false }, false), false)
+})
+
+test('Tauri call audio client invokes the messapp-call-audio plugin', async () => {
+  const calls = []
+  const client = createTauriCallAudio(async (cmd, args) => {
+    calls.push([cmd, args])
+    return { enabled: true }
+  })
+  assert.deepEqual(await client.setSpeakerEnabled({ enabled: true }), { enabled: true })
+  await client.requestMicrophonePermission()
+  assert.deepEqual(calls, [
+    ['plugin:messapp-call-audio|set_speaker_enabled', { enabled: true }],
+    ['plugin:messapp-call-audio|request_microphone_permission', undefined]
+  ])
+})
+
+test('Tauri call audio errors become named Errors', async () => {
+  const client = createTauriCallAudio(async () => { throw 'AudioManager busy' })
+  await assert.rejects(client.startCall(), /start_call: AudioManager busy/)
+})
+
+test('Tauri Android asks the plugin for the mic permission', async () => {
+  const state = await ensureMicrophonePermission({
+    capacitor: { isNativePlatform: () => false },
+    tauriMobile: true,
+    nativePermissionClient: {
+      checkMediaPermissions: async () => ({ microphone: 'prompt-with-rationale' }),
+      requestMicrophonePermission: async () => ({ microphone: 'granted' })
+    }
+  })
+  assert.equal(state, 'granted')
 })

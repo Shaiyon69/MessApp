@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "android",
-  "description": "Android-only permissions: native FCM push is built for Android only.",
+  "description": "Android-only permissions: native FCM push, call audio and screen capture are built for Android only.",
   "platforms": [
     "android"
   ],
@@ -9,6 +9,8 @@
     "main"
   ],
   "permissions": [
-    "messapp-push:default"
+    "messapp-push:default",
+    "messapp-call-audio:default",
+    "messapp-screen-capture:default"
   ]
 }

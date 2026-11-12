@@ -121,7 +121,9 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-deep-link",
  "tauri-plugin-log",
+ "tauri-plugin-messapp-call-audio",
  "tauri-plugin-messapp-push",
+ "tauri-plugin-messapp-screen-capture",
  "tauri-plugin-notification",
  "tauri-plugin-shaiyon",
  "tauri-plugin-single-instance",
@@ -4609,7 +4611,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-messapp-call-audio"
+version = "0.1.0"
+dependencies = [
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "tauri-plugin-messapp-push"
+version = "0.1.0"
+dependencies = [
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-messapp-screen-capture"
 version = "0.1.0"
 dependencies = [
  "tauri",

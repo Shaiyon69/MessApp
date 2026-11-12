@@ -1,7 +1,27 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import { addPluginListener, invoke } from '@tauri-apps/api/core'
+import { isTauriMobile } from './platform.js'
 
 const VIDEO_ONLY_FALLBACK_ERRORS = new Set(['TypeError', 'OverconstrainedError', 'NotSupportedError'])
-const NativeScreenCapture = registerPlugin('ScreenCapture')
+const TAURI_SCREEN_CAPTURE = 'messapp-screen-capture'
+
+/** Tauri Android: the Capacitor ScreenCapture interface, through the messapp-screen-capture plugin. */
+export const createTauriScreenCapture = ({ tauriInvoke = invoke, tauriAddPluginListener = addPluginListener } = {}) => {
+  // Kotlin rejects with { message, code }; the code is the DOMException name the error messages expect.
+  const command = name => () => tauriInvoke(`plugin:${TAURI_SCREEN_CAPTURE}|${name}`).catch(error => {
+    throw new DOMException(error?.message || String(error), error?.code || 'NotSupportedError')
+  })
+  return {
+    start: command('start'),
+    stop: command('stop'),
+    addListener: async (event, handler) => {
+      const listener = await tauriAddPluginListener(TAURI_SCREEN_CAPTURE, event, handler)
+      return { remove: () => listener.unregister() }
+    }
+  }
+}
+
+const NativeScreenCapture = isTauriMobile() ? createTauriScreenCapture() : registerPlugin('ScreenCapture')
 
 async function createNativeScreenCaptureStream({
   plugin = NativeScreenCapture,
@@ -82,7 +102,7 @@ async function createNativeScreenCaptureStream({
 export async function getScreenCaptureStream(mediaDevices, nativeOptions = {}) {
   if (!mediaDevices?.getDisplayMedia) {
     const isNativeAndroid = nativeOptions.isNativePlatform ?? (
-      Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+      isTauriMobile() || (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
     )
     if (isNativeAndroid) return createNativeScreenCaptureStream(nativeOptions)
     throw new DOMException('Screen capture is unavailable in this browser or app build.', 'NotSupportedError')
