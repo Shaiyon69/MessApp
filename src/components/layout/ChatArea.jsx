@@ -12,6 +12,7 @@ import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
 import BottomBar, { TABS } from './BottomBar'
 import ChatsPage from './ChatsPage'
+import UserPanel from './UserPanel'
 import MenuPage from './MenuPage'
 import NotificationsPage from './NotificationsPage'
 import QuickActionsFab from './QuickActionsFab'
@@ -847,7 +848,7 @@ useEffect(() => {
   }, [conversationId, clearUnreadAnchor, scrollToLatestMessages])
 
   /* Desktop list column (rail included), in rem so UI density scales it too. */
-  const [listWidth, setListWidth] = useStoredState('messapp.listWidth.v2', LIST_WIDTH_DEFAULT)
+  const [listWidth, setListWidth] = useStoredState('messapp.listWidth.v3', LIST_WIDTH_DEFAULT)
   const listSectionRef = useRef(null)
   const startListResize = (event) => {
     if (event.button !== 0) return
@@ -897,6 +898,7 @@ useEffect(() => {
     rows[to]?.focus()
   }
   // Picking a rail tab while the list is collapsed means "show me that list".
+  const menuReturnTabRef = useRef('chats')
   const selectHomeTab = (tab) => {
     if (props.listCollapsed) props.setListCollapsed(false)
     props.setHomeTab(tab)
@@ -951,7 +953,7 @@ useEffect(() => {
               bottom edge lands exactly where the bottom bar starts. */}
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Keyed so each tab mounts fresh: replays the entrance and starts at the top. */}
-            <div key={props.homeTab} className="home-tab-page min-h-0 flex-1 overflow-y-auto custom-scrollbar" style={{ '--tab-dir': tabMotion.dir }} onScroll={onHomeScroll} onKeyDown={onListKeyDown}>
+            <div key={props.homeTab} className="home-tab-page min-h-0 flex-1 overflow-y-auto custom-scrollbar md:pb-20" style={{ '--tab-dir': tabMotion.dir }} onScroll={onHomeScroll} onKeyDown={onListKeyDown}>
               {props.homeTab === 'menu' ? (
                 <MenuPage {...props} />
               ) : props.homeTab === 'servers' ? (
@@ -978,7 +980,32 @@ useEffect(() => {
           avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
           username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
           hidden={dockHidden}
+          railMenu={props.listCollapsed}
         />
+          {!props.listCollapsed && (
+            <UserPanel
+              avatarUrl={props.myAvatar || props.session.user.user_metadata?.avatar_url}
+              username={props.myUsername || props.session.user.user_metadata?.username || props.session.user.email}
+              status={props.userStatus}
+              statusText={props.statusText}
+              active={props.homeTab === 'menu'}
+              onOpenMenu={() => {
+                // A second click closes the menu, back to the tab it was opened from.
+                if (props.homeTab === 'menu') return selectHomeTab(menuReturnTabRef.current)
+                menuReturnTabRef.current = props.homeTab
+                selectHomeTab('menu')
+              }}
+              muted={props.voiceMuted}
+              deafened={props.voiceDeafened}
+              onToggleMute={() => {
+                // Unmuting while deafened undeafens too, as in Discord.
+                if (props.voiceDeafened) props.setVoiceDeafened(false)
+                props.setVoiceMuted(!(props.voiceMuted || props.voiceDeafened))
+              }}
+              onToggleDeafen={() => props.setVoiceDeafened(!props.voiceDeafened)}
+              onOpenSettings={() => props.setSettingsModalConfig({ isOpen: true, tab: 'account' })}
+            />
+          )}
       </section>
 
       {!props.listCollapsed && (
