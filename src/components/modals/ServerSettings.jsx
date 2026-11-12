@@ -11,6 +11,7 @@ import { supabase } from '../../supabaseClient'
 import ServerIcon from '../ui/ServerIcon'
 import StatusAvatar from '../ui/StatusAvatar'
 import AccessPicker from '../ui/AccessPicker'
+import ConfirmDialog from '../ui/ConfirmDialog'
 import SettingsShell, { FieldLabel, PageTitle } from '../ui/SettingsShell'
 import { debug } from '../../lib/debug'
 import { describeExpiry, inviteState, inviteUrl } from '../../lib/invites'
@@ -75,8 +76,19 @@ function Overview({ server, canManage, draft, setDraft, userId, uploading, setUp
         </div>
         <div className="min-w-0 flex-1">
           {canManage && <p className="mb-4 type-label text-[var(--text-muted)]">We recommend an image of at least 512×512 for the server.</p>}
-          <FieldLabel htmlFor="server-name">Server name</FieldLabel>
-          <input id="server-name" value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} readOnly={!canManage} maxLength={100} className="ios-sheet-input h-11 w-full rounded-lg px-3 text-[var(--text-main)] outline-none" />
+          {canManage ? (
+            <>
+              <FieldLabel htmlFor="server-name">Server name</FieldLabel>
+              <input id="server-name" value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))} maxLength={100} className="ios-sheet-input h-11 w-full rounded-lg px-3 text-[var(--text-main)] outline-none" />
+            </>
+          ) : (
+            // Members can't rename: show the name as text, not a read-only box that looks editable.
+            <>
+              <p className="type-meta font-bold uppercase tracking-[0.06em] text-[var(--text-muted)]">Server name</p>
+              <p className="mt-1 break-words type-title font-semibold text-[var(--text-main)]">{draft.name}</p>
+              <p className="mt-2 type-label text-[var(--text-muted)]">Only the owner and admins can change server settings.</p>
+            </>
+          )}
         </div>
       </div>
       <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" onChange={pick} className="hidden" />
@@ -338,7 +350,16 @@ export default function ServerSettings({ server, members = [], roles = [], membe
   const [roleDraft, setRoleDraft] = useState(null)
   // Reset the draft only when the role itself changes, not on every render's new roleBase object.
   useEffect(() => { setRoleDraft(roleBase) }, [roleId, selectedRole?.name, selectedRole?.color]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!selectedRole && roles.length) setRoleId(roles[0].id) }, [selectedRole, roles])
+  // A just-created role is missing from `roles` until the refetch lands: wait for it
+  // instead of falling back to the first role (edits then went to the wrong role).
+  const pendingRoleIdRef = useRef(null)
+  useEffect(() => {
+    if (selectedRole) {
+      if (pendingRoleIdRef.current === selectedRole.id) pendingRoleIdRef.current = null
+      return
+    }
+    if (roles.length && (!roleId || roleId !== pendingRoleIdRef.current)) setRoleId(roles[0].id)
+  }, [selectedRole, roles, roleId])
   const roleDirty = Boolean(roleDraft && roleBase && (roleDraft.name !== roleBase.name || roleDraft.color !== roleBase.color))
 
   const runRoleWrite = async (operation, work) => {
@@ -356,13 +377,21 @@ export default function ServerSettings({ server, members = [], roles = [], membe
 
   const createRole = async () => {
     const id = crypto.randomUUID()
+    pendingRoleIdRef.current = id
     if (await runRoleWrite('create-role', () => supabase.from('server_roles').insert({ id, server_id: server.id, name: 'new role', color: DEFAULT_ROLE_COLOR, position: roles.length }))) {
       setRoleId(id)
       setRoleTab('display')
     }
   }
-  const deleteRole = async (role) => {
-    if (await runRoleWrite('delete-role', () => supabase.from('server_roles').delete().eq('id', role.id))) setRoleId(null)
+  // Deleting a role strips it from every holder and every channel override, so ask first.
+  const [roleToDelete, setRoleToDelete] = useState(null)
+  const [deletingRole, setDeletingRole] = useState(false)
+  const confirmDeleteRole = async () => {
+    setDeletingRole(true)
+    const ok = await runRoleWrite('delete-role', () => supabase.from('server_roles').delete().eq('id', roleToDelete.id))
+    setDeletingRole(false)
+    setRoleToDelete(null)
+    if (ok) setRoleId(null)
   }
   const setHolders = (role, before, next) => runRoleWrite('assign-role', async () => {
     const added = [...next].filter(id => !before.has(id))
@@ -436,7 +465,19 @@ export default function ServerSettings({ server, members = [], roles = [], membe
       {section === 'overview' && <Overview server={server} canManage={canManage} draft={overview} setDraft={setOverview} userId={userId} uploading={uploading} setUploading={setUploading} />}
       {section === 'roles' && (
         <Roles roles={roles} memberRoles={memberRoles} members={members} selectedId={roleId} setSelectedId={setRoleId} tab={roleTab} setTab={setRoleTab}
-          draft={roleDraft} setDraft={setRoleDraft} onCreate={createRole} onDelete={deleteRole} onSetHolders={setHolders} />
+          draft={roleDraft} setDraft={setRoleDraft} onCreate={createRole} onDelete={setRoleToDelete} onSetHolders={setHolders} />
+      )}
+      {roleToDelete && (
+        <ConfirmDialog
+          owner="ServerSettings:delete-role"
+          icon={Trash2}
+          title={`Delete ${roleToDelete.name}?`}
+          body="Members lose this role and any channel access it gave them. This cannot be undone."
+          confirmLabel={deletingRole ? 'Deleting…' : 'Delete Role'}
+          busy={deletingRole}
+          onConfirm={confirmDeleteRole}
+          onCancel={() => setRoleToDelete(null)}
+        />
       )}
       {section === 'members' && <Members members={members} roles={roles} memberRoles={memberRoles} canManage={canManage} onSetHolders={setHolders} />}
       {section === 'invites' && <Invites server={server} members={members} onInvite={onInvite} />}

@@ -1671,6 +1671,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     const localAttachmentUrls = []
     try {
       const field = view === 'server' ? 'channel_id' : 'dm_room_id';
+      const origin = view === 'home' && originFilter === 'chimaera' ? 'chimaera' : 'messapp'
       targetId = asMessageId(view === 'server' ? activeChannel?.id : activeDm?.dm_room_id);
       if (!targetId) {
         toast.error('Select a channel or DM before sending attachments.', { id: toastId })
@@ -1699,7 +1700,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           id: localId,
           __local: true,
           __delivery_status: 'sending',
-          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler, expiresAt },
+          __retry_payload: { type: 'attachments', items: attachmentsToSend, caption, captionIsSpoiler, expiresAt, origin },
           profile_id: session.user.id,
           profiles: getLocalProfile(session, myUsername),
           content: caption || '',
@@ -1708,6 +1709,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
           created_at: localCreatedAt,
           updated_at: localCreatedAt,
           is_encrypted: view === 'home',
+          origin,
           [field]: targetId,
           reply_to_message_id: replyToMessageId,
           message_reactions: [],
@@ -1741,6 +1743,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         profile_id: session.user.id,
         content: contentToSave,
         is_encrypted: view === 'home',
+        origin,
         is_spoiler: captionIsSpoiler,
         expires_at: expiresAt,
         [field]: targetId,
@@ -1811,6 +1814,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (messageInputRef.current) messageInputRef.current.value = ''
     
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const origin = view === 'home' && originFilter === 'chimaera' ? 'chimaera' : 'messapp'
     const targetId = asMessageId(view === 'server' ? activeChannel?.id : activeDm?.dm_room_id)
 
     if (!targetId) return toast.error('Select a channel or DM before sending a message.')
@@ -1829,7 +1833,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text: sentText, isSpoiler: sendAsSpoiler, expiresAt },
+        __retry_payload: { type: 'text', text: sentText, isSpoiler: sendAsSpoiler, expiresAt, origin },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
         content: sentText,
@@ -1838,6 +1842,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         created_at: localCreatedAt,
         updated_at: localCreatedAt,
         is_encrypted: view === 'home',
+        origin,
         [field]: targetId,
         reply_to_message_id: replyToMessageId,
         message_reactions: [],
@@ -1856,7 +1861,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const contentToSave = await buildEncryptedPayload(sentText, targetId, sharedKeys, messages);
 
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', origin, is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
         .select(MESSAGE_SELECT)
         .single()
 
@@ -1932,6 +1937,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
     if (!retryPayload) return
 
     const field = view === 'server' ? 'channel_id' : 'dm_room_id'
+    const origin = retryPayload.origin || (view === 'home' && originFilter === 'chimaera' ? 'chimaera' : 'messapp')
     const targetId = asMessageId(view === 'server' ? activeChannel?.id : activeDm?.dm_room_id)
     if (!targetId) return
     const replyToMessageId = asMessageId(message?.reply_to_message_id)
@@ -1960,7 +1966,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         id: localId,
         __local: true,
         __delivery_status: 'sending',
-        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt },
+        __retry_payload: { type: 'text', text, isSpoiler: sendAsSpoiler, expiresAt, origin },
         profile_id: session.user.id,
         profiles: getLocalProfile(session, myUsername),
         content: text,
@@ -1969,6 +1975,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
         created_at: localCreatedAt,
         updated_at: localCreatedAt,
         is_encrypted: view === 'home',
+        origin,
         [field]: targetId,
         reply_to_message_id: replyToMessageId,
         message_reactions: [],
@@ -1986,7 +1993,7 @@ export function useChatManager(session, activeChannel, activeDm, view, dms) {
       const sharedKeys = await getSharedKeysForTarget(targetId, view === 'home', messages)
       const contentToSave = await buildEncryptedPayload(text, targetId, sharedKeys, messages)
       const { data: newMsg, error: insertError } = await supabase.from('messages')
-        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
+        .insert([{ profile_id: session.user.id, content: contentToSave, is_encrypted: view === 'home', origin, is_spoiler: sendAsSpoiler, expires_at: expiresAt, [field]: targetId, reply_to_message_id: replyToMessageId }])
         .select(MESSAGE_SELECT)
         .single()
 

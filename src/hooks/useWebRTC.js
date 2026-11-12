@@ -4,15 +4,15 @@
  * must stop when a call ends or the active DM changes.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { supabase } from '../supabaseClient';
 import toast from 'react-hot-toast';
 import { audioSys } from '../lib/SoundEngine';
 import { debug } from '../lib/debug';
 import { applyVoiceAudioProcessing, getVoiceMediaStream, tuneOpusSdp } from '../lib/voiceAudioProcessing';
-import { acquireAlternateCamera, CallAudio } from '../lib/mediaDevices';
+import { acquireAlternateCamera, CallAudio, isNativeCallAudioAvailable } from '../lib/mediaDevices';
 import { getIceServers, hasTurnRelay } from '../lib/iceServers';
 import { isPolite, shouldIgnoreOffer } from '../lib/negotiation';
+import { applyScreenSenderLimits, getScreenCaptureErrorMessage, getScreenCaptureStream } from '../lib/screenCapture';
 
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
 // A peer connection reports `disconnected` for ordinary network blips and
@@ -21,11 +21,6 @@ const ICE_RECOVERY_DELAY_MS = 5000;
 // Bounds the buffer a peer that never answers can grow.
 const MAX_PENDING_ICE_CANDIDATES = 100;
 const NO_TURN_HINT = 'No TURN relay is configured, so calls only connect when both devices can reach each other directly.';
-
-const isNativeAndroidCallAudioAvailable = () =>
-  Capacitor.isNativePlatform() &&
-  Capacitor.getPlatform() === 'android' &&
-  Capacitor.isPluginAvailable('CallAudio');
 
 const logCallAudioDebug = (message, payload = {}) => {
   if (localStorage.getItem('messappDebugCallAudio') === 'true') {
@@ -121,7 +116,7 @@ export function useWebRTC(session, activeDm) {
   const myUsername = session?.user?.user_metadata?.username || session?.user?.email?.split('@')[0];
 
   const startNativeCallAudio = async () => {
-    if (!isNativeAndroidCallAudioAvailable()) return false;
+    if (!isNativeCallAudioAvailable()) return false;
     try {
       logCallAudioDebug('startCall requested', { speakerEnabled });
       const result = await CallAudio.startCall();
@@ -136,7 +131,7 @@ export function useWebRTC(session, activeDm) {
   };
 
   const setNativeCallAudio = async (enabled) => {
-    if (!isNativeAndroidCallAudioAvailable()) return false;
+    if (!isNativeCallAudioAvailable()) return false;
     logCallAudioDebug('setSpeakerEnabled requested', { enabled });
     const result = await CallAudio.setSpeakerEnabled({ enabled });
     logCallAudioDebug('setSpeakerEnabled response', result || {});
@@ -146,7 +141,7 @@ export function useWebRTC(session, activeDm) {
   };
 
   const restoreNativeCallAudio = () => {
-    if (!isNativeAndroidCallAudioAvailable() || !nativeAudioActiveRef.current) return;
+    if (!isNativeCallAudioAvailable() || !nativeAudioActiveRef.current) return;
     nativeAudioActiveRef.current = false;
     logCallAudioDebug('endCall requested');
     CallAudio.endCall()
@@ -1154,27 +1149,30 @@ export function useWebRTC(session, activeDm) {
 
   const startScreenShare = async () => {
     if (screenShareActive || !pcRef.current) return;
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      toast.error('Screen sharing is not supported on this device.');
-      return;
-    }
     const lifecycleId = callLifecycleIdRef.current;
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      // Android WebViews lack getDisplayMedia; there this returns the native capture's stream.
+      const screenStream = await getScreenCaptureStream(navigator.mediaDevices, { audio: true, viewers: 1 });
       if (!isCurrentCallLifecycle(lifecycleId) || !pcRef.current) {
         screenStream.getTracks().forEach(track => track.stop());
+        void screenStream._messappStopNativeCapture?.();
         return;
       }
       const screenTrack = screenStream.getVideoTracks()[0];
       screenStreamRef.current = screenStream;
       screenTrack.onended = () => { void stopScreenShare(); };
 
-      pcRef.current.addTrack(screenTrack, screenStream);
+      // The shared sound joins the call's remote audio on the other side.
+      screenStream.getTracks().forEach(track => {
+        const sender = pcRef.current.addTrack(track, screenStream);
+        if (track === screenTrack) void applyScreenSenderLimits(sender);
+      });
       const sent = await negotiateLocal('screen-share-offer', { trackId: screenTrack.id });
       if (!isCurrentCallLifecycle(lifecycleId)) return;
       if (!sent) {
         screenStreamRef.current = null;
         screenStream.getTracks().forEach(track => { track.onended = null; track.stop(); });
+        void screenStream._messappStopNativeCapture?.();
         toast.error('Could not start screen sharing.');
         return;
       }
@@ -1183,7 +1181,7 @@ export function useWebRTC(session, activeDm) {
     } catch (err) {
       if (err?.name !== 'NotAllowedError') {
         debug.error('WEBRTC_ERROR', { operation: 'start-screen-share', error: serializeCallError(err) });
-        toast.error('Could not start screen sharing.');
+        toast.error(getScreenCaptureErrorMessage(err));
       }
     }
   };
@@ -1191,20 +1189,21 @@ export function useWebRTC(session, activeDm) {
   const stopScreenShare = async () => {
     const screenStream = screenStreamRef.current;
     if (!screenStream) return;
-    const screenTrackId = screenStream.getVideoTracks()[0]?.id;
-    const sender = pcRef.current?.getSenders().find(s => s.track?.id === screenTrackId);
+    const screenTrackIds = new Set(screenStream.getTracks().map(track => track.id));
+    const senders = pcRef.current?.getSenders().filter(s => s.track && screenTrackIds.has(s.track.id)) || [];
 
     screenStreamRef.current = null;
     screenStream.getTracks().forEach(track => {
       track.onended = null;
       try { track.stop(); } catch (_err) {}
     });
+    void screenStream._messappStopNativeCapture?.();
     detachMediaElement(localScreenVideoRef);
     setScreenShareActive(false);
     void sendSignal(activeCallTargetRef.current, 'screen-share-ended', {});
 
-    if (sender && pcRef.current) {
-      pcRef.current.removeTrack(sender);
+    if (senders.length && pcRef.current) {
+      senders.forEach(sender => pcRef.current.removeTrack(sender));
       await negotiateLocal('screen-share-offer', { trackId: null });
     }
   };
@@ -1230,7 +1229,7 @@ export function useWebRTC(session, activeDm) {
 
   const toggleSpeaker = async () => {
     const nextState = !speakerEnabled;
-    if (isNativeAndroidCallAudioAvailable()) {
+    if (isNativeCallAudioAvailable()) {
       try {
         await setNativeCallAudio(nextState);
         toast(nextState ? 'Speaker output selected' : 'Phone audio selected');

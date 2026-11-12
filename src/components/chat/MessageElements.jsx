@@ -531,7 +531,7 @@ const InviteCard = ({ code }) => {
           type="button"
           disabled={!usable}
           onClick={() => window.dispatchEvent(new CustomEvent(OPEN_INVITE_EVENT, { detail: { code } }))}
-          className="h-9 shrink-0 rounded-md bg-green-600 px-4 type-label font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-40"
+          className="h-9 shrink-0 rounded-md bg-[var(--app-accent)] px-4 type-label font-semibold text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {preview?.is_member ? 'Open' : 'Join'}
         </button>

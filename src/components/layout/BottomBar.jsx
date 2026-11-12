@@ -10,6 +10,8 @@
  * The dock slides away while the list scrolls down. See design.md §5.
  * Friends has no tab: Add friend is a dialog from the (+) quick actions.
  * Menu shows the user's avatar instead of an icon: it is the account entry point.
+ * From md up the rail drops it while the list is open (`railMenu` false): the
+ * floating UserPanel takes over.
  */
 import { Bell, LayoutGrid, MessageSquare } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
@@ -21,7 +23,7 @@ export const TABS = [
   { id: 'chats', Icon: MessageSquare, label: 'Chats' }
 ]
 
-export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, avatarUrl, username }) {
+export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, hidden = false, avatarUrl, username, railMenu = false }) {
   return (
     <div
       data-hidden={hidden || undefined}
@@ -43,7 +45,7 @@ export default function BottomBar({ homeTab, setHomeTab, notificationCount = 0, 
                 data-active={isActive}
                 data-alert={alerted || undefined}
                 aria-current={isActive ? 'page' : undefined}
-                className={`m3-nav-item ${id === 'menu' ? 'md:order-last md:mt-auto' : ''}`}
+                className={`m3-nav-item ${id === 'menu' ? (railMenu ? 'md:order-last md:mt-auto' : 'md:hidden') : ''}`}
                 aria-label={alerted ? `${label} (unread)` : label}
               >
                 <span className="m3-nav-indicator">

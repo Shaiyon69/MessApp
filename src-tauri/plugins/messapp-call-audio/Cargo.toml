@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-messapp-call-audio"
+description = "Call audio for Messapp's Tauri Android app (communication mode, speaker or earpiece, mic and camera permission)"
+version = "0.1.0"
+edition = "2021"
+publish = false
+links = "tauri-plugin-messapp-call-audio"
+
+[dependencies]
+tauri = "2.12"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

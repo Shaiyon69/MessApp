@@ -1,7 +1,7 @@
 // Desktop conversation list column width in rem, nav rail included.
 // Rail plus a Discord-width channel list; the content takes the rest.
-export const LIST_WIDTH_DEFAULT = 21
-const MIN = 18
+export const LIST_WIDTH_DEFAULT = 24
+const MIN = 20
 const MAX = 32
 
 export const clampListWidth = (rem) => {

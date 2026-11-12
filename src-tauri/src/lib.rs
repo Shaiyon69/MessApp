@@ -3,6 +3,12 @@
 
 mod data_location;
 
+/// Relaunch after an update: on Linux the updater only swaps the AppImage file.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+  app.restart()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let builder = tauri::Builder::default();
@@ -19,10 +25,15 @@ pub fn run() {
   }));
   #[cfg(target_os = "android")]
   let builder = builder.plugin(tauri_plugin_messapp_push::init());
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_messapp_call_audio::init());
+  #[cfg(target_os = "android")]
+  let builder = builder.plugin(tauri_plugin_messapp_screen_capture::init());
   builder
     .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_shaiyon::init())
     .plugin(tauri_plugin_notification::init())
+    .invoke_handler(tauri::generate_handler![restart_app])
     .setup(|app| {
       // The main window is created here (tauri.conf.json sets create: false) so its
       // webview storage can follow the data folder picked in Messapp Setup.
