@@ -1,9 +1,32 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import { invoke } from '@tauri-apps/api/core'
+import { isTauriMobile } from './platform.js'
 
-// Registered once here and shared with useWebRTC.js. registerPlugin warns and
+/** Tauri Android: the Capacitor CallAudio methods, through the messapp-call-audio plugin. */
+export const createTauriCallAudio = (tauriInvoke = invoke) => {
+  // Tauri rejects with a bare string; name the step so the failure is readable.
+  const command = name => args => tauriInvoke(`plugin:messapp-call-audio|${name}`, args).catch(error => {
+    throw new Error(`${name}: ${error?.message || String(error)}`)
+  })
+  return {
+    startCall: command('start_call'),
+    setSpeakerEnabled: command('set_speaker_enabled'),
+    getSpeakerState: command('get_speaker_state'),
+    endCall: command('end_call'),
+    checkMediaPermissions: command('check_media_permissions'),
+    requestMicrophonePermission: command('request_microphone_permission')
+  }
+}
+
+export const isNativeCallAudioAvailable = (capacitor = Capacitor, tauriMobile = isTauriMobile()) =>
+  Boolean(tauriMobile || (capacitor?.isNativePlatform?.()
+    && capacitor?.getPlatform?.() === 'android'
+    && capacitor?.isPluginAvailable?.('CallAudio')))
+
+// Created once here and shared with useWebRTC.js. registerPlugin warns and
 // returns the existing proxy when a name is registered twice, so a second
 // module-scope registration still works but logs a misleading console error.
-export const CallAudio = registerPlugin('CallAudio')
+export const CallAudio = isTauriMobile() ? createTauriCallAudio() : registerPlugin('CallAudio')
 const GRANTED_PERMISSION_STATES = new Set(['granted', 'limited'])
 
 const createPermissionError = (message) => {
@@ -16,14 +39,11 @@ const normalizePermissionState = value => String(value || 'prompt').toLowerCase(
 
 export async function ensureMicrophonePermission({
   capacitor = Capacitor,
+  tauriMobile = isTauriMobile(),
   nativePermissionClient = CallAudio,
   permissions = globalThis.navigator?.permissions
 } = {}) {
-  const isNativeAndroid = capacitor?.isNativePlatform?.()
-    && capacitor?.getPlatform?.() === 'android'
-    && capacitor?.isPluginAvailable?.('CallAudio')
-
-  if (isNativeAndroid) {
+  if (isNativeCallAudioAvailable(capacitor, tauriMobile)) {
     const current = await nativePermissionClient.checkMediaPermissions()
     let state = normalizePermissionState(current?.microphone)
     if (!GRANTED_PERMISSION_STATES.has(state)) {

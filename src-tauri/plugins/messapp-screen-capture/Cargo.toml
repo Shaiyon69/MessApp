@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-messapp-screen-capture"
+description = "Screen sharing for Messapp's Tauri Android app (MediaProjection frames to the web layer)"
+version = "0.1.0"
+edition = "2021"
+publish = false
+links = "tauri-plugin-messapp-screen-capture"
+
+[dependencies]
+tauri = "2.12"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

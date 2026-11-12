@@ -1,0 +1,3 @@
+[default]
+description = "Route call audio (speaker or earpiece) and read or request the mic and camera permission."
+permissions = ["allow-start-call", "allow-set-speaker-enabled", "allow-get-speaker-state", "allow-end-call", "allow-check-media-permissions", "allow-request-microphone-permission"]

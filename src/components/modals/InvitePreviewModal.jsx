@@ -86,7 +86,7 @@ export default function InvitePreviewModal({ code, voiceChannelName = null, voic
               type="button"
               onClick={join}
               disabled={!usable || joining || Boolean(error)}
-              className="mt-5 h-11 w-full rounded-lg bg-green-600 type-body font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-5 h-11 w-full rounded-lg bg-[var(--app-accent)] type-body font-semibold text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {joining ? 'Joining…' : preview?.is_member ? (voiceChannelId ? 'Join voice' : 'Open server') : (voiceChannelId ? 'Join server and voice' : 'Join server')}
             </button>

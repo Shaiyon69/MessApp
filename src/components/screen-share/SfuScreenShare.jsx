@@ -107,6 +107,18 @@ function normalizeRemoteParticipant(participant, fallbackId) {
   }
 }
 
+const PRESENCE_MIN_INTERVAL_MS = 2000
+
+const voicePresencePayload = (participant, joinedAt) => ({
+  profile_id: participant.id,
+  displayName: participant.displayName,
+  avatarUrl: participant.avatarUrl,
+  muted: participant.muted,
+  deafened: participant.deafened,
+  speaking: participant.speaking,
+  joined_at: joinedAt
+})
+
 function normalizeStreamType(participant, fallback = 'screen') {
   const rawType = typeof participant === 'object'
     ? participant?.streamType || participant?.type || participant?.kind || participant?.source
@@ -664,6 +676,8 @@ export default function SfuScreenShare({
   const noiseReductionRef = useRef(true)
   const voiceSpeakingRef = useRef(false)
   const voicePresenceChannelRef = useRef(null)
+  const joinedAtRef = useRef(null)
+  const lastPresenceTrackRef = useRef(0)
   const localParticipantRef = useRef(null)
   const lastReportedStateRef = useRef('')
   const cameraFacingModeRef = useRef('user')
@@ -690,6 +704,8 @@ export default function SfuScreenShare({
     if (!roomId || !localParticipant.id) return undefined
     const channel = supabase.channel(`voice-presence:${roomId}`, { config: { private: true, presence: { key: localParticipant.id } } })
     voicePresenceChannelRef.current = channel
+    const joinedAt = new Date().toISOString()
+    joinedAtRef.current = joinedAt
     const syncParticipants = () => {
       const entries = Object.values(channel.presenceState()).flatMap(value => value)
       const byId = new Map()
@@ -702,17 +718,8 @@ export default function SfuScreenShare({
     channel.on('presence', { event: 'sync' }, syncParticipants)
     channel.subscribe(statusValue => {
       if (statusValue !== 'SUBSCRIBED') return
-      const participant = localParticipantRef.current
-      channel.track({
-        profile_id: participant.id,
-        displayName: participant.displayName,
-        avatarUrl: participant.avatarUrl,
-        muted: participant.muted,
-        deafened: participant.deafened,
-        speaking: participant.speaking,
-        voiceLevel: participant.voiceLevel,
-        joined_at: new Date().toISOString()
-      }).catch(() => {})
+      lastPresenceTrackRef.current = Date.now()
+      channel.track(voicePresencePayload(localParticipantRef.current, joinedAt)).catch(() => {})
     })
     return () => {
       voicePresenceChannelRef.current = null
@@ -722,20 +729,22 @@ export default function SfuScreenShare({
     }
   }, [localParticipant.avatarUrl, localParticipant.displayName, localParticipant.id, roomId])
 
+  // Realtime rate-limits presence per client (ClientPresenceRateLimitReached) and
+  // drops the client's presence when it trips, which left every member seeing only
+  // themselves. So the per-frame meter level never goes out, and seat changes
+  // (mute, deafen, speaking) are sent at most once per PRESENCE_MIN_INTERVAL_MS.
+  const presenceSignature = `${localParticipant.id}|${localParticipant.displayName}|${localParticipant.avatarUrl}|${localParticipant.muted}|${localParticipant.deafened}|${localParticipant.speaking}`
   useEffect(() => {
     const channel = voicePresenceChannelRef.current
-    if (!channel) return
-    channel.track({
-      profile_id: localParticipant.id,
-      displayName: localParticipant.displayName,
-      avatarUrl: localParticipant.avatarUrl,
-      muted: localParticipant.muted,
-      deafened: localParticipant.deafened,
-      speaking: localParticipant.speaking,
-      voiceLevel: localParticipant.voiceLevel,
-      joined_at: new Date().toISOString()
-    }).catch(() => {})
-  }, [localParticipant])
+    if (!channel) return undefined
+    const wait = Math.max(0, lastPresenceTrackRef.current + PRESENCE_MIN_INTERVAL_MS - Date.now())
+    const timer = setTimeout(() => {
+      if (voicePresenceChannelRef.current !== channel) return
+      lastPresenceTrackRef.current = Date.now()
+      channel.track(voicePresencePayload(localParticipantRef.current, joinedAtRef.current)).catch(() => {})
+    }, wait)
+    return () => clearTimeout(timer)
+  }, [presenceSignature])
 
   useEffect(() => {
     if (!roomId || !createClient) return undefined
@@ -1123,7 +1132,8 @@ export default function SfuScreenShare({
     if (localScreenRef.current) await stopShare(localScreenRef.current)
     let stream = null
     try {
-      stream = await getScreenCaptureStream(navigator.mediaDevices)
+      // Each viewer is a separate upload in the mesh; Android picks 1080p60 or 720p30 from this.
+      stream = await getScreenCaptureStream(navigator.mediaDevices, { viewers: Math.max(1, participants.length - 1) })
       localScreenRef.current = stream
       setLocalScreenStream(stream)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stopShare(stream), { once: true })

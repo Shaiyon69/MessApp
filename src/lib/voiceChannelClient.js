@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient.js'
 import { debug } from './debug.js'
 import { isPolite, shouldIgnoreOffer } from './negotiation.js'
 import { tuneOpusSdp } from './voiceAudioProcessing.js'
+import { applyScreenSenderLimits } from './screenCapture.js'
 
 const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
 
@@ -228,8 +229,11 @@ export function createVoiceChannelClient({
 
     // Handlers first: addTrack queues `negotiationneeded`, which must find its
     // listener already installed.
-    publications.forEach(({ stream }) => {
-      stream.getTracks().forEach(track => pc.addTrack(track, stream))
+    publications.forEach(({ stream, type }) => {
+      stream.getTracks().forEach(track => {
+        const sender = pc.addTrack(track, stream)
+        if (type === 'screen') void applyScreenSenderLimits(sender)
+      })
     })
     return state
   }
@@ -427,7 +431,9 @@ export function createVoiceChannelClient({
       for (const state of peers.values()) {
         const senderTracks = new Set(state.pc.getSenders().map(sender => sender.track).filter(Boolean))
         stream.getTracks().forEach(track => {
-          if (!senderTracks.has(track)) state.pc.addTrack(track, stream)
+          if (senderTracks.has(track)) return
+          const sender = state.pc.addTrack(track, stream)
+          if (publications.get(stream.id)?.type === 'screen') void applyScreenSenderLimits(sender)
         })
       }
     },

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "messapp",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "identifier": "com.shaiyon.messapp",
   "build": {
     "frontendDist": "../dist",
@@ -53,7 +53,7 @@
     "createUpdaterArtifacts": true,
     "android": {
       "minSdkVersion": 24,
-      "versionCode": 1060002
+      "versionCode": 1070000
     },
     "windows": {
       "nsis": {

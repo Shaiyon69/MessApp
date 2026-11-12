@@ -1256,6 +1256,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
   const [invitePreview, setInvitePreview] = useState(() => (initialInviteCode ? { code: initialInviteCode } : null))
   const [inviteTarget, setInviteTarget] = useState(null)
   const [pendingVoiceJoinId, setPendingVoiceJoinId] = useState(null)
+  const [pendingFirstChannelServerId, setPendingFirstChannelServerId] = useState(null)
   const announceInviteRef = useRef(null)
   // allFriends is derived further down; the live invite toast reads it through this.
   const allFriendsRef = useRef([])
@@ -1327,13 +1328,15 @@ export default function Dashboard({ session, initialInviteCode = null }) {
      channel list has loaded. */
   const handleInviteJoined = async (server, voiceChannelId) => {
     setInvitePreview(null)
-    await fetchServers()
+    // Open the server at once; the server list refresh runs beside the channel load.
     setHomeTab('servers')
     setView('home')
     setActiveDm(null)
     setActiveChannel(null)
     setActiveServer(server)
     if (voiceChannelId) setPendingVoiceJoinId(voiceChannelId)
+    else setPendingFirstChannelServerId(server.id)
+    void fetchServers()
   }
   useEffect(() => {
     if (!pendingVoiceJoinId) return
@@ -1342,6 +1345,17 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     setPendingVoiceJoinId(null)
     selectChannel(channel)
   }, [pendingVoiceJoinId, serverCategories, selectChannel])
+  // After joining or creating a server, land in its first text channel (usually #general).
+  useEffect(() => {
+    if (!pendingFirstChannelServerId || activeServer?.id !== pendingFirstChannelServerId || serverChannelsLoading) return
+    // The list still holds the previous server's channels for a render after the switch.
+    const loaded = serverCategories.filter(category => category.server_id === pendingFirstChannelServerId)
+    const channels = loaded.flatMap(category => category.channels || [])
+    if (!channels.length) return
+    setPendingFirstChannelServerId(null)
+    const first = channels.find(item => item.type !== 'voice')
+    if (first) selectChannel(first)
+  }, [pendingFirstChannelServerId, activeServer?.id, serverChannelsLoading, serverCategories, selectChannel])
 
   // Invite cards in chat ask for the preview through a window event.
   useEffect(() => {
@@ -1370,7 +1384,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
     toast(t => (
       <span className="flex items-center gap-3">
         <span className="min-w-0 flex-1">{text}</span>
-        <button type="button" onClick={() => { toast.dismiss(t.id); open() }} className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 type-label font-semibold text-white">View</button>
+        <button type="button" onClick={() => { toast.dismiss(t.id); open() }} className="shrink-0 rounded-md bg-[var(--app-accent)] px-3 py-1.5 type-label font-semibold text-[var(--accent-contrast)]">View</button>
       </span>
     ), { duration: 10000 })
     void notifyDesktop({ title: 'Messapp', body: text, isOwnMessage: false, isOpenRoom: false })
@@ -1395,7 +1409,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       }
       setActiveDm(updatedDm)
       setDms(current => current.map(dm => dm.dm_room_id === activeDm.dm_room_id ? updatedDm : dm))
-      const themeUpdate = conversationThemeSchemaAvailableRef.current === true
+      const themeUpdate = conversationThemeSchemaAvailableRef.current !== false
         ? { theme_id: themeId, theme_color: accent }
         : { theme_color: accent }
       let { error } = await supabase
@@ -1638,18 +1652,17 @@ export default function Dashboard({ session, initialInviteCode = null }) {
       return
     }
 
+    // Show the cache at once, then refetch: nothing broadcasts joins, so a cache-only
+    // hit hid members who joined since (empty private-channel picker).
     const cachedMembers = serverMembersCacheRef.current.get(activeServer.id)
-    if (cachedMembers) {
-      setServerMembers(cachedMembers)
-      return
-    }
+    if (cachedMembers) setServerMembers(cachedMembers)
 
     let active = true
     selectServerMembers(activeServer.id)
       .then(({ data, error }) => {
         if (error) {
           console.warn('[SERVER_MEMBERS]', { operation: 'load', code: error.code, message: error.message })
-          if (active) setServerMembers([])
+          if (active) setServerMembers(cachedMembers || [])
           return
         }
         const members = data || []
@@ -1682,32 +1695,21 @@ export default function Dashboard({ session, initialInviteCode = null }) {
 
     setServerChannelsLoading(true)
     try {
-      const { data: categories, error: categoriesError } = await supabase
-        .from('categories')
-        .select('id, name, position')
-        .eq('server_id', serverId)
-        .order('position', { ascending: true, nullsFirst: false })
-
-      if (categoriesError) throw categoriesError
-
-      const categoryIds = (categories || []).map(category => category.id)
-      const { data: channels, error: channelsError } = categoryIds.length
-        ? await supabase
-          .from('channels')
-          .select('*')
-          .in('category_id', categoryIds)
-          .order('position', { ascending: true, nullsFirst: false })
-        : { data: [], error: null }
-
-      if (channelsError) throw channelsError
-
-      /* Missing tables (migration not deployed yet) fall back to the old
+      /* One parallel round trip: channels filter on their category's server
+         through the join, so they no longer wait for the category ids. Missing
+         permission tables (migration not deployed yet) fall back to the old
          is_private column instead of failing the whole list. */
-      const [rolesResult, memberRolesResult, overwritesResult] = await Promise.all([
+      const [categoriesResult, channelsResult, rolesResult, memberRolesResult, overwritesResult] = await Promise.all([
+        supabase.from('categories').select('id, name, position, server_id').eq('server_id', serverId).order('position', { ascending: true, nullsFirst: false }),
+        supabase.from('channels').select('*, categories!inner(server_id)').eq('categories.server_id', serverId).order('position', { ascending: true, nullsFirst: false }),
         supabase.from('server_roles').select('*').eq('server_id', serverId).order('position', { ascending: true }),
         supabase.from('server_member_roles').select('role_id, profile_id').eq('server_id', serverId),
         supabase.from('permission_overwrites').select('*').eq('server_id', serverId)
       ])
+      if (categoriesResult.error) throw categoriesResult.error
+      if (channelsResult.error) throw channelsResult.error
+      const categories = categoriesResult.data
+      const channels = (channelsResult.data || []).map(({ categories: _joined, ...channel }) => channel)
       const overwrites = overwritesResult.error ? null : overwritesResult.data || []
       serverPermissionsAvailable.current = Boolean(overwrites)
 
@@ -1961,7 +1963,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         : 'dm_room_id, dm_rooms (theme_color, wallpaper), profiles!inner(id, username, avatar_url, unique_tag, banner_url, bio, pronouns, public_key)')
       .in('dm_room_id', roomIds)
       .neq('profile_id', session.user.id)
-    const requestedThemeId = conversationThemeSchemaAvailableRef.current === true
+    const requestedThemeId = conversationThemeSchemaAvailableRef.current !== false
     let otherMembersRes = await selectDmMembers(requestedThemeId)
     if (requestedThemeId && isConversationThemeSchemaError(otherMembersRes.error)) {
       conversationThemeSchemaAvailableRef.current = false
@@ -2479,6 +2481,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         myPronouns={myPronouns}
         myBanner={myBanner}
         userStatus={userStatus}
+        statusText={statusText}
         setUserStatus={setUserStatus}
         statusNote={statusNote}
         setStatusNote={saveStatusNote}
@@ -2560,6 +2563,8 @@ export default function Dashboard({ session, initialInviteCode = null }) {
         getPresenceLabel={getPresenceLabel}
         getPlaying={getPlaying}
         serverMembers={serverMembers}
+        refreshServerMembers={refreshActiveServerMembers}
+        openFirstChannelOf={setPendingFirstChannelServerId}
         myUsername={myUsername}
         myAvatar={myAvatar}
         {...chatManagerProps}
@@ -2577,6 +2582,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
           activeServerRole={activeServerRole}
           serverMembers={serverMembers}
           onServerMembersChanged={refreshActiveServerMembers}
+          serverPermissions={serverPermissions}
           toggleRightSidebar={toggleRightSidebar}
           userPresence={userPresence}
           getPresenceStatus={getPresenceStatus}
@@ -2687,7 +2693,14 @@ export default function Dashboard({ session, initialInviteCode = null }) {
           <div role="dialog" aria-modal="true" aria-label="Quick switcher" className="premium-modal menu-glass w-full max-w-md sm:max-w-xl md:max-w-2xl rounded-2xl flex flex-col overflow-hidden animate-quick-switch" onClick={e => e.stopPropagation()}>
             <div className="relative z-10 px-4 sm:px-6 py-4 sm:py-5 flex items-center gap-3 sm:gap-4 bg-[var(--surface-strong)] border-b border-[var(--border-subtle)]">
               <Search size={22} className="text-indigo-400 shrink-0" />
-              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500" />
+              <input type="text" autoFocus placeholder="Where would you like to go?" value={quickSwitcherQuery} onChange={(e) => setQuickSwitcherQuery(e.target.value)} onKeyDown={(e) => {
+                // Enter opens the highlighted first row, as the "START ↵" hint promises.
+                if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+                e.preventDefault()
+                const first = quickSwitcherResults[0]
+                if (first) { if (startingDmProfileId !== first.profiles.id) createOrOpenDm(first) }
+                else if (quickSwitcherPlaces[0]) openQuickSwitcherPlace(quickSwitcherPlaces[0])
+              }} className="w-full min-w-0 bg-transparent text-[var(--text-main)] outline-none type-view-title font-display placeholder-gray-500" />
               <div className="hidden sm:block type-meta font-bold text-gray-500 bg-white/5 px-2 py-1 rounded-md border border-white/10 shrink-0 select-none">ESC</div>
             </div>
             
@@ -2902,7 +2915,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
               value={setupPinInput}
               onChange={(e) => setSetupPinInput(e.target.value)}
               placeholder="••••••"
-              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
+              className="premium-input relative z-10 w-60 max-w-full rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
             />
             
             <button
@@ -2955,7 +2968,7 @@ export default function Dashboard({ session, initialInviteCode = null }) {
               value={recoveryCodeInput}
               onChange={(e) => setRecoveryCodeInput(e.target.value)}
               placeholder="••••••"
-              className="premium-input relative z-10 w-48 rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
+              className="premium-input relative z-10 w-60 max-w-full rounded-xl p-4 text-white text-center tracking-[0.5em] font-mono type-view-title mb-6 outline-none transition-all mx-auto block"
             />
             
             <div className="relative z-10 flex flex-col gap-3">

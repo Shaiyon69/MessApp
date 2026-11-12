@@ -105,18 +105,21 @@ function FeedRow({ item, onOpen, onDismiss }) {
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
         style={{ transform: offset ? `translateX(${offset}px)` : undefined, opacity: offset ? Math.max(0.3, 1 + offset / 200) : undefined }}
-        className="dashboard-list-row flex w-full min-w-0 items-center gap-4 rounded-2xl p-3 pr-12 text-left transition-all"
+        className="dashboard-list-row relative flex w-full min-w-0 items-center gap-3 rounded-2xl p-3 pr-8 text-left transition-all"
       >
         <StatusAvatar url={item.profile?.avatar_url} username={item.profile?.username} showStatus={false} className="h-10 w-10" />
         <div className="min-w-0 flex-1">
-          <div className={`flex items-center gap-1.5 type-snippet ${item.unread ? 'font-semibold text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>
-            <Icon size={12} className={`shrink-0 ${kind.tone || ''}`} aria-hidden="true" />
-            <span className="truncate">{kind.text(name, row.data || {})}{where}</span>
-            {item.timestamp && <span className="shrink-0 font-normal text-[var(--text-muted)]" aria-hidden="true">· {relativeTime(item.timestamp)}</span>}
+          {/* Two lines for the summary: one truncated line left "qa_o…" in the list column. */}
+          <div className={`flex items-start gap-1.5 type-snippet ${item.unread ? 'font-semibold text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}>
+            <Icon size={12} className={`mt-1 shrink-0 ${kind.tone || ''}`} aria-hidden="true" />
+            <span className="min-w-0 line-clamp-2 break-words">
+              {kind.text(name, row.data || {})}{where}
+              {item.timestamp && <span className="whitespace-nowrap font-normal text-[var(--text-muted)]" aria-hidden="true"> · {relativeTime(item.timestamp)}</span>}
+            </span>
           </div>
           {detail && <p className="truncate type-body text-[var(--text-main)]">{detail}</p>}
         </div>
-        {item.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]" aria-label="Unread" />}
+        {item.unread && <span className="absolute right-3 top-3 h-2 w-2 rounded-full bg-[var(--app-accent)]" aria-label="Unread" />}
       </button>
       <button
         type="button"
@@ -140,10 +143,11 @@ function RequestRow({ item, onAccept, onDecline }) {
             <span className="truncate">{item.profile?.username}</span>
             <span className="hidden type-label font-normal text-gray-500 group-hover:inline">{item.profile?.unique_tag}</span>
           </div>
-          <div className="flex items-center gap-1.5 type-snippet text-[var(--text-muted)]">
-            <UserPlus size={12} aria-hidden="true" />
-            <span>Sent you a friend request</span>
-            {item.timestamp && <span aria-hidden="true">· {relativeTime(item.timestamp)}</span>}
+          {/* One line: in the narrow list column the words wrapped one per line. */}
+          <div className="flex min-w-0 items-center gap-1.5 type-snippet text-[var(--text-muted)]">
+            <UserPlus size={12} className="shrink-0" aria-hidden="true" />
+            <span className="truncate" title="Sent you a friend request">Sent you a friend request</span>
+            {item.timestamp && <span className="shrink-0 whitespace-nowrap" aria-hidden="true">· {relativeTime(item.timestamp)}</span>}
           </div>
         </div>
       </div>
@@ -206,8 +210,9 @@ export default function NotificationsPage(props) {
       )}
 
       {items.length > 0 && (
-        <div className="mb-3 flex items-center gap-2">
-          <div role="tablist" aria-label="Filter notifications" className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {/* Wraps in the narrow list column: chips used to scroll under "Mark all read". */}
+          <div role="tablist" aria-label="Filter notifications" className="flex min-w-0 flex-wrap gap-2">
             {chips.map(chip => (
               <button
                 key={chip.id}
@@ -222,7 +227,7 @@ export default function NotificationsPage(props) {
             ))}
           </div>
           {hasUnreadFeed && (
-            <button type="button" onClick={props.markAllNotificationsRead} className="shrink-0 rounded-xl px-2 h-8 type-label font-bold text-[var(--app-accent)] hover:bg-[var(--bg-surface)]">
+            <button type="button" onClick={props.markAllNotificationsRead} className="ml-auto shrink-0 rounded-xl px-2 h-8 type-label font-bold text-[var(--app-accent)] hover:bg-[var(--bg-surface)]">
               Mark all read
             </button>
           )}

@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.6.2"
+version = "1.7.0"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -45,6 +45,10 @@ tauri-plugin-deep-link = "2"
 [target.'cfg(target_os = "android")'.dependencies]
 # Native FCM push; its Kotlin side is plugins/messapp-push/android.
 tauri-plugin-messapp-push = { path = "plugins/messapp-push" }
+# Call audio routing and mic/camera permission; Kotlin side is plugins/messapp-call-audio/android.
+tauri-plugin-messapp-call-audio = { path = "plugins/messapp-call-audio" }
+# Screen sharing (MediaProjection); Kotlin side is plugins/messapp-screen-capture/android.
+tauri-plugin-messapp-screen-capture = { path = "plugins/messapp-screen-capture" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

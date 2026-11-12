@@ -75,6 +75,12 @@ export default function ServersPage(props) {
   const [pinnedServers, togglePinnedServer] = useStoredSet(`messapp:pinnedServers:${props.session?.user?.id}`)
   const [settingsServer, setSettingsServer] = useState(null)
   const [editingChannel, setEditingChannel] = useState(null)
+  // Access pickers list members; refetch on open so people who joined since show up.
+  const accessPickerOpen = Boolean(channelModalCategoryId || isCategoryModalOpen || editingChannel || settingsServer)
+  const { refreshServerMembers } = props
+  useEffect(() => {
+    if (accessPickerOpen) refreshServerMembers?.().catch(() => {})
+  }, [accessPickerOpen, refreshServerMembers])
   const [collapsedCategories, toggleCategory] = useStoredSet(`messapp:collapsedCategories:${props.session?.user?.id}`)
   const [serverItemSheet, setServerItemSheet] = useState(null)
   /* Every destructive row here parks its work in one prompt: `{ title, body,
@@ -270,8 +276,12 @@ export default function ServersPage(props) {
   }
 
   const refreshServers = async (server) => {
+    if (server) {
+      // Open it at once and land in #general once its channels load.
+      props.openFirstChannelOf?.(server.id)
+      openServer(server)
+    }
     await props.fetchServers?.()
-    if (server) openServer(server)
   }
 
   const handleCreateServer = async (e) => {
@@ -605,9 +615,9 @@ export default function ServersPage(props) {
       )}
 
       {isCreateModalOpen && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleCreateServer} className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
-            <h2 className="mb-4 type-title font-bold text-[var(--text-main)]">Create a server</h2>
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4" onMouseDown={event => { if (event.target === event.currentTarget) closeCreateModal() }} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); closeCreateModal() } }}>
+          <form onSubmit={handleCreateServer} role="dialog" aria-modal="true" aria-labelledby="create-server-title" className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
+            <h2 id="create-server-title" className="mb-4 type-title font-bold text-[var(--text-main)]">Create a server</h2>
 
             <div className="flex items-end gap-3">
               <button type="button" onClick={() => serverIconInputRef.current?.click()} disabled={isUploadingServerIcon} className="relative shrink-0 rounded-[.875rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-base)] disabled:opacity-60" aria-label="Choose a server picture" title="Choose a server picture">
@@ -633,7 +643,7 @@ export default function ServersPage(props) {
                       <span className="block type-body font-bold text-[var(--text-main)]">{option.name}</span>
                       <span className="mt-0.5 block type-label leading-snug text-[var(--text-muted)]">{option.description}</span>
                       <span className="mt-1 block type-meta font-bold text-gray-600">
-                        {option.categories.length} {option.categories.length === 1 ? 'category' : 'categories'} · {option.categories.reduce((total, category) => total + category.channels.length, 0)} channels
+                        {option.categories.length} {option.categories.length === 1 ? 'category' : 'categories'} · {(count => `${count} ${count === 1 ? 'channel' : 'channels'}`)(option.categories.reduce((total, category) => total + category.channels.length, 0))}
                       </span>
                     </span>
                   </label>
@@ -652,9 +662,9 @@ export default function ServersPage(props) {
       )}
 
       {isJoinModalOpen && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleJoinServer} className="ios-sheet w-80 max-w-full rounded-3xl p-5">
-            <h2 className="type-title font-bold text-[var(--text-main)]">Join a server</h2>
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4" onMouseDown={event => { if (event.target === event.currentTarget) closeJoinModal() }} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); closeJoinModal() } }}>
+          <form onSubmit={handleJoinServer} role="dialog" aria-modal="true" aria-labelledby="join-server-title" className="ios-sheet w-80 max-w-full rounded-3xl p-5">
+            <h2 id="join-server-title" className="type-title font-bold text-[var(--text-main)]">Join a server</h2>
             <p className="mb-4 mt-1 type-label text-[var(--text-muted)]">Paste the invite link or code someone shared with you.</p>
             <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="ios-sheet-input w-full rounded-xl px-4 h-11 text-[var(--text-main)] outline-none" placeholder="https://…/invite/AB12CD34EF56" aria-label="Invite link or code" autoFocus />
             <div className="mt-5 flex justify-end gap-3">
@@ -666,9 +676,9 @@ export default function ServersPage(props) {
       )}
 
       {channelModalCategoryId && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleCreateChannelSubmit} className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
-            <h2 className="type-title font-bold text-[var(--text-main)]">Create Channel</h2>
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4" onMouseDown={event => { if (event.target === event.currentTarget) closeChannelModal() }} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); closeChannelModal() } }}>
+          <form onSubmit={handleCreateChannelSubmit} role="dialog" aria-modal="true" aria-labelledby="create-channel-title" className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
+            <h2 id="create-channel-title" className="type-title font-bold text-[var(--text-main)]">Create Channel</h2>
             <p className="mb-4 mt-0.5 type-label text-[var(--text-muted)]">in {channelModalCategory?.name || 'this category'}</p>
 
             <fieldset>
@@ -707,9 +717,9 @@ export default function ServersPage(props) {
       )}
 
       {isCategoryModalOpen && (
-        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4">
-          <form onSubmit={handleCreateCategorySubmit} className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
-            <h2 className="type-title font-bold text-[var(--text-main)]">Create Category</h2>
+        <div className="premium-backdrop fixed inset-0 z-50 flex items-end justify-center px-4 pb-[var(--dock-space)] md:items-center md:p-4" onMouseDown={event => { if (event.target === event.currentTarget) closeCategoryModal() }} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); closeCategoryModal() } }}>
+          <form onSubmit={handleCreateCategorySubmit} role="dialog" aria-modal="true" aria-labelledby="create-category-title" className="ios-sheet custom-scrollbar max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl p-5">
+            <h2 id="create-category-title" className="type-title font-bold text-[var(--text-main)]">Create Category</h2>
             <p className="mb-4 mt-0.5 type-label text-[var(--text-muted)]">Group channels together. Channels inside can share its permissions.</p>
             <label className="block">
               <span className="mb-2 block type-meta font-bold uppercase tracking-widest text-[var(--text-muted)]">Category name</span>
