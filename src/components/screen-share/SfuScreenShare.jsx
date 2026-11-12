@@ -1123,7 +1123,8 @@ export default function SfuScreenShare({
     if (localScreenRef.current) await stopShare(localScreenRef.current)
     let stream = null
     try {
-      stream = await getScreenCaptureStream(navigator.mediaDevices)
+      // Each viewer is a separate upload in the mesh; Android picks 1080p60 or 720p30 from this.
+      stream = await getScreenCaptureStream(navigator.mediaDevices, { viewers: Math.max(1, participants.length - 1) })
       localScreenRef.current = stream
       setLocalScreenStream(stream)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stopShare(stream), { once: true })

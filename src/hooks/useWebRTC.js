@@ -12,7 +12,7 @@ import { applyVoiceAudioProcessing, getVoiceMediaStream, tuneOpusSdp } from '../
 import { acquireAlternateCamera, CallAudio, isNativeCallAudioAvailable } from '../lib/mediaDevices';
 import { getIceServers, hasTurnRelay } from '../lib/iceServers';
 import { isPolite, shouldIgnoreOffer } from '../lib/negotiation';
-import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../lib/screenCapture';
+import { applyScreenSenderLimits, getScreenCaptureErrorMessage, getScreenCaptureStream } from '../lib/screenCapture';
 
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
 // A peer connection reports `disconnected` for ordinary network blips and
@@ -1151,8 +1151,8 @@ export function useWebRTC(session, activeDm) {
     if (screenShareActive || !pcRef.current) return;
     const lifecycleId = callLifecycleIdRef.current;
     try {
-      // Android WebViews lack getDisplayMedia; there this returns the native capture's canvas stream.
-      const screenStream = await getScreenCaptureStream(navigator.mediaDevices, { audio: false });
+      // Android WebViews lack getDisplayMedia; there this returns the native capture's stream.
+      const screenStream = await getScreenCaptureStream(navigator.mediaDevices, { audio: true, viewers: 1 });
       if (!isCurrentCallLifecycle(lifecycleId) || !pcRef.current) {
         screenStream.getTracks().forEach(track => track.stop());
         void screenStream._messappStopNativeCapture?.();
@@ -1162,7 +1162,11 @@ export function useWebRTC(session, activeDm) {
       screenStreamRef.current = screenStream;
       screenTrack.onended = () => { void stopScreenShare(); };
 
-      pcRef.current.addTrack(screenTrack, screenStream);
+      // The shared sound joins the call's remote audio on the other side.
+      screenStream.getTracks().forEach(track => {
+        const sender = pcRef.current.addTrack(track, screenStream);
+        if (track === screenTrack) void applyScreenSenderLimits(sender);
+      });
       const sent = await negotiateLocal('screen-share-offer', { trackId: screenTrack.id });
       if (!isCurrentCallLifecycle(lifecycleId)) return;
       if (!sent) {
@@ -1185,8 +1189,8 @@ export function useWebRTC(session, activeDm) {
   const stopScreenShare = async () => {
     const screenStream = screenStreamRef.current;
     if (!screenStream) return;
-    const screenTrackId = screenStream.getVideoTracks()[0]?.id;
-    const sender = pcRef.current?.getSenders().find(s => s.track?.id === screenTrackId);
+    const screenTrackIds = new Set(screenStream.getTracks().map(track => track.id));
+    const senders = pcRef.current?.getSenders().filter(s => s.track && screenTrackIds.has(s.track.id)) || [];
 
     screenStreamRef.current = null;
     screenStream.getTracks().forEach(track => {
@@ -1198,8 +1202,8 @@ export function useWebRTC(session, activeDm) {
     setScreenShareActive(false);
     void sendSignal(activeCallTargetRef.current, 'screen-share-ended', {});
 
-    if (sender && pcRef.current) {
-      pcRef.current.removeTrack(sender);
+    if (senders.length && pcRef.current) {
+      senders.forEach(sender => pcRef.current.removeTrack(sender));
       await negotiateLocal('screen-share-offer', { trackId: null });
     }
   };

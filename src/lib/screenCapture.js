@@ -4,16 +4,19 @@ import { isTauriMobile } from './platform.js'
 
 const VIDEO_ONLY_FALLBACK_ERRORS = new Set(['TypeError', 'OverconstrainedError', 'NotSupportedError'])
 const TAURI_SCREEN_CAPTURE = 'messapp-screen-capture'
+// The Capacitor build (frozen) sends JPEG frames; the Tauri build sends H.264 and PCM below.
+const NativeScreenCapture = registerPlugin('ScreenCapture')
 
-/** Tauri Android: the Capacitor ScreenCapture interface, through the messapp-screen-capture plugin. */
+/** Tauri Android: start, stop, keyframe requests and the stopped event of the messapp-screen-capture plugin. */
 export const createTauriScreenCapture = ({ tauriInvoke = invoke, tauriAddPluginListener = addPluginListener } = {}) => {
   // Kotlin rejects with { message, code }; the code is the DOMException name the error messages expect.
-  const command = name => () => tauriInvoke(`plugin:${TAURI_SCREEN_CAPTURE}|${name}`).catch(error => {
+  const command = name => args => tauriInvoke(`plugin:${TAURI_SCREEN_CAPTURE}|${name}`, args).catch(error => {
     throw new DOMException(error?.message || String(error), error?.code || 'NotSupportedError')
   })
   return {
     start: command('start'),
     stop: command('stop'),
+    requestKeyframe: command('request_keyframe'),
     addListener: async (event, handler) => {
       const listener = await tauriAddPluginListener(TAURI_SCREEN_CAPTURE, event, handler)
       return { remove: () => listener.unregister() }
@@ -21,7 +24,216 @@ export const createTauriScreenCapture = ({ tauriInvoke = invoke, tauriAddPluginL
   }
 }
 
-const NativeScreenCapture = isTauriMobile() ? createTauriScreenCapture() : registerPlugin('ScreenCapture')
+/** Server voice is a mesh, one upload per viewer: 1080p60 only for up to 2 viewers. */
+export const pickScreenQuality = viewers => (viewers <= 2 ? 'high' : 'standard')
+
+// Bitrate caps per quality: WebRTC's default cap blurs 1080p screen content.
+const SCREEN_LIMITS = {
+  high: { maxBitrate: 6_000_000, maxFramerate: 60 },
+  standard: { maxBitrate: 2_500_000, maxFramerate: 30 }
+}
+
+export const screenSenderLimits = track => {
+  const quality = track?._messappScreenQuality
+  if (quality) return SCREEN_LIMITS[quality]
+  const { width = 0, height = 0 } = track?.getSettings?.() || {}
+  return Math.min(width, height) >= 1000 ? SCREEN_LIMITS.high : SCREEN_LIMITS.standard
+}
+
+/** Caps a screen video sender; a refusal (old browser, encodings not ready) keeps WebRTC's defaults. */
+export async function applyScreenSenderLimits(sender) {
+  const track = sender?.track
+  if (track?.kind !== 'video' || !sender.getParameters || !sender.setParameters) return
+  try {
+    const params = sender.getParameters()
+    if (!params.encodings?.length) params.encodings = [{}]
+    Object.assign(params.encodings[0], screenSenderLimits(track))
+    await sender.setParameters(params)
+  } catch (_error) {
+    // Defaults still work, at a lower quality.
+  }
+}
+
+const SCREEN_HEADER_BYTES = 16
+export const SCREEN_MESSAGE = { VIDEO: 1, AUDIO: 2 }
+
+/** The 16-byte header ScreenCaptureService.kt writes (Wire.frame), then the payload. */
+export function parseScreenMessage(buffer) {
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < SCREEN_HEADER_BYTES) return null
+  const view = new DataView(buffer)
+  return {
+    type: view.getUint8(0),
+    flag: view.getUint8(1),
+    a: view.getUint16(2, true),
+    b: view.getUint16(4, true),
+    timestamp: view.getFloat64(8, true),
+    payload: new Uint8Array(buffer, SCREEN_HEADER_BYTES)
+  }
+}
+
+/** avc1.PPCCLL from the SPS in an Annex B keyframe, or null when it has none. */
+export function avcCodecFromAnnexB(bytes) {
+  for (let i = 0; i + 3 < bytes.length; i++) {
+    if (bytes[i] !== 0 || bytes[i + 1] !== 0 || bytes[i + 2] !== 1) continue
+    if ((bytes[i + 3] & 0x1f) === 7 && i + 6 < bytes.length) {
+      return 'avc1.' + [bytes[i + 4], bytes[i + 5], bytes[i + 6]].map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+  }
+  return null
+}
+
+const MAX_DECODE_QUEUE = 8
+const PORT_TIMEOUT_MS = 10_000
+
+/**
+ * Tauri Android: H.264 and PCM arrive as binary messages on a WebMessagePort, are
+ * decoded with WebCodecs and written to track generators. Nothing is rendered, so the
+ * share keeps going while MessApp is in the background (the WebView is paused there).
+ */
+async function createTauriScreenCaptureStream({
+  plugin = createTauriScreenCapture(),
+  quality = 'standard',
+  audio = true,
+  windowRef = globalThis,
+  TrackGenerator = globalThis.MediaStreamTrackGenerator,
+  VideoDecoderClass = globalThis.VideoDecoder,
+  EncodedVideoChunkClass = globalThis.EncodedVideoChunk,
+  AudioDataClass = globalThis.AudioData,
+  MediaStreamClass = globalThis.MediaStream,
+  portTimeoutMs = PORT_TIMEOUT_MS
+} = {}) {
+  if (!TrackGenerator || !VideoDecoderClass || !EncodedVideoChunkClass || !MediaStreamClass) {
+    throw new DOMException('Update Android System WebView to share your screen.', 'NotSupportedError')
+  }
+
+  let stopped = false
+  let stream
+  let port
+  let stoppedListener
+  let decoder = null
+  let decoderSize = ''
+  let waitingForKey = true
+  let audioWriter = null
+  const video = new TrackGenerator({ kind: 'video' })
+  const videoWriter = video.writable.getWriter()
+  Object.defineProperty(video, '_messappScreenQuality', { configurable: true, value: quality })
+
+  const requestKeyframe = () => { void plugin.requestKeyframe?.().catch?.(() => {}) }
+  const createDecoder = () => new VideoDecoderClass({
+    output: frame => {
+      // write() closes the frame; a rejected write only means the track ended.
+      if (stopped) frame.close()
+      else videoWriter.write(frame).catch(() => {})
+    },
+    error: () => {
+      decoder = null
+      waitingForKey = true
+      requestKeyframe()
+    }
+  })
+
+  const onVideo = message => {
+    const key = message.flag === 1
+    const size = `${message.a}x${message.b}`
+    // A rotation restarts the encoder at a new size; its first frame is a keyframe with a new SPS.
+    if (key && (!decoder || size !== decoderSize)) {
+      const codec = avcCodecFromAnnexB(message.payload)
+      if (!codec) return
+      try { decoder?.close() } catch (_error) {}
+      decoder = createDecoder()
+      decoder.configure({ codec, codedWidth: message.a, codedHeight: message.b, optimizeForLatency: true })
+      decoderSize = size
+    }
+    if (!decoder || (waitingForKey && !key)) return
+    if (!key && decoder.decodeQueueSize > MAX_DECODE_QUEUE) {
+      // Falling behind: skip to the next keyframe rather than build up delay.
+      waitingForKey = true
+      requestKeyframe()
+      return
+    }
+    waitingForKey = false
+    decoder.decode(new EncodedVideoChunkClass({ type: key ? 'key' : 'delta', timestamp: message.timestamp, data: message.payload }))
+  }
+
+  const onAudio = message => {
+    const channels = message.flag
+    if (!audioWriter || !channels) return
+    audioWriter.write(new AudioDataClass({
+      format: 's16',
+      sampleRate: message.a,
+      numberOfChannels: channels,
+      numberOfFrames: message.payload.byteLength / (2 * channels),
+      timestamp: message.timestamp,
+      data: message.payload
+    })).catch(() => {})
+  }
+
+  let removePortListener = () => {}
+  const portReady = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DOMException('Screen capture did not connect.', 'NotSupportedError')), portTimeoutMs)
+    const onMessage = event => {
+      if (event.data !== TAURI_SCREEN_CAPTURE || !event.ports?.[0]) return
+      removePortListener()
+      resolve(event.ports[0])
+    }
+    removePortListener = () => {
+      clearTimeout(timer)
+      windowRef.removeEventListener?.('message', onMessage)
+    }
+    windowRef.addEventListener?.('message', onMessage)
+  })
+  portReady.catch(() => {})
+
+  const cleanup = async () => {
+    if (stopped) return
+    stopped = true
+    removePortListener()
+    if (port) port.onmessage = null
+    port?.close?.()
+    try { decoder?.close() } catch (_error) {}
+    await Promise.allSettled([
+      stoppedListener?.remove?.(),
+      videoWriter.close(),
+      audioWriter?.close?.(),
+      plugin.stop?.()
+    ])
+  }
+
+  try {
+    stoppedListener = await plugin.addListener('stopped', () => {
+      // Android ended the projection (notification or system). track.stop() fires no
+      // 'ended', so dispatch it: callers unpublish and reset their UI on that event.
+      stream?.getTracks?.().forEach(track => {
+        track.stop()
+        track.dispatchEvent?.(new Event('ended'))
+      })
+      void cleanup()
+    })
+    const capture = await plugin.start({ quality, audio })
+    port = await portReady
+    const tracks = [video]
+    if (capture?.audio && AudioDataClass) {
+      const audioTrack = new TrackGenerator({ kind: 'audio' })
+      audioWriter = audioTrack.writable.getWriter()
+      tracks.push(audioTrack)
+    }
+    // The size the plugin settled on (1080p60 needs encoder support).
+    Object.defineProperty(video, '_messappScreenQuality', { configurable: true, value: capture?.high ? 'high' : 'standard' })
+    port.onmessage = event => {
+      if (stopped) return
+      const message = parseScreenMessage(event.data)
+      if (message?.type === SCREEN_MESSAGE.VIDEO) onVideo(message)
+      else if (message?.type === SCREEN_MESSAGE.AUDIO) onAudio(message)
+    }
+    stream = new MediaStreamClass(tracks)
+    stream.addEventListener?.('inactive', cleanup, { once: true })
+    Object.defineProperty(stream, '_messappStopNativeCapture', { configurable: true, value: cleanup })
+    return stream
+  } catch (error) {
+    await cleanup()
+    throw error
+  }
+}
 
 async function createNativeScreenCaptureStream({
   plugin = NativeScreenCapture,
@@ -127,12 +339,14 @@ async function createNativeScreenCaptureStream({
   }
 }
 
-/** audio: false skips display audio (1:1 calls send video only). */
-export async function getScreenCaptureStream(mediaDevices, { audio = true, ...nativeOptions } = {}) {
+/**
+ * audio: false skips the shared sound. viewers picks the Android quality (pickScreenQuality).
+ * Tests pass tauriMobile or isNativePlatform with fakes to reach the Android paths.
+ */
+export async function getScreenCaptureStream(mediaDevices, { audio = true, viewers = 1, tauriMobile = isTauriMobile(), ...nativeOptions } = {}) {
   if (!mediaDevices?.getDisplayMedia) {
-    const isNativeAndroid = nativeOptions.isNativePlatform ?? (
-      isTauriMobile() || (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
-    )
+    if (tauriMobile) return createTauriScreenCaptureStream({ quality: pickScreenQuality(viewers), audio, ...nativeOptions })
+    const isNativeAndroid = nativeOptions.isNativePlatform ?? (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
     if (isNativeAndroid) return createNativeScreenCaptureStream(nativeOptions)
     throw new DOMException('Screen capture is unavailable in this browser or app build.', 'NotSupportedError')
   }

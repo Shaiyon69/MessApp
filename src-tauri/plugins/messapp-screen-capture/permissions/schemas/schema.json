@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
+          "description": "Enables the request_keyframe command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-keyframe",
+          "markdownDescription": "Enables the request_keyframe command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_keyframe command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-keyframe",
+          "markdownDescription": "Denies the request_keyframe command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start",
@@ -343,10 +355,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "Start and stop Android screen capture and listen for its frames.\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Start and stop Android screen capture and listen for its frames.\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-request-keyframe`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Start and stop Android screen capture and listen for its frames.\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Start and stop Android screen capture and listen for its frames.\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-request-keyframe`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

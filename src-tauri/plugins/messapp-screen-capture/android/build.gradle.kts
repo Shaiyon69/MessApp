@@ -29,5 +29,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.9.0")
     // ActivityResult for the MediaProjection consent screen; tauri-android does not expose it.
     implementation("androidx.activity:activity-ktx:1.8.2")
+    // Binary WebMessagePort messages carry the encoded frames and audio to the page.
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation(project(":tauri-android"))
 }
