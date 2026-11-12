@@ -18,6 +18,7 @@ import { NOTIFICATION_LEVELS, createServerNotificationPreferencesRepository, not
 import { debug } from '../../lib/debug'
 import { formatMessageTime } from '../../lib/messageTime'
 import { stripEffects } from '../../lib/messageEffects'
+import { groupMembersByRole, topRole } from '../../lib/memberSections'
 
 const serverNotificationPreferences = createServerNotificationPreferencesRepository(supabase, {
   enabled: import.meta.env?.VITE_SERVER_NOTIFICATION_PREFERENCES_ENABLED === 'true'
@@ -104,6 +105,7 @@ export default function RightSidebar({
   activeServerRole,
   currentUserId,
   serverMembers = [],
+  serverPermissions,
   onServerMembersChanged,
   toggleRightSidebar,
   closeRightSidebar,
@@ -422,17 +424,29 @@ export default function RightSidebar({
               </InfoPage>
 
               <InfoPage id="chat-members" icon={Users} label="Members" {...pageProps}>
-                <div className="space-y-2">
-                  {serverMembers.map(member => {
+                <div className="space-y-4">
+                  {groupMembersByRole(serverMembers, serverPermissions?.roles || [], serverPermissions?.memberRoles || [], id => (getPresenceStatus?.(id) || (onlineUsersSet.has(id) ? 'online' : 'offline')) !== 'offline').map(section => (
+                    <section key={section.id} aria-label={`${section.label}, ${section.members.length}`}>
+                      <h3 className="mb-1.5 flex items-center gap-1.5 px-1 type-meta font-bold uppercase tracking-[0.06em] text-[var(--text-muted)]">
+                        {section.color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: section.color }} aria-hidden="true" />}
+                        <span className="truncate">{section.label}</span>
+                        <span aria-hidden="true">— {section.members.length}</span>
+                      </h3>
+                      <div className="space-y-2">
+                  {section.members.map(member => {
                     const profile = member.profiles || {}
                     const status = getPresenceStatus?.(profile.id) || (onlineUsersSet.has(profile.id) ? 'online' : 'offline')
                     const canManageMember = canModerateMember(activeServerRole, member.role || 'member', member.profile_id === currentUserId)
+                    const customRole = topRole(member.profile_id, serverPermissions?.roles || [], serverPermissions?.memberRoles || [])
+                    const nameColor = customRole?.color || null
+                    // Owner/admin stay as the label; a plain member shows their top custom role.
+                    const roleLabel = (member.role || 'member') === 'member' && customRole ? customRole.name : member.role || 'member'
                     return (
-                      <div key={member.id || member.profile_id} className="flex items-center gap-3 rounded-xl bg-[var(--bg-element)] p-2.5">
+                      <div key={member.id || member.profile_id} className={`flex items-center gap-3 rounded-xl bg-[var(--bg-element)] p-2.5 ${status === 'offline' ? 'opacity-60' : ''}`}>
                         <StatusAvatar url={profile.avatar_url} username={profile.username} status={status} className="h-10 w-10" />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate type-title font-bold text-[var(--text-main)]">{profile.username || 'Unknown user'}</p>
-                          <p className="truncate type-snippet text-[var(--text-muted)]"><span className="capitalize">{member.role || 'member'}</span> · {isTimedOut(member) ? 'Timed out' : getPresenceLabel?.(profile.id) || 'Offline'}</p>
+                          <p className="truncate type-title font-bold text-[var(--text-main)]" style={nameColor ? { color: nameColor } : undefined}>{profile.username || 'Unknown user'}</p>
+                          <p className="truncate type-snippet text-[var(--text-muted)]"><span className={customRole && roleLabel === customRole.name ? '' : 'capitalize'}>{roleLabel}</span> · {isTimedOut(member) ? 'Timed out' : getPresenceLabel?.(profile.id) || 'Offline'}</p>
                         </div>
                         {canManageMember && (
                           <button type="button" onClick={() => setModeratingMember(member)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-main)]" aria-label={`Moderate ${profile.username || 'member'}`}>
@@ -442,6 +456,9 @@ export default function RightSidebar({
                       </div>
                     )
                   })}
+                      </div>
+                    </section>
+                  ))}
                   {serverMembers.length === 0 && <p className="py-2 type-body text-[var(--text-muted)]">No members found.</p>}
                 </div>
               </InfoPage>
