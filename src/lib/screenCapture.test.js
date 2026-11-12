@@ -113,3 +113,78 @@ test('Tauri screen capture invokes the plugin and turns its error code into a DO
   await plugin.stop()
   assert.deepEqual(calls, ['plugin:messapp-screen-capture|start', 'unregister', 'plugin:messapp-screen-capture|stop'])
 })
+
+test('1:1 calls ask for video only and do not retry', async () => {
+  const calls = []
+  await getScreenCaptureStream({ getDisplayMedia: async constraints => { calls.push(constraints); return {} } }, { audio: false })
+  assert.deepEqual(calls, [{ video: true, audio: false }])
+})
+
+test('Android stopping the projection ends the track so callers clean up', async () => {
+  const listeners = new Map()
+  const ended = []
+  const track = { stop() {}, dispatchEvent: event => ended.push(event.type) }
+  const stream = { getVideoTracks: () => [track], getTracks: () => [track] }
+  let nativeStops = 0
+  await getScreenCaptureStream(undefined, {
+    isNativePlatform: true,
+    plugin: {
+      addListener: async (name, callback) => { listeners.set(name, callback); return { remove: async () => {} } },
+      start: async () => ({ width: 360, height: 640, frameRate: 10 }),
+      stop: async () => { nativeStops += 1 }
+    },
+    documentRef: { createElement: () => ({ getContext: () => ({ drawImage() {} }), captureStream: () => stream }) },
+    ImageClass: class {}
+  })
+  listeners.get('stopped')()
+  assert.deepEqual(ended, ['ended'])
+  assert.equal(nativeStops, 1)
+})
+
+test('native capture prefers a track generator, so a paused WebView still sends frames', async () => {
+  const listeners = new Map()
+  const written = []
+  let closed = false
+  class Generator {
+    constructor({ kind }) {
+      this.kind = kind
+      this.writable = { getWriter: () => ({ write: async frame => written.push(frame), close: async () => { closed = true } }) }
+    }
+  }
+  class Frame {
+    constructor(image, init) {
+      this.image = image
+      this.timestamp = init.timestamp
+    }
+  }
+  class Stream {
+    constructor(tracks) { this.tracks = tracks }
+    getVideoTracks() { return this.tracks }
+    getTracks() { return this.tracks }
+  }
+  class MockImage {
+    set src(value) {
+      this.value = value
+      this.onload()
+    }
+  }
+  const stream = await getScreenCaptureStream(undefined, {
+    isNativePlatform: true,
+    plugin: {
+      addListener: async (name, callback) => { listeners.set(name, callback); return { remove: async () => {} } },
+      start: async () => ({ width: 360, height: 640, frameRate: 10 }),
+      stop: async () => {}
+    },
+    documentRef: { createElement: () => assert.fail('no canvas when a generator exists') },
+    ImageClass: MockImage,
+    TrackGenerator: Generator,
+    VideoFrameClass: Frame,
+    MediaStreamClass: Stream
+  })
+  assert.equal(stream.getVideoTracks()[0].kind, 'video')
+  listeners.get('frame')({ dataUrl: 'data:image/jpeg;base64,frame' })
+  assert.equal(written.length, 1)
+  assert.equal(written[0].image.value, 'data:image/jpeg;base64,frame')
+  await stream._messappStopNativeCapture()
+  assert.equal(closed, true)
+})

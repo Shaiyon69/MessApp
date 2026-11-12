@@ -26,18 +26,36 @@ const NativeScreenCapture = isTauriMobile() ? createTauriScreenCapture() : regis
 async function createNativeScreenCaptureStream({
   plugin = NativeScreenCapture,
   documentRef = globalThis.document,
-  ImageClass = globalThis.Image
+  ImageClass = globalThis.Image,
+  TrackGenerator = globalThis.MediaStreamTrackGenerator,
+  VideoFrameClass = globalThis.VideoFrame,
+  MediaStreamClass = globalThis.MediaStream
 } = {}) {
-  const canvas = documentRef?.createElement?.('canvas')
-  if (!canvas?.captureStream || !ImageClass) {
+  // Sharing another app puts MessApp in the background, and the Android WebView is
+  // paused there (WryActivity calls WebView.onPause), which can stall a canvas
+  // capture. A track generator takes frames without rendering, so it is preferred.
+  const useGenerator = Boolean(TrackGenerator && VideoFrameClass && MediaStreamClass)
+  const canvas = useGenerator ? null : documentRef?.createElement?.('canvas')
+  if (!ImageClass || (!useGenerator && !canvas?.captureStream)) {
     throw new DOMException('Native screen capture cannot create a video stream in this app build.', 'NotSupportedError')
   }
 
   let stopped = false
   let drawing = false
   let pendingFrame = null
-  const context = canvas.getContext('2d', { alpha: false })
-  if (!context) throw new DOMException('Native screen capture could not initialize its video surface.', 'NotSupportedError')
+  let paint
+  let generator
+  let writer
+  if (useGenerator) {
+    generator = new TrackGenerator({ kind: 'video' })
+    writer = generator.writable.getWriter()
+    // write() closes the VideoFrame; a rejected write only means the track ended.
+    paint = image => writer.write(new VideoFrameClass(image, { timestamp: Math.round(performance.now() * 1000) })).catch(() => {})
+  } else {
+    const context = canvas.getContext('2d', { alpha: false })
+    if (!context) throw new DOMException('Native screen capture could not initialize its video surface.', 'NotSupportedError')
+    paint = image => context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  }
 
   const drawFrame = frame => {
     if (stopped) return
@@ -48,7 +66,7 @@ async function createNativeScreenCaptureStream({
     drawing = true
     const image = new ImageClass()
     image.onload = () => {
-      if (!stopped) context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      if (!stopped) paint(image)
       drawing = false
       const nextFrame = pendingFrame
       pendingFrame = null
@@ -69,6 +87,7 @@ async function createNativeScreenCaptureStream({
     await Promise.allSettled([
       frameListener?.remove?.(),
       stoppedListener?.remove?.(),
+      writer?.close?.(),
       plugin.stop?.()
     ])
   }
@@ -76,13 +95,22 @@ async function createNativeScreenCaptureStream({
   try {
     frameListener = await plugin.addListener('frame', drawFrame)
     stoppedListener = await plugin.addListener('stopped', () => {
-      stream?.getTracks?.().forEach(track => track.stop())
+      // Android ended the projection (notification or system). track.stop() fires no
+      // 'ended', so dispatch it: callers unpublish and reset their UI on that event.
+      stream?.getTracks?.().forEach(track => {
+        track.stop()
+        track.dispatchEvent?.(new Event('ended'))
+      })
       void cleanup()
     })
     const capture = await plugin.start()
-    canvas.width = Math.max(1, capture?.width || 720)
-    canvas.height = Math.max(1, capture?.height || 1280)
-    stream = canvas.captureStream(Math.max(1, capture?.frameRate || 10))
+    if (useGenerator) {
+      stream = new MediaStreamClass([generator])
+    } else {
+      canvas.width = Math.max(1, capture?.width || 720)
+      canvas.height = Math.max(1, capture?.height || 1280)
+      stream = canvas.captureStream(Math.max(1, capture?.frameRate || 10))
+    }
     const videoTrack = stream.getVideoTracks?.()[0]
     if (!videoTrack) {
       throw new DOMException('Native screen capture did not create a video track.', 'NotSupportedError')
@@ -99,7 +127,8 @@ async function createNativeScreenCaptureStream({
   }
 }
 
-export async function getScreenCaptureStream(mediaDevices, nativeOptions = {}) {
+/** audio: false skips display audio (1:1 calls send video only). */
+export async function getScreenCaptureStream(mediaDevices, { audio = true, ...nativeOptions } = {}) {
   if (!mediaDevices?.getDisplayMedia) {
     const isNativeAndroid = nativeOptions.isNativePlatform ?? (
       isTauriMobile() || (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android')
@@ -108,9 +137,9 @@ export async function getScreenCaptureStream(mediaDevices, nativeOptions = {}) {
     throw new DOMException('Screen capture is unavailable in this browser or app build.', 'NotSupportedError')
   }
   try {
-    return await mediaDevices.getDisplayMedia({ video: true, audio: true })
+    return await mediaDevices.getDisplayMedia({ video: true, audio })
   } catch (error) {
-    if (!VIDEO_ONLY_FALLBACK_ERRORS.has(error?.name)) throw error
+    if (!audio || !VIDEO_ONLY_FALLBACK_ERRORS.has(error?.name)) throw error
     return mediaDevices.getDisplayMedia({ video: true, audio: false })
   }
 }

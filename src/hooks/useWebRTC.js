@@ -12,6 +12,7 @@ import { applyVoiceAudioProcessing, getVoiceMediaStream, tuneOpusSdp } from '../
 import { acquireAlternateCamera, CallAudio, isNativeCallAudioAvailable } from '../lib/mediaDevices';
 import { getIceServers, hasTurnRelay } from '../lib/iceServers';
 import { isPolite, shouldIgnoreOffer } from '../lib/negotiation';
+import { getScreenCaptureErrorMessage, getScreenCaptureStream } from '../lib/screenCapture';
 
 export const OUTGOING_CALL_TIMEOUT_MS = 30000;
 // A peer connection reports `disconnected` for ordinary network blips and
@@ -1148,15 +1149,13 @@ export function useWebRTC(session, activeDm) {
 
   const startScreenShare = async () => {
     if (screenShareActive || !pcRef.current) return;
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      toast.error('Screen sharing is not supported on this device.');
-      return;
-    }
     const lifecycleId = callLifecycleIdRef.current;
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      // Android WebViews lack getDisplayMedia; there this returns the native capture's canvas stream.
+      const screenStream = await getScreenCaptureStream(navigator.mediaDevices, { audio: false });
       if (!isCurrentCallLifecycle(lifecycleId) || !pcRef.current) {
         screenStream.getTracks().forEach(track => track.stop());
+        void screenStream._messappStopNativeCapture?.();
         return;
       }
       const screenTrack = screenStream.getVideoTracks()[0];
@@ -1169,6 +1168,7 @@ export function useWebRTC(session, activeDm) {
       if (!sent) {
         screenStreamRef.current = null;
         screenStream.getTracks().forEach(track => { track.onended = null; track.stop(); });
+        void screenStream._messappStopNativeCapture?.();
         toast.error('Could not start screen sharing.');
         return;
       }
@@ -1177,7 +1177,7 @@ export function useWebRTC(session, activeDm) {
     } catch (err) {
       if (err?.name !== 'NotAllowedError') {
         debug.error('WEBRTC_ERROR', { operation: 'start-screen-share', error: serializeCallError(err) });
-        toast.error('Could not start screen sharing.');
+        toast.error(getScreenCaptureErrorMessage(err));
       }
     }
   };
@@ -1193,6 +1193,7 @@ export function useWebRTC(session, activeDm) {
       track.onended = null;
       try { track.stop(); } catch (_err) {}
     });
+    void screenStream._messappStopNativeCapture?.();
     detachMediaElement(localScreenVideoRef);
     setScreenShareActive(false);
     void sendSignal(activeCallTargetRef.current, 'screen-share-ended', {});
