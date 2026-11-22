@@ -48,6 +48,9 @@
 }
 
 :root {
+  /* The one complementary highlight: the main action on a screen (Send, Done). */
+  --app-gold: #e8c77d;
+  --on-app-gold: #121212;
   font-family: 'Space Grotesk', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -5108,6 +5111,6 @@ iframe {
 }
 
 .media-trim-input:focus-visible::-webkit-slider-thumb {
-  outline: 2px solid var(--app-accent);
+  outline: 2px solid #adc6ff;
   outline-offset: 2px;
 }

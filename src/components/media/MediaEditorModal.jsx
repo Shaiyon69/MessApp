@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Brush, Check, Crop, Loader2, RotateCw, Type, Undo2, Volume2, VolumeX, X } from 'lucide-react'
+import { Brush, Crop, Loader2, RotateCw, Scissors, Type, Undo2, Volume2, VolumeX, X } from 'lucide-react'
 import {
   TEXT_SIZE,
   clampMediaValue,
@@ -45,10 +45,12 @@ const formatTime = seconds => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
-/* Messenger-simple: the photo or clip fills the screen with a few icons over
-   it. Photos crop, rotate, draw and caption; clips crop, rotate, caption, trim
-   and mute. Captions are live HTML over the preview and are only burned into
-   the pixels on export, so they stay draggable and editable until Done. */
+/* Messenger-style: the photo or clip fills the screen between a top bar
+   (Cancel, Undo, Done) and a bottom panel (the active tool's options over a
+   labelled tool bar). Photos crop, rotate, draw and caption; clips trim, crop,
+   rotate, caption and mute. Captions are live HTML over the preview and are
+   only burned into the pixels on export, so they stay draggable and editable
+   until Done. */
 export default function MediaEditorModal({
   file,
   profile = false,
@@ -68,11 +70,14 @@ export default function MediaEditorModal({
   const [sourceSize, setSourceSize] = useState({ width: 1, height: 1 })
   const [duration, setDuration] = useState(0)
   const [edits, setEdits] = useState(() => initialEdits(profile))
-  const [tool, setTool] = useState('move')
-  const [cropOpen, setCropOpen] = useState(false)
+  // 'move' (no tool), 'crop', 'paint', 'text' or 'trim'. Clips open on Trim.
+  const [tool, setTool] = useState(isVideo ? 'trim' : 'move')
   const [paintColor, setPaintColor] = useState(PAINT_COLORS[0])
   // The caption being typed: { index (null for a new one), text, color }.
   const [textDraft, setTextDraft] = useState(null)
+  // 'strokes' or 'texts' per stroke or caption added, newest last, so Undo
+  // removes the latest of either whatever tool is open.
+  const [undoStack, setUndoStack] = useState([])
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
@@ -157,6 +162,7 @@ export default function MediaEditorModal({
         ...current,
         strokes: [...current.strokes, { color: paintColor, width: BRUSH_WIDTH, points: [point, point] }]
       }))
+      setUndoStack(stack => [...stack, 'strokes'])
       interactionRef.current = { type: 'paint' }
       return
     }
@@ -228,8 +234,17 @@ export default function MediaEditorModal({
   const commitText = () => {
     const draft = textDraft
     setTextDraft(null)
+    setTool(current => (current === 'text' ? 'move' : current))
     if (!draft) return
     const text = draft.text.trim()
+    if (draft.index === null && text) setUndoStack(stack => [...stack, 'texts'])
+    // A cleared caption is deleted: drop one caption entry so the stack still matches.
+    if (draft.index !== null && !text) {
+      setUndoStack(stack => {
+        const at = stack.lastIndexOf('texts')
+        return at < 0 ? stack : [...stack.slice(0, at), ...stack.slice(at + 1)]
+      })
+    }
     setEdits(current => {
       const texts = [...current.texts]
       if (draft.index === null) {
@@ -245,6 +260,23 @@ export default function MediaEditorModal({
 
   // Desktop has no pinch, and the profile crops are mostly used there.
   const handleWheel = event => setZoom(edits.zoom - event.deltaY * 0.002)
+
+  const undoTarget = undoStack.at(-1)
+  const undo = () => {
+    if (!undoTarget) return
+    setUndoStack(stack => stack.slice(0, -1))
+    setEdits(current => ({ ...current, [undoTarget]: current[undoTarget].slice(0, -1) }))
+  }
+  const cropTouched = edits.aspect !== initialEdits(profile).aspect || edits.rotation || edits.zoom !== 1 || edits.offsetX || edits.offsetY
+  const resetCrop = () => {
+    const base = initialEdits(profile)
+    setEdits(current => ({ ...current, aspect: base.aspect, rotation: 0, zoom: 1, offsetX: 0, offsetY: 0 }))
+  }
+  const openText = () => {
+    setTool('text')
+    setTextDraft({ index: null, text: '', color: PAINT_COLORS[0] })
+  }
+  const pickTool = id => (id === 'text' ? openText() : setTool(current => (current === id ? 'move' : id)))
 
   const applyEdit = async () => {
     setProcessing(true)
@@ -273,16 +305,36 @@ export default function MediaEditorModal({
     onPointerCancel: stopInteraction,
     onWheel: handleWheel
   }
-  const toolButton = 'grid h-10 w-10 place-items-center rounded-full backdrop-blur transition-colors disabled:opacity-40'
-  const toolIdle = 'bg-black/55 text-white hover:bg-black/70'
-  const toolActive = 'bg-white text-black'
+  // The editor is always on black, so its blues are fixed: theme accents can be dark.
+  const iconButton = 'grid h-10 w-10 place-items-center rounded-full text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adc6ff] disabled:opacity-40'
+  const chip = active => `rounded-full border px-3.5 py-1.5 type-meta font-bold transition-colors ${active ? 'border-[#7fa7e0] bg-[#3b82f633] text-white' : 'border-white/15 text-white/70 hover:text-white'}`
+  const tools = [
+    isVideo && { id: 'trim', label: 'Trim', Icon: Scissors },
+    { id: 'crop', label: 'Crop', Icon: Crop },
+    !isVideo && { id: 'paint', label: 'Draw', Icon: Brush },
+    !profile && { id: 'text', label: 'Text', Icon: Type }
+  ].filter(Boolean)
 
   if (!file) return null
   return createPortal(
-    <div className="fixed inset-0 z-[240] flex flex-col bg-black" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[240] flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <button type="button" onClick={onCancel} disabled={processing} className={iconButton} aria-label="Close media editor"><X size={20} /></button>
+        <button type="button" onClick={undo} disabled={!undoTarget || processing} className={iconButton} aria-label={undoTarget === 'texts' ? 'Undo caption' : 'Undo stroke'} title="Undo"><Undo2 size={20} /></button>
+        <button
+          type="button"
+          onClick={applyEdit}
+          disabled={processing || Boolean(error && !imageRef.current && !isVideo)}
+          className="flex h-10 items-center gap-2 rounded-full bg-[var(--app-gold)] px-5 type-label font-bold text-[var(--on-app-gold)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+        >
+          {processing && <Loader2 size={16} className="animate-spin" />}
+          {processing ? 'Working…' : profile ? 'Use photo' : 'Done'}
+        </button>
+      </div>
+
       {/* The stage is a size container, so the media box keeps its aspect
           however tall or wide the screen is. */}
-      <div className="media-editor-area flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 pb-36 pt-16">
+      <div className="media-editor-area flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         <div
           ref={stageRef}
           className={`media-editor-stage relative touch-none overflow-hidden ${tool === 'paint' && !isVideo ? 'cursor-crosshair' : 'cursor-move'}`}
@@ -326,135 +378,96 @@ export default function MediaEditorModal({
         </div>
       </div>
 
-      <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <button type="button" onClick={onCancel} disabled={processing} className={`${toolButton} ${toolIdle}`} aria-label="Close media editor"><X size={18} /></button>
-        <div className="flex items-center gap-2">
-          {!profile && (
-            <button
-              type="button"
-              onClick={() => setTextDraft({ index: null, text: '', color: PAINT_COLORS[0] })}
-              className={`${toolButton} ${toolIdle}`}
-              aria-label="Add text"
-              title="Text"
-            ><Type size={18} /></button>
+      <div className="shrink-0 border-t border-white/10 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-3">
+          {/* Done already took its snapshot of the edits, so the panel waits while it renders. */}
+          <fieldset disabled={processing} className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0 empty:hidden">
+          {tool === 'crop' && (
+            <div className="flex flex-wrap items-center justify-center gap-2" role="group" aria-label="Crop shape">
+              {/* Profile crops are locked square, so the shape chips would have one option. */}
+              {!profile && ASPECT_OPTIONS.map(option => (
+                <button key={option.id} type="button" onClick={() => setEdits(current => ({ ...current, aspect: option.id }))} className={chip(edits.aspect === option.id)} aria-pressed={edits.aspect === option.id}>
+                  {option.label}
+                </button>
+              ))}
+              <button type="button" onClick={() => setEdits(current => ({ ...current, rotation: (current.rotation + 90) % 360 }))} className={iconButton} aria-label="Rotate 90 degrees" title="Rotate"><RotateCw size={18} /></button>
+              <button type="button" onClick={resetCrop} disabled={!cropTouched} className={`${chip(false)} disabled:opacity-40`} aria-label="Reset crop">Reset</button>
+            </div>
           )}
-          {!isVideo && (
-            <button
-              type="button"
-              onClick={() => setTool(tool === 'paint' ? 'move' : 'paint')}
-              className={`${toolButton} ${tool === 'paint' ? toolActive : toolIdle}`}
-              aria-pressed={tool === 'paint'}
-              aria-label="Draw"
-              title="Draw"
-            ><Brush size={18} /></button>
-          )}
-          {/* Profile crops are locked square, so the chips would have one option. */}
-          {!profile && (
-            <button
-              type="button"
-              onClick={() => setCropOpen(open => !open)}
-              className={`${toolButton} ${cropOpen ? toolActive : toolIdle}`}
-              aria-pressed={cropOpen}
-              aria-label="Crop"
-              title="Crop"
-            ><Crop size={18} /></button>
-          )}
-          <button
-            type="button"
-            onClick={() => setEdits(current => ({ ...current, rotation: (current.rotation + 90) % 360 }))}
-            className={`${toolButton} ${toolIdle}`}
-            aria-label="Rotate 90 degrees"
-            title="Rotate"
-          ><RotateCw size={18} /></button>
-          {isVideo && (
-            <button
-              type="button"
-              onClick={() => setEdits(current => ({ ...current, muted: !current.muted }))}
-              className={`${toolButton} ${edits.muted ? toolActive : toolIdle}`}
-              aria-pressed={edits.muted}
-              aria-label={edits.muted ? 'Turn sound back on' : 'Mute video'}
-              title={edits.muted ? 'Sound off' : 'Sound on'}
-            >{edits.muted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
-          )}
-        </div>
-      </div>
 
-      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {cropOpen && !profile && (
-          <div className="flex justify-center gap-2" role="group" aria-label="Crop shape">
-            {ASPECT_OPTIONS.map(option => (
+          {tool === 'paint' && !isVideo && (
+            <div className="flex items-center justify-center gap-2" role="group" aria-label="Brush color">
+              {PAINT_COLORS.map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setPaintColor(color)}
+                  style={{ backgroundColor: color }}
+                  className={`h-8 w-8 rounded-full border-2 transition-transform ${paintColor === color ? 'scale-110 border-white' : 'border-white/30'}`}
+                  aria-pressed={paintColor === color}
+                  aria-label={`Draw in ${color}`}
+                />
+              ))}
+            </div>
+          )}
+
+          {tool === 'trim' && isVideo && duration > 0 && (
+            <div>
+              <div className="media-trim relative h-8">
+                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/20" />
+                <div
+                  className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-[var(--app-gold)]"
+                  style={{ left: `${(edits.trimStart / duration) * 100}%`, right: `${100 - (trimEnd / duration) * 100}%` }}
+                />
+                <input type="range" min={0} max={duration} step={0.1} value={edits.trimStart} onChange={event => setTrim('trimStart', Number(event.target.value))} aria-label="Trim start" className="media-trim-input" />
+                <input type="range" min={0} max={duration} step={0.1} value={trimEnd} onChange={event => setTrim('trimEnd', Number(event.target.value))} aria-label="Trim end" className="media-trim-input" />
+              </div>
+              <div className="mt-1 flex justify-between type-meta tabular-nums text-white/60">
+                <span>{formatTime(edits.trimStart)}</span>
+                <span className="font-semibold text-white">Keeping {formatTime(trimEnd - edits.trimStart)}</span>
+                <span>{formatTime(trimEnd)}</span>
+              </div>
+            </div>
+          )}
+
+          </fieldset>
+
+          {error && <p className="rounded-xl bg-[#e5676f]/15 px-3 py-2 text-center type-meta font-semibold text-[#e5676f]" role="alert">{error}</p>}
+          {processing && isVideo && (
+            <div>
+              <div className="mb-1 flex justify-between type-meta font-bold text-white/70"><span>Rendering video</span><span className="tabular-nums">{Math.round(progress * 100)}%</span></div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-[#3b82f6] transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
+            </div>
+          )}
+
+          <div className="flex justify-around" role="group" aria-label="Editing tools">
+            {tools.map(({ id, label, Icon }) => (
               <button
-                key={option.id}
+                key={id}
                 type="button"
-                onClick={() => setEdits(current => ({ ...current, aspect: option.id }))}
-                className={`rounded-full px-3.5 py-1.5 type-meta font-bold backdrop-blur ${edits.aspect === option.id ? 'bg-white text-black' : 'bg-black/55 text-white'}`}
-                aria-pressed={edits.aspect === option.id}
+                onClick={() => pickTool(id)}
+                disabled={processing}
+                aria-pressed={tool === id}
+                className={`flex w-16 flex-col items-center gap-1 rounded-xl py-1.5 type-meta transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adc6ff] ${tool === id ? 'bg-[#3b82f633] text-white' : 'text-white/60 hover:text-white'}`}
               >
-                {option.label}
+                <Icon size={20} className={tool === id ? 'text-[#adc6ff]' : ''} />
+                {label}
               </button>
             ))}
-          </div>
-        )}
-
-        {tool === 'paint' && !isVideo && (
-          <div className="flex items-center justify-center gap-2">
-            {PAINT_COLORS.map(color => (
+            {isVideo && (
               <button
-                key={color}
                 type="button"
-                onClick={() => setPaintColor(color)}
-                style={{ backgroundColor: color }}
-                className={`h-8 w-8 rounded-full border-2 transition-transform ${paintColor === color ? 'scale-110 border-white' : 'border-white/30'}`}
-                aria-pressed={paintColor === color}
-                aria-label={`Draw in ${color}`}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => setEdits(current => ({ ...current, strokes: current.strokes.slice(0, -1) }))}
-              disabled={!edits.strokes.length}
-              className={`${toolButton} ${toolIdle}`}
-              aria-label="Undo stroke"
-            ><Undo2 size={16} /></button>
+                onClick={() => setEdits(current => ({ ...current, muted: !current.muted }))}
+                disabled={processing}
+                aria-pressed={edits.muted}
+                aria-label={edits.muted ? 'Turn sound back on' : 'Mute video'}
+                className="flex w-16 flex-col items-center gap-1 rounded-xl py-1.5 type-meta text-white/60 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adc6ff]"
+              >
+                {edits.muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                {edits.muted ? 'Muted' : 'Sound'}
+              </button>
+            )}
           </div>
-        )}
-
-        {isVideo && duration > 0 && (
-          <div className="mx-auto w-full max-w-xl rounded-2xl bg-black/55 px-4 py-3 backdrop-blur">
-            <div className="mb-1 flex justify-between type-meta font-semibold text-white/80">
-              <span>Trim</span>
-              <span>{formatTime(edits.trimStart)} – {formatTime(trimEnd)} · {formatTime(trimEnd - edits.trimStart)}</span>
-            </div>
-            <div className="media-trim relative h-8">
-              <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/20" />
-              <div
-                className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white"
-                style={{ left: `${(edits.trimStart / duration) * 100}%`, right: `${100 - (trimEnd / duration) * 100}%` }}
-              />
-              <input type="range" min={0} max={duration} step={0.1} value={edits.trimStart} onChange={event => setTrim('trimStart', Number(event.target.value))} aria-label="Trim start" className="media-trim-input" />
-              <input type="range" min={0} max={duration} step={0.1} value={trimEnd} onChange={event => setTrim('trimEnd', Number(event.target.value))} aria-label="Trim end" className="media-trim-input" />
-            </div>
-          </div>
-        )}
-
-        {error && <p className="rounded-xl bg-red-500/15 px-3 py-2 text-center type-meta font-semibold text-red-300">{error}</p>}
-        {processing && isVideo && (
-          <div>
-            <div className="mb-1 flex justify-between type-meta font-bold text-gray-300"><span>Rendering video</span><span>{Math.round(progress * 100)}%</span></div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-[var(--accent)] transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
-          </div>
-        )}
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={applyEdit}
-            disabled={processing || Boolean(error && !imageRef.current && !isVideo)}
-            className="flex items-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 type-meta font-black text-white shadow-lg disabled:opacity-50"
-          >
-            {processing ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            {processing ? 'Processing…' : profile ? 'Use photo' : 'Done'}
-          </button>
         </div>
       </div>
 

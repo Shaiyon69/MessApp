@@ -1935,7 +1935,7 @@ useEffect(() => {
         <Suspense fallback={null}>
           <MediaEditorModal
             file={mediaEditorTarget.file}
-            title={mediaEditorTarget.type === 'video' ? 'Crop video' : 'Edit image'}
+            title={mediaEditorTarget.type === 'video' ? 'Edit video' : 'Edit image'}
             onCancel={() => setMediaEditorTarget(null)}
             onSave={savePendingMediaEdit}
           />
