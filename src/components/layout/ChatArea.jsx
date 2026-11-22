@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import toast from 'react-hot-toast'
 import { ORIGIN_FILTERS, messageOrigin, stepOriginFilter } from '../../lib/messageOrigin'
-import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronsDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
+import { Loader2, WifiOff, Hash, Phone, Video, Info, MessageSquare, ImagePlus, Paperclip, Send, X, Trash2, SmilePlus, Plus, FileText, ChevronLeft, ChevronsDown, Mic, MicOff, MonitorUp, PhoneOff, Radio, Volume2, VolumeX, Eye, EyeOff, Play, SlidersHorizontal, Camera, Square, Timer, Check, Film, Lock, BarChart3, PanelLeftClose, Users } from 'lucide-react'
 import StatusAvatar from '../ui/StatusAvatar'
 import { MemoizedMessage } from '../chat/MessageElements'
 import VoiceMessagePlayer from '../chat/VoiceMessagePlayer'
@@ -514,9 +514,7 @@ useEffect(() => {
     setMediaEditorTarget({ file: item.file, index, type: item.type })
   }
 
-  const savePendingMediaEdit = async editedFile => {
-    const target = mediaEditorTarget
-    if (!target) return
+  const replacePendingFile = (target, editedFile) => {
     props.setPendingFiles(previous => previous.map((item, index) => index === target.index
       ? {
           ...item,
@@ -527,8 +525,32 @@ useEffect(() => {
           fingerprint: getPendingFileFingerprint(editedFile)
         }
       : item))
+  }
+
+  const savePendingMediaEdit = async editedFile => {
+    const target = mediaEditorTarget
+    if (!target) return
+    replacePendingFile(target, editedFile)
     setMediaEditorTarget(null)
-    toast.success(target.type === 'video' ? 'Video crop ready to send' : 'Image edit ready to send')
+  }
+
+  // The tray splits photos, clips and GIFs (one strip) from files and voice notes (chips).
+  const pendingEntries = (props.pendingFiles || []).map((item, index) => ({ item, index }))
+  const pendingMedia = pendingEntries.filter(({ item }) => item.type === 'image' || item.type === 'video' || item.gifUrl)
+  const pendingOther = pendingEntries.filter(entry => !pendingMedia.includes(entry))
+
+  // The editor's strip: the photos and clips the editor can open, by tray index.
+  const editableMedia = (props.pendingFiles || [])
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item?.file && ['image', 'video'].includes(item.type) && !item.gifUrl)
+
+  const switchPendingMediaEdit = async (queueIndex, editedFile) => {
+    const target = mediaEditorTarget
+    if (target && editedFile) replacePendingFile(target, editedFile)
+    const next = editableMedia[queueIndex]
+    if (!next) return
+    // Built from next.item, not the state above: the replaced file is a different entry.
+    setMediaEditorTarget({ file: next.item.file, index: next.index, type: next.item.type })
   }
 
   /* Drafts are saved per conversation on every keystroke rather than on the way
@@ -1417,73 +1439,79 @@ useEffect(() => {
                     </div>
                   )}
                   {props.pendingFiles?.length > 0 && (
-                    <div className="premium-section mx-2 mb-3 rounded-2xl p-3 animate-slide-up">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <span className="type-meta font-bold uppercase tracking-widest text-[var(--theme-base)]">{props.isUploading ? 'Uploading' : 'Ready to send'}</span>
-                          <p className="truncate type-meta text-gray-500">{props.pendingFiles.length}/{props.maxPendingAttachments || 10} {props.pendingFiles.length === 1 ? 'attachment' : 'attachments'} • Add a caption below</p>
+                    <div className="mx-2 mb-2 border-b border-[var(--border-subtle)] pb-3 animate-slide-up">
+                      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                        <p className="truncate type-meta text-[var(--text-muted)]">
+                          {props.isUploading ? 'Uploading…' : `${props.pendingFiles.length} of ${props.maxPendingAttachments || 10}${editableMedia.length ? ' · tap to edit' : ''}`}
+                        </p>
+                        <button type="button" onClick={() => props.setPendingFiles([])} disabled={props.isUploading} className="rounded-full px-2 py-1 type-meta font-bold text-[var(--accent-bright)] hover:bg-[var(--app-accent-10)] disabled:opacity-40" aria-label="Remove all attachments">Clear</button>
+                      </div>
+                      {pendingMedia.length > 0 && (
+                        <div className="flex max-w-full gap-2.5 overflow-x-auto px-1 pb-1 pt-1.5 custom-scrollbar" role="group" aria-label="Photos and clips">
+                          {pendingMedia.map(({ item, index }) => {
+                            const editable = item.file && !item.gifUrl
+                            return (
+                              <div key={item.id || `${item.name}-${item.size}-${index}`} className="relative h-16 w-16 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => editable && openPendingMediaEditor(item, index)}
+                                  disabled={props.isUploading || !editable}
+                                  className="block h-full w-full overflow-hidden rounded-xl bg-[var(--bg-element)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] disabled:cursor-default"
+                                  aria-label={editable ? `Edit ${item.name}` : item.name}
+                                >
+                                  {pendingPreviewUrls[index] && item.type === 'video' ? (
+                                    <video src={pendingPreviewUrls[index]} className="h-full w-full bg-black object-cover" muted playsInline preload="metadata" onLoadedMetadata={primeVideoPreview} onLoadedData={primeVideoPreview} onCanPlay={primeVideoPreview} />
+                                  ) : pendingPreviewUrls[index] ? (
+                                    <img src={pendingPreviewUrls[index]} alt="" className={`h-full w-full object-cover ${item.isSpoiler ? 'scale-110 blur-lg' : ''}`} />
+                                  ) : null}
+                                </button>
+                                {(item.type === 'video' || item.gifUrl) && (
+                                  <span className="pointer-events-none absolute bottom-1 left-1 flex items-center gap-0.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                    {item.gifUrl ? 'GIF' : <><Play size={10} className="fill-white" aria-hidden="true" />Clip</>}
+                                  </span>
+                                )}
+                                {(item.type === 'image' || item.gifUrl) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => props.togglePendingFileSpoiler(index)}
+                                    className={`absolute bottom-1 right-1 grid h-6 w-6 place-items-center rounded-full text-white ${item.isSpoiler ? 'bg-[var(--app-accent)]' : 'bg-black/65'}`}
+                                    aria-pressed={Boolean(item.isSpoiler)}
+                                    aria-label={item.isSpoiler ? `Remove spoiler from ${item.name}` : `Mark ${item.name} as spoiler`}
+                                    title={item.isSpoiler ? 'Remove spoiler' : 'Mark as spoiler'}
+                                  >
+                                    <EyeOff size={12} />
+                                  </button>
+                                )}
+                                <button type="button" onClick={() => props.removePendingFile(index)} disabled={props.isUploading} className="absolute -right-1.5 -top-1.5 grid h-[22px] w-[22px] place-items-center rounded-full border-2 border-[var(--bg-base)] bg-[var(--bg-element-hover)] text-[var(--text-main)]" aria-label={`Remove ${item.name}`}><X size={12} /></button>
+                                {props.isUploading && <div className="absolute inset-0 grid place-items-center rounded-xl bg-black/45"><Loader2 size={20} className="animate-spin text-white" /></div>}
+                              </div>
+                            )
+                          })}
+                          {props.pendingFiles.length < (props.maxPendingAttachments || 10) && !props.isUploading && (
+                            <button type="button" onClick={() => openFilePicker(props.fileInputRef)} className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border-[1.5px] border-dashed border-[var(--border-hover)] text-[var(--text-muted)] hover:text-[var(--text-main)]" aria-label="Add photos or clips"><Plus size={20} /></button>
+                          )}
                         </div>
-                        <button type="button" onClick={() => props.setPendingFiles([])} className="rounded-full bg-red-500/10 p-2 text-red-500 transition-colors hover:bg-red-500 hover:text-white" aria-label="Remove all attachments"><X size={18}/></button>
-                      </div>
-                      <div className="flex max-w-full gap-2 overflow-x-auto pb-1 custom-scrollbar">
-                        {props.pendingFiles.map((item, index) => (
-                          <div key={item.id || `${item.name}-${item.size}-${index}`} className={`group relative shrink-0 overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-base)] ${item.type === 'audio' ? 'h-14 w-64 rounded-full' : 'h-24 w-24 rounded-xl'}`}>
-                            {item.type === 'audio' ? (
-                              pendingPreviewUrls[index] && (
-                                <VoiceMessagePlayer
-                                  src={pendingPreviewUrls[index]}
-                                  label="Voice message ready"
-                                  className="h-full w-full bg-transparent pr-8"
-                                />
-                              )
-                            ) : pendingPreviewUrls[index] && item.type === 'video' ? (
-                              <video
-                                src={pendingPreviewUrls[index]}
-                                className="h-full w-full bg-black object-cover"
-                                muted
-                                playsInline
-                                preload="metadata"
-                                onLoadedMetadata={primeVideoPreview}
-                                onLoadedData={primeVideoPreview}
-                                onCanPlay={primeVideoPreview}
-                              />
-                            ) : pendingPreviewUrls[index] ? (
-                              <img src={pendingPreviewUrls[index]} alt={item.name || 'Attachment preview'} className={`h-full w-full object-cover ${item.isSpoiler ? 'scale-110 blur-lg' : ''}`} />
-                            ) : (
-                              <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-2"><FileText size={28} className="text-[var(--theme-base)]" /><span className="w-full truncate text-center type-meta text-gray-400">{item.name}</span></div>
-                            )}
-                            <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label={`Remove ${item.name}`}><X size={12}/></button>
-                            {(item.type === 'image' || item.type === 'video') && item.file && !item.gifUrl && (
-                              <button
-                                type="button"
-                                onClick={() => openPendingMediaEditor(item, index)}
-                                className="absolute bottom-5 right-1 rounded-full bg-black/75 p-1.5 text-white shadow-lg hover:bg-[var(--theme-base)]"
-                                aria-label={`Edit ${item.name}`}
-                                title="Crop or edit"
-                              >
-                                <SlidersHorizontal size={12} />
-                              </button>
-                            )}
-                            {(item.type === 'image' || item.gifUrl) && (
-                              <button
-                                type="button"
-                                onClick={() => props.togglePendingFileSpoiler(index)}
-                                className={`absolute left-1 top-1 rounded-full p-1.5 text-white shadow ${item.isSpoiler ? 'bg-amber-500' : 'bg-black/70'}`}
-                                aria-pressed={Boolean(item.isSpoiler)}
-                                aria-label={item.isSpoiler ? `Remove spoiler from ${item.name}` : `Mark ${item.name} as spoiler`}
-                                title={item.isSpoiler ? 'Remove image spoiler' : 'Mark image as spoiler'}
-                              >
-                                <EyeOff size={12} />
-                              </button>
-                            )}
-                            {item.isSpoiler && (
-                              <span className="pointer-events-none absolute inset-0 flex items-center justify-center type-meta font-black uppercase tracking-widest text-white drop-shadow">Spoiler</span>
-                            )}
-                            {props.isUploading && <div className="absolute inset-0 flex items-center justify-center bg-black/45"><Loader2 size={24} className="animate-spin text-white" /></div>}
-                            {item.type !== 'audio' && <span className="absolute bottom-0 left-0 right-0 truncate bg-black/70 px-1 py-0.5 type-meta text-white">{item.type === 'video' ? 'VIDEO • ' : item.gifUrl ? 'GIF • ' : item.type === 'image' ? 'IMAGE • ' : ''}{formatPendingFileSize(item.size)}</span>}
-                          </div>
-                        ))}
-                      </div>
+                      )}
+                      {pendingOther.length > 0 && (
+                        <div className="mt-2 flex max-w-full flex-wrap gap-2 px-1" role="group" aria-label="Files">
+                          {pendingOther.map(({ item, index }) => (
+                            <div key={item.id || `${item.name}-${item.size}-${index}`} className={`relative flex min-w-0 items-center gap-2 rounded-xl border border-[var(--border-subtle)] ${item.type === 'audio' ? 'h-12 w-64 pr-8' : 'max-w-full py-1.5 pl-2.5 pr-8'}`}>
+                              {item.type === 'audio' ? (
+                                pendingPreviewUrls[index] && <VoiceMessagePlayer src={pendingPreviewUrls[index]} label="Voice message ready" className="h-full w-full bg-transparent" />
+                              ) : (
+                                <>
+                                  <FileText size={18} className="shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                                  <span className="truncate type-meta text-[var(--text-main)]">{item.name}</span>
+                                  <span className="shrink-0 type-meta text-[var(--text-muted)]">{formatPendingFileSize(item.size)}</span>
+                                </>
+                              )}
+                              {props.isUploading
+                                ? <Loader2 size={14} className="absolute right-2.5 animate-spin text-[var(--text-muted)]" />
+                                : <button type="button" onClick={() => props.removePendingFile(index)} className="absolute right-1.5 grid h-6 w-6 place-items-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-main)]" aria-label={`Remove ${item.name}`}><X size={14} /></button>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {props.editingMessageId && (
@@ -1934,10 +1962,15 @@ useEffect(() => {
       {mediaEditorTarget && (
         <Suspense fallback={null}>
           <MediaEditorModal
+            key={`${mediaEditorTarget.index}-${getPendingFileFingerprint(mediaEditorTarget.file)}`}
             file={mediaEditorTarget.file}
-            title={mediaEditorTarget.type === 'video' ? 'Crop video' : 'Edit image'}
+            title={mediaEditorTarget.type === 'video' ? 'Edit video' : 'Edit image'}
             onCancel={() => setMediaEditorTarget(null)}
             onSave={savePendingMediaEdit}
+            queue={editableMedia.map(({ item, index }) => ({ key: item.id || `${index}-${item.fingerprint || item.name}`, previewUrl: pendingPreviewUrls[index], type: item.type, isSpoiler: Boolean(item.isSpoiler) }))}
+            activeIndex={Math.max(0, editableMedia.findIndex(({ index }) => index === mediaEditorTarget.index))}
+            onSwitch={switchPendingMediaEdit}
+            onAdd={props.pendingFiles.length < (props.maxPendingAttachments || 10) && !props.isUploading ? () => openFilePicker(props.fileInputRef) : undefined}
           />
         </Suspense>
       )}
