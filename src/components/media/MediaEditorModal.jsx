@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Brush, Crop, Loader2, RotateCw, Scissors, Type, Undo2, Volume2, VolumeX, X } from 'lucide-react'
+import { Brush, Crop, Loader2, Play, Plus, RotateCw, Scissors, Type, Undo2, Volume2, VolumeX, X } from 'lucide-react'
 import {
   TEXT_SIZE,
   clampMediaValue,
@@ -9,6 +9,7 @@ import {
   drawEditedMediaFrame,
   resolveMediaAspect
 } from '../../lib/mediaEditor'
+import { primeVideoPreview } from '../../lib/videoPreview'
 
 const ASPECT_OPTIONS = [
   { id: 'original', label: 'Original' },
@@ -56,7 +57,14 @@ export default function MediaEditorModal({
   profile = false,
   onCancel,
   onSave,
-  title = profile ? 'Edit profile photo' : 'Edit media'
+  title = profile ? 'Edit profile photo' : 'Edit media',
+  // Chat only: the other queued photos and clips ({ key, previewUrl, type, isSpoiler }),
+  // the open one's index in it, a switch callback and an add-more callback.
+  // onSwitch(index, editedFile) gets null when nothing was changed.
+  queue = null,
+  activeIndex = 0,
+  onSwitch,
+  onAdd
 }) {
   const isVideo = String(file?.type || '').startsWith('video/')
   const canvasRef = useRef(null)
@@ -152,6 +160,11 @@ export default function MediaEditorModal({
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
     event.currentTarget.setPointerCapture?.(event.pointerId)
     if (pointers.size === 2) {
+      // The first finger already started a stroke: a pinch is not a drawing.
+      if (interactionRef.current?.type === 'paint') {
+        setEdits(current => ({ ...current, strokes: current.strokes.slice(0, -1) }))
+        setUndoStack(stack => stack.slice(0, -1))
+      }
       interactionRef.current = { type: 'pinch', spread: pointerSpread(pointers), zoom: edits.zoom }
       return
     }
@@ -278,7 +291,15 @@ export default function MediaEditorModal({
   }
   const pickTool = id => (id === 'text' ? openText() : setTool(current => (current === id ? 'move' : id)))
 
-  const applyEdit = async () => {
+  const untouched = JSON.stringify(edits) === JSON.stringify(initialEdits(profile))
+
+  // Burns the edits in, then either finishes (Done) or opens another queued
+  // file. An untouched file switches at once instead of being re-encoded.
+  const applyEdit = async (switchTo = null) => {
+    if (switchTo !== null && untouched) {
+      onSwitch(switchTo, null)
+      return
+    }
     setProcessing(true)
     setProgress(0)
     setError('')
@@ -290,7 +311,7 @@ export default function MediaEditorModal({
             maxDimension: profile ? 1024 : 1600,
             quality: profile ? 0.94 : 0.92
           })
-      await onSave(editedFile)
+      await (switchTo === null ? onSave(editedFile) : onSwitch(switchTo, editedFile))
     } catch (editError) {
       setError(editError?.message || 'The media could not be edited.')
     } finally {
@@ -320,10 +341,10 @@ export default function MediaEditorModal({
     <div className="fixed inset-0 z-[240] flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label={title}>
       <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button type="button" onClick={onCancel} disabled={processing} className={iconButton} aria-label="Close media editor"><X size={20} /></button>
-        <button type="button" onClick={undo} disabled={!undoTarget || processing} className={iconButton} aria-label={undoTarget === 'texts' ? 'Undo caption' : 'Undo stroke'} title="Undo"><Undo2 size={20} /></button>
+        <button type="button" onClick={undo} disabled={!undoTarget || processing} className={iconButton} aria-label={undoTarget === 'texts' ? 'Undo caption' : undoTarget ? 'Undo stroke' : 'Undo'} title="Undo"><Undo2 size={20} /></button>
         <button
           type="button"
-          onClick={applyEdit}
+          onClick={() => applyEdit()}
           disabled={processing || Boolean(error && !imageRef.current && !isVideo)}
           className="flex h-10 items-center gap-2 rounded-full bg-[var(--app-gold)] px-5 type-label font-bold text-[var(--on-app-gold)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
         >
@@ -468,6 +489,32 @@ export default function MediaEditorModal({
               </button>
             )}
           </div>
+
+          {(queue?.length > 1 || (queue && onAdd)) && (
+            <div className="flex items-center gap-2 overflow-x-auto px-1 py-1.5" role="group" aria-label="Queued photos and clips">
+              {queue.map((item, index) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => index !== activeIndex && applyEdit(index)}
+                  disabled={processing}
+                  aria-current={index === activeIndex ? 'true' : undefined}
+                  aria-label={`${item.type === 'video' ? 'Clip' : 'Photo'} ${index + 1} of ${queue.length}`}
+                  className={`relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-white/10 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adc6ff] ${index === activeIndex ? 'opacity-100 ring-2 ring-white ring-offset-2 ring-offset-black' : 'opacity-55 hover:opacity-90'}`}
+                >
+                  {item.type === 'video'
+                    ? <video src={item.previewUrl} muted playsInline preload="metadata" onLoadedMetadata={primeVideoPreview} onLoadedData={primeVideoPreview} onCanPlay={primeVideoPreview} className="h-full w-full object-cover" />
+                    : <img src={item.previewUrl} alt="" className={`h-full w-full object-cover ${item.isSpoiler ? 'scale-110 blur-lg' : ''}`} />}
+                  {item.type === 'video' && <Play size={12} className="absolute bottom-1 left-1 fill-white text-white" aria-hidden="true" />}
+                </button>
+              ))}
+              {onAdd && (
+                <button type="button" onClick={onAdd} disabled={processing} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-dashed border-white/30 text-white/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adc6ff]" aria-label="Add photos or clips">
+                  <Plus size={18} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
